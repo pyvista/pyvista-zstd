@@ -1,10 +1,19 @@
+"""Test `zvtk` library."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
-from pathlib import Path
-import pyvista as pv
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pyvista.core.dataset import DataSet
+    from pyvista.core.pointset import PolyData
+    from pyvista.core.pointset import UnstructuredGrid
+
 import zvtk
-from pyvista import examples
-from pyvista.core.pointset import UnstructuredGrid, PolyData
-from pyvista.core.dataset import DataSet
 
 
 def supply_data(ds: DataSet) -> None:

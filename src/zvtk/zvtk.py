@@ -1,18 +1,30 @@
+"""Compress VTK objects using zstandard."""
+
+from __future__ import annotations
+
 import json
-import pyvista as pv
-from typing import Any
 import mmap
-from tqdm import tqdm
 from pathlib import Path
-from zstandard import BufferWithSegments, BufferSegment
-import zstandard as zstd
 import struct
+from typing import TYPE_CHECKING
+from typing import Any
+
 import numpy as np
-from pyvista.core.dataset import DataSet
-from pyvista.core.pointset import UnstructuredGrid, PolyData
-from vtkmodules.util.numpy_support import numpy_to_vtk as numpy_to_vtk
-from vtkmodules.vtkCommonCore import vtkTypeInt32Array, vtkTypeInt64Array
+import pyvista as pv
+from pyvista.core.pointset import PolyData
+from pyvista.core.pointset import UnstructuredGrid
+from tqdm import tqdm
+from vtkmodules.util.numpy_support import numpy_to_vtk as numpy_to_vtk  # noqa: PLC0414
+from vtkmodules.vtkCommonCore import vtkTypeInt32Array
+from vtkmodules.vtkCommonCore import vtkTypeInt64Array
 from vtkmodules.vtkCommonDataModel import vtkCellArray
+import zstandard as zstd
+from zstandard import BufferSegment
+from zstandard import BufferWithSegments
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+    from pyvista.core.dataset import DataSet
 
 VTK_UNSIGNED_CHAR = 3
 POINT_DATA_SUFFIX = "__point_data"
@@ -20,9 +32,8 @@ CELL_DATA_SUFFIX = "__cell_data"
 FIELD_DATA_SUFFIX = "__field_data"
 
 
-def compress(ds, filename: Path | str) -> None:
+def compress(ds: DataSet, filename: Path | str) -> None:
     """Compress a PyVista or VTK dataset."""
-
     ds = pv.wrap(ds)
     filename = Path(filename)
 
@@ -30,8 +41,8 @@ def compress(ds, filename: Path | str) -> None:
     if isinstance(ds, PolyData):
         ds_type = "PolyData"
         arrays["points"] = ds.points
-        arrays["offset"] = ds._offset_array
-        arrays["cell_connectivity"] = ds._connectivity_array
+        arrays["offset"] = ds._offset_array  # noqa: SLF001
+        arrays["cell_connectivity"] = ds._connectivity_array  # noqa: SLF001
     elif isinstance(ds, UnstructuredGrid):
         ds_type = "UnstructuredGrid"
         arrays["points"] = ds.points
@@ -67,7 +78,7 @@ def compress(ds, filename: Path | str) -> None:
 
     cctx = zstd.ZstdCompressor(level=0, threads=8)
     frame_meta = []  # list of tuples: (compressed_end, decompressed_size)
-    with open(filename, "wb") as fout, cctx.stream_writer(fout) as compressor:
+    with filename.open("wb") as fout, cctx.stream_writer(fout) as compressor:
         for name, arr in tqdm(arrays.items(), desc="Compressing"):
             # Prepare metadata
             meta = struct.pack("<I", len(name)) + name.encode("utf-8")
@@ -89,17 +100,20 @@ def compress(ds, filename: Path | str) -> None:
             frame_meta.append((frame_end, arr.nbytes + len(meta)))
 
     # Write final metadata
-    with open(filename, "ab") as fout:
-        for off, dsz in frame_meta:
-            fout.write(struct.pack("<QQ", off, dsz))  # 16 bytes per frame
+    with filename.open("ab") as fout:
+        fout.writelines(
+            struct.pack("<QQ", off, dsz) for off, dsz in frame_meta
+        )  # 16 bytes per frame
         fout.write(struct.pack("<Q", len(frame_meta)))  # total frames at very end
 
 
 def _reconstruct_array(segment: BufferSegment) -> np.ndarray:
     """
     Reconstruct a NumPy array from a single decompressed Zstd frame.
+
     Frame layout:
-      [name_len:uint32][name:bytes][ndim:uint32][shape:Q*ndim][dtype:16 bytes][array data]
+    ``[name_len:uint32][name:bytes][ndim:uint32][shape:Q*ndim][dtype:16 bytes][array data]``.
+
     """
     buf = memoryview(segment)  # get a bytes-like view
 
@@ -122,10 +136,12 @@ def _reconstruct_array(segment: BufferSegment) -> np.ndarray:
     return name, data
 
 
-def _get_or_raise(the_dict: dict[str, Any], key: str) -> Any:
+def _get_or_raise(the_dict: dict[str, Any], key: str) -> NDArray:
+    """Extract a key and raise a helpful error if missing it."""
     # extract critical arrays
     if key not in the_dict:
-        raise RuntimeError(f"zvtk file missing `{key}` array")
+        msg = f"zvtk file missing `{key}` array"
+        raise RuntimeError(msg)
     return the_dict[key]
 
 
@@ -185,7 +201,8 @@ def _segments_to_polydata(segment_dict: dict[str, Any]) -> PolyData:
     elif dtype == np.int64:
         vtk_dtype = vtkTypeInt64Array().GetDataType()
     else:
-        raise ValueError(f"Invalid faces dtype {dtype}. Expected np.int32 or np.int64")
+        msg = f"Invalid faces dtype {dtype}. Expected np.int32 or np.int64"
+        raise ValueError(msg)
     connectivity_vtk = numpy_to_vtk(connectivity, deep=False, array_type=vtk_dtype)
 
     offset = _get_or_raise(segment_dict, "offset")
@@ -199,8 +216,33 @@ def _segments_to_polydata(segment_dict: dict[str, Any]) -> PolyData:
     return pdata
 
 
+def _apply_metadata(ds: DataSet, metadata: dict[str, Any]) -> None:
+    """Apply metadata to a dataset."""
+    pd = ds.point_data
+    if metadata.get("point_data_active_scalars_name"):
+        pd.active_scalars_name = metadata["point_data_active_scalars_name"]
+    if metadata.get("point_data_active_vectors_name"):
+        pd.active_vectors_name = metadata["point_data_active_vectors_name"]
+    if metadata.get("point_data_active_texture_coordinates_name"):
+        pd.active_texture_coordinates_name = metadata["point_data_active_texture_coordinates_name"]
+    if metadata.get("point_data_active_normals_name"):
+        pd.active_normals_name = metadata["point_data_active_normals_name"]
+
+    cd = ds.cell_data
+    if metadata.get("cell_data_active_scalars_name"):
+        cd.active_scalars_name = metadata["cell_data_active_scalars_name"]
+    if metadata.get("cell_data_active_vectors_name"):
+        cd.active_vectors_name = metadata["cell_data_active_vectors_name"]
+    if metadata.get("cell_data_active_texture_coordinates_name"):
+        cd.active_texture_coordinates_name = metadata["cell_data_active_texture_coordinates_name"]
+    if metadata.get("cell_data_active_normals_name"):
+        cd.active_normals_name = metadata["cell_data_active_normals_name"]
+
+
 def decompress(filename: Path | str) -> DataSet:
-    with open(filename, "rb") as f:
+    """Decompress a ``zvtk`` file."""
+    filename = Path(filename)
+    with filename.open("rb") as f:
         f.seek(-8, 2)
         num_frames = struct.unpack("<Q", f.read(8))[0]
 
@@ -249,27 +291,10 @@ def decompress(filename: Path | str) -> DataSet:
     elif ds_type == "PolyData":
         ds = _segments_to_polydata(segment_dict)
     else:
-        raise RuntimeError(f"Unsupported DataSet type `{ds_type}`")
+        msg = f"Unsupported DataSet type `{ds_type}`"
+        raise RuntimeError(msg)
 
     # dataset metadata
-    pd = ds.point_data
-    if metadata.get("point_data_active_scalars_name"):
-        pd.active_scalars_name = metadata["point_data_active_scalars_name"]
-    if metadata.get("point_data_active_vectors_name"):
-        pd.active_vectors_name = metadata["point_data_active_vectors_name"]
-    if metadata.get("point_data_active_texture_coordinates_name"):
-        pd.active_texture_coordinates_name = metadata["point_data_active_texture_coordinates_name"]
-    if metadata.get("point_data_active_normals_name"):
-        pd.active_normals_name = metadata["point_data_active_normals_name"]
-
-    cd = ds.cell_data
-    if metadata.get("cell_data_active_scalars_name"):
-        cd.active_scalars_name = metadata["cell_data_active_scalars_name"]
-    if metadata.get("cell_data_active_vectors_name"):
-        cd.active_vectors_name = metadata["cell_data_active_vectors_name"]
-    if metadata.get("cell_data_active_texture_coordinates_name"):
-        cd.active_texture_coordinates_name = metadata["cell_data_active_texture_coordinates_name"]
-    if metadata.get("cell_data_active_normals_name"):
-        cd.active_normals_name = metadata["cell_data_active_normals_name"]
+    _apply_metadata(ds, metadata)
 
     return ds

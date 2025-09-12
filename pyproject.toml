@@ -16,12 +16,12 @@ classifiers = [
 ]
 dependencies = ["zstandard>=0.24.0"]
 dynamic = ["description"]
-version = '0.1.0dev0'
 license = "MIT"
 license-files = ["LICENSE"]
 name = "zvtk"
 python_requires = ">=3.9"
 readme = "README.md"
+version = '0.1.0dev0'
 
 [project.urls]
 Home = "https://github.com/pyvista/zvtk"

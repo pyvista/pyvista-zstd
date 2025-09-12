@@ -1,0 +1,69 @@
+ci:
+  autofix_prs: false
+  autoupdate_schedule: quarterly
+
+repos:
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        args:
+          [
+            "doc src tests",
+            "*.py *.rst *.md",
+          ]
+
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        additional_dependencies: [toml==0.10.2]
+        files: ^(pytest-pyvista/|other/)
+        exclude: ^pytest-pyvista/ext/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.17.1
+    hooks:
+      - id: mypy
+        exclude: ^(doc/|tests/)
+        additional_dependencies:
+          [
+            "mypy-extensions==1.0.0",
+            "toml==0.10.2",
+            "typing-extensions==4.12.2",
+          ]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: no-commit-to-branch
+        args: [--branch, main]
+      - id: requirements-txt-fixer
+
+  # this validates our github workflow files
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.33.3
+    hooks:
+      - id: check-github-workflows
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.11
+    hooks:
+      - id: ruff-check
+        args: [--fix, --show-fixes]
+      - id: ruff-format
+
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.6.2
+    hooks:
+      - id: prettier
+        types_or: [yaml, markdown, html, css, scss, javascript, json]
+
+  - repo: https://github.com/ComPWA/taplo-pre-commit
+    rev: v0.9.3
+    hooks:
+      - id: taplo-format
+        # See options: https://taplo.tamasfe.dev/configuration/formatter-options.html
+        args: [--option, "reorder_arrays=true", --option, "reorder_keys=true"]

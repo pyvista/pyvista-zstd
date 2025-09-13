@@ -65,7 +65,7 @@ def _prepare_arrays_ugrid(ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]])
     arrays["celltypes"] = ds.celltypes
 
     faces = ds.GetPolyhedronFaces()
-    if faces.GetSize():
+    if faces:
         arrays["poly_conn"] = vtk_to_numpy(faces.GetConnectivityArray())
         arrays["poly_offset"] = vtk_to_numpy(faces.GetOffsetsArray())
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 import pyvista as pv
 from pyvista import examples
+
+THIS_PATH = Path(__file__).parent
+
 
 if TYPE_CHECKING:
     from pyvista.core.grid import ImageData
@@ -17,9 +21,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def ugrid() -> UnstructuredGrid:
     """Return an unstructured grid."""
-    hexbeam = examples.load_hexbeam()
-    hexbeam.clear_data()
-    return hexbeam
+    return pv.read(THIS_PATH / "test_data/ugrid-poly.vtk")
 
 
 @pytest.fixture

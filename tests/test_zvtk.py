@@ -96,6 +96,11 @@ def test_ugrid(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     assert ugrid.point_data == ugrid_out.point_data
     assert ugrid.cell_data == ugrid_out.cell_data
     assert ugrid.field_data == ugrid_out.field_data
+
+    # can remove with pyvista >= 0.47.0
+    np.allclose(ugrid.polyhedron_faces, ugrid_out.polyhedron_faces)
+    np.allclose(ugrid.polyhedron_face_locations, ugrid_out.polyhedron_face_locations)
+
     assert ugrid == ugrid_out
 
 

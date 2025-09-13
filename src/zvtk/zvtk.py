@@ -15,8 +15,8 @@ from pyvista.core.grid import ImageData
 from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import UnstructuredGrid
 from tqdm import tqdm
-from vtkmodules.util.numpy_support import numpy_to_vtk as numpy_to_vtk  # noqa: PLC0414
-from vtkmodules.util.numpy_support import vtk_to_numpy as vtk_to_numpy  # noqa: PLC0414
+from vtkmodules.util.numpy_support import numpy_to_vtk
+from vtkmodules.util.numpy_support import vtk_to_numpy
 from vtkmodules.vtkCommonCore import vtkTypeInt32Array
 from vtkmodules.vtkCommonCore import vtkTypeInt64Array
 from vtkmodules.vtkCommonDataModel import vtkCellArray
@@ -63,6 +63,15 @@ def _prepare_arrays_ugrid(ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]])
     arrays["offset"] = ds.offset
     arrays["cell_connectivity"] = ds.cell_connectivity
     arrays["celltypes"] = ds.celltypes
+
+    faces = ds.GetPolyhedronFaces()
+    if faces.GetSize():
+        arrays["poly_conn"] = vtk_to_numpy(faces.GetConnectivityArray())
+        arrays["poly_offset"] = vtk_to_numpy(faces.GetOffsetsArray())
+
+        faces_off = ds.GetPolyhedronFaceLocations()
+        arrays["poly_locations_conn"] = vtk_to_numpy(faces_off.GetConnectivityArray())
+        arrays["poly_locations_offset"] = vtk_to_numpy(faces_off.GetOffsetsArray())
 
 
 def _prepare_metadata_imagedata(ds: ImageData, metadata: dict[str, Any]) -> None:
@@ -247,8 +256,25 @@ def _segments_to_ugrid(segment_dict: dict[str, Any]) -> UnstructuredGrid:
     celltypes_vtk = numpy_to_vtk(celltypes, deep=False, array_type=VTK_UNSIGNED_CHAR)
 
     ugrid = UnstructuredGrid()
-    ugrid.SetCells(celltypes_vtk, cell_array)
     ugrid.points = _get_or_raise(segment_dict, "points")
+
+    if "poly_conn" in segment_dict:
+        polyhedron_faces = _numpy_to_vtk_cells(
+            _get_or_raise(segment_dict, "poly_offset"),
+            _get_or_raise(segment_dict, "poly_conn"),
+        )
+        polyhedron_face_locations = _numpy_to_vtk_cells(
+            _get_or_raise(segment_dict, "poly_locations_offset"),
+            _get_or_raise(segment_dict, "poly_locations_conn"),
+        )
+        ugrid.SetPolyhedralCells(
+            celltypes_vtk,
+            cell_array,
+            polyhedron_face_locations,
+            polyhedron_faces,
+        )
+    else:
+        ugrid.SetCells(celltypes_vtk, cell_array)
 
     _add_data(ugrid, segment_dict)
     return ugrid

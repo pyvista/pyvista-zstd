@@ -1,0 +1,133 @@
+name: Unit Testing and Deployment
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ALLOW_PLOTTING: true
+  SHELLOPTS: "errexit:pipefail"
+
+jobs:
+  # doc:
+  #   name: Build Documentation
+  #   runs-on: ubuntu-22.04
+  #   steps:
+  #     - uses: actions/checkout@v5
+
+  #     - name: Set up Python 3.11
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.11"
+  #         cache: "pip"
+  #         cache-dependency-path: pyproject.toml
+
+  #     - name: Install pytest-pyvista with test dependencies
+  #       run: pip install .[docs] 'pyvista>=0.37'
+
+  #     - uses: awalsh128/cache-apt-pkgs-action@v1.5.3
+  #       with:
+  #         packages: libosmesa6-dev libgl1-mesa-dev python3-tk pandoc git-restore-mtime
+  #         version: 3.0
+
+  #     - name: Build Documentation
+  #       run: |
+  #         make -C doc html
+  #         touch doc/_build/html/.nojekyll
+
+  #     - name: Deploy on release
+  #       if: startsWith(github.ref, 'refs/tags/v')
+  #       uses: peaceiris/actions-gh-pages@v4
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #         publish_dir: doc/_build/html/
+
+  Linux:
+    name: Linux Unit Testing
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+
+      matrix:
+        include:
+          - python-version: "3.10"
+            vtk-version: "9.2.2"
+          - python-version: "3.11"
+            vtk-version: "latest"
+          - python-version: "3.12"
+            vtk-version: "latest"
+          - python-version: "3.13"
+            vtk-version: "latest"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Verify wheel
+        if: matrix.python-version == '3.12'
+        run: |
+          pip install --upgrade pip build twine
+          python -m build && python -m twine check dist/*
+
+      - name: Install with test dependencies
+        run: |
+          pip install .[tests]
+
+      - name: Set up vtk
+        if: ${{ matrix.vtk-version != 'latest' }}
+        run: pip install vtk==${{ matrix.vtk-version }}
+
+      - name: Unit Testing
+        run: pytext -x
+
+  # release:
+  #   name: Release
+  #   if: |
+  #     github.event_name == 'push' &&
+  #     contains(github.ref, 'refs/tags')
+  #   needs:
+  #     - doc
+  #     - Linux
+  #     - downstream
+  #   runs-on: ubuntu-24.04
+  #   steps:
+  #     - name: Download distribution artifacts
+  #       uses: actions/download-artifact@v5
+  #       with:
+  #         name: dist-artifacts
+  #         path: dist/
+
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.12"
+
+  #     - name: Publish to PyPI
+  #       env:
+  #         TWINE_USERNAME: __token__
+  #         TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+  #       run: |
+  #         python -m pip install twine
+  #         python -m twine upload --skip-existing ./**/*.whl
+  #         python -m twine upload --skip-existing ./**/*.tar.gz
+
+  #     - name: Publish to GitHub
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         files: |
+  #           ./**/*.whl
+  #           ./**/*.tar.gz

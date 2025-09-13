@@ -10,19 +10,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from pyvista.core.dataset import DataSet
+    from pyvista.core.grid import ImageData
     from pyvista.core.pointset import PolyData
     from pyvista.core.pointset import UnstructuredGrid
 
 import zvtk
 
 
-def supply_data(ds: DataSet) -> None:
+def populate_data(ds: DataSet) -> None:
     """Supply point, cell, and field data to any dataset."""
     rng = np.random.default_rng()
 
     # point data
     n_points = ds.n_points
     n_cells = ds.n_cells
+
     pd = ds.point_data
     cd = ds.cell_data
     pd["int8_data"] = rng.integers(-128, 127, n_points, dtype=np.int8)
@@ -83,11 +85,11 @@ def supply_data(ds: DataSet) -> None:
     ds.cell_data.active_normals_name = normals_name
 
 
-def test_zvtk_ugrid(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+def test_ugrid(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """Test unstructured grid."""
-    supply_data(ugrid)
+    populate_data(ugrid)
 
-    tmp_filename = tmp_path / "ugrid.zvtu"
+    tmp_filename = tmp_path / "ugrid.zvtk"
     zvtk.compress(ugrid, tmp_filename)
     ugrid_out = zvtk.decompress(tmp_filename)
 
@@ -97,11 +99,15 @@ def test_zvtk_ugrid(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     assert ugrid == ugrid_out
 
 
-def test_zvtk_polydata(polydata: PolyData, tmp_path: Path) -> None:
+def test_polydata(polydata: PolyData, tmp_path: Path) -> None:
     """Test unstructured grid."""
-    supply_data(polydata)
+    # add in separate lines and vertices
+    polydata.lines = [2, 0, 1, 2, 1, 2]
+    polydata.verts = [1, 0, 1, 1, 1, 2, 1, 3, 1, 4]
 
-    tmp_filename = tmp_path / "polydata.zvtp"
+    populate_data(polydata)
+
+    tmp_filename = tmp_path / "polydata.zvtk"
     zvtk.compress(polydata, tmp_filename)
     polydata_out = zvtk.decompress(tmp_filename)
 
@@ -112,3 +118,26 @@ def test_zvtk_polydata(polydata: PolyData, tmp_path: Path) -> None:
     assert polydata.cell_data == polydata_out.cell_data
     assert polydata.field_data == polydata_out.field_data
     assert polydata == polydata_out
+
+
+def test_imagedata(imagedata: ImageData, tmp_path: Path) -> None:
+    """Test unstructured grid."""
+    populate_data(imagedata)
+
+    tmp_filename = tmp_path / "imagedata.zvtk"
+    zvtk.compress(imagedata, tmp_filename)
+    imagedata_out = zvtk.decompress(tmp_filename)
+
+    assert imagedata.n_cells == imagedata_out.n_cells
+    assert imagedata.n_points == imagedata_out.n_points
+
+    assert imagedata.dimensions == imagedata_out.dimensions
+    assert imagedata.spacing == imagedata_out.spacing
+    assert imagedata.origin == imagedata_out.origin
+    assert np.allclose(imagedata.direction_matrix, imagedata_out.direction_matrix)
+    assert imagedata.offset == imagedata_out.offset
+
+    assert imagedata.point_data == imagedata_out.point_data
+    assert imagedata.cell_data == imagedata_out.cell_data
+    assert imagedata.field_data == imagedata_out.field_data
+    assert imagedata == imagedata_out

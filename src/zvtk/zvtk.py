@@ -11,10 +11,12 @@ from typing import Any
 
 import numpy as np
 import pyvista as pv
+from pyvista.core.grid import ImageData
 from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import UnstructuredGrid
 from tqdm import tqdm
 from vtkmodules.util.numpy_support import numpy_to_vtk as numpy_to_vtk  # noqa: PLC0414
+from vtkmodules.util.numpy_support import vtk_to_numpy as vtk_to_numpy  # noqa: PLC0414
 from vtkmodules.vtkCommonCore import vtkTypeInt32Array
 from vtkmodules.vtkCommonCore import vtkTypeInt64Array
 from vtkmodules.vtkCommonDataModel import vtkCellArray
@@ -26,29 +28,89 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
+
+FILE_VERSION = 0
+FILE_VERSION_KEY = "FILE_VERSION"
 VTK_UNSIGNED_CHAR = 3
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
 FIELD_DATA_SUFFIX = "__field_data"
+IMAGE_DATA_SUFFIX = "__image_data"
 
 
-def compress(ds: DataSet, filename: Path | str) -> None:
-    """Compress a PyVista or VTK dataset."""
+def _prepare_arrays_polydata(ds: PolyData, arrays: dict[str, NDArray[Any]]) -> None:
+    arrays["points"] = ds.points
+
+    if ds.n_faces_strict:
+        arrays["poly_offset"] = ds._offset_array  # noqa: SLF001
+        arrays["poly_connectivity"] = ds._connectivity_array  # noqa: SLF001
+
+    # lines
+    if ds.n_lines:
+        lines = ds.GetLines()
+        arrays["line_offset"] = vtk_to_numpy(lines.GetOffsetsArray())
+        arrays["line_connectivity"] = vtk_to_numpy(lines.GetConnectivityArray())
+
+    # vertices
+    if ds.n_verts:
+        verts = ds.GetVerts()
+        arrays["vert_offset"] = vtk_to_numpy(verts.GetOffsetsArray())
+        arrays["vert_connectivity"] = vtk_to_numpy(verts.GetConnectivityArray())
+
+
+def _prepare_arrays_ugrid(ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
+    arrays["points"] = ds.points
+    arrays["offset"] = ds.offset
+    arrays["cell_connectivity"] = ds.cell_connectivity
+    arrays["celltypes"] = ds.celltypes
+
+
+def _prepare_metadata_imagedata(ds: ImageData, metadata: dict[str, Any]) -> None:
+    metadata[f"dimensions{IMAGE_DATA_SUFFIX}"] = ds.dimensions
+    metadata[f"origin{IMAGE_DATA_SUFFIX}"] = ds.origin
+    metadata[f"spacing{IMAGE_DATA_SUFFIX}"] = ds.spacing
+    metadata[f"direction_matrix{IMAGE_DATA_SUFFIX}"] = ds.direction_matrix.tolist()
+    metadata[f"offset{IMAGE_DATA_SUFFIX}"] = ds.offset
+
+
+def compress(ds: DataSet, filename: Path | str, *, progress_bar: bool = False) -> None:  # noqa: PLR0915
+    """
+    Compress a PyVista or VTK dataset.
+
+    Supports the following file types.
+
+    * ImageData
+    * PolyData
+    * RectilinearGrid
+    * StructuredGrid
+    * UnstructuredGrid
+
+    All file types should end in ``.zvtk``, borrowing both from the legacy
+    VTK extension and the ``zst`` file type.
+
+    """
+    metadata: dict[str, int | tuple | str] = {FILE_VERSION_KEY: FILE_VERSION}
+
     ds = pv.wrap(ds)
     filename = Path(filename)
 
-    arrays = {}
+    if filename.suffix != ".zvtk":
+        msg = f"Filename must end in '.zvtk', not '{filename.suffix}'"
+        raise ValueError(msg)
+
+    arrays: dict[str, NDArray[Any]] = {}
     if isinstance(ds, PolyData):
         ds_type = "PolyData"
-        arrays["points"] = ds.points
-        arrays["offset"] = ds._offset_array  # noqa: SLF001
-        arrays["cell_connectivity"] = ds._connectivity_array  # noqa: SLF001
+        _prepare_arrays_polydata(ds, arrays)
     elif isinstance(ds, UnstructuredGrid):
         ds_type = "UnstructuredGrid"
-        arrays["points"] = ds.points
-        arrays["offset"] = ds.offset
-        arrays["cell_connectivity"] = ds.cell_connectivity
-        arrays["celltypes"] = ds.celltypes
+        _prepare_arrays_ugrid(ds, arrays)
+    elif isinstance(ds, ImageData):
+        ds_type = "ImageData"
+        _prepare_metadata_imagedata(ds, metadata)
+    else:
+        msg = f"Unsupported type {type(ds)}"
+        raise TypeError(msg)
 
     point_data = ds.point_data
     for key, array in point_data.items():
@@ -61,25 +123,28 @@ def compress(ds: DataSet, filename: Path | str) -> None:
         arrays[key + FIELD_DATA_SUFFIX] = array
 
     # dataset metadata
-    meta_dict = {
-        "type": ds_type,
-        "VERSION": 0,
-        "point_data_active_scalars_name": point_data.active_scalars_name,
-        "point_data_active_vectors_name": point_data.active_vectors_name,
-        "point_data_active_texture_coordinates_name": point_data.active_texture_coordinates_name,
-        "point_data_active_normals_name": point_data.active_normals_name,
-        "cell_data_active_scalars_name": cell_data.active_scalars_name,
-        "cell_data_active_vectors_name": cell_data.active_vectors_name,
-        "cell_data_active_texture_coordinates_name": cell_data.active_texture_coordinates_name,
-        "cell_data_active_normals_name": cell_data.active_normals_name,
-    }
-    meta_bytes = json.dumps(meta_dict, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    metadata["type"] = ds_type
+    metadata["COMPRESSION"] = "zstandard"
+    metadata["point_data_active_scalars_name"] = point_data.active_scalars_name
+    metadata["point_data_active_vectors_name"] = point_data.active_vectors_name
+    metadata["point_data_active_texture_coordinates_name"] = (
+        point_data.active_texture_coordinates_name
+    )
+    metadata["point_data_active_normals_name"] = point_data.active_normals_name
+    metadata["cell_data_active_scalars_name"] = cell_data.active_scalars_name
+    metadata["cell_data_active_vectors_name"] = cell_data.active_vectors_name
+    metadata["cell_data_active_texture_coordinates_name"] = (
+        cell_data.active_texture_coordinates_name
+    )
+    metadata["cell_data_active_normals_name"] = cell_data.active_normals_name
+    meta_bytes = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
     arrays["__metadata__"] = np.frombuffer(meta_bytes, dtype=np.uint8)
 
     cctx = zstd.ZstdCompressor(level=0, threads=8)
     frame_meta = []  # list of tuples: (compressed_end, decompressed_size)
     with filename.open("wb") as fout, cctx.stream_writer(fout) as compressor:
-        for name, arr in tqdm(arrays.items(), desc="Compressing"):
+        for name, arr in tqdm(arrays.items(), desc="Compressing", disable=not progress_bar):
             # Prepare metadata
             meta = struct.pack("<I", len(name)) + name.encode("utf-8")
             meta += struct.pack("<I", arr.ndim)
@@ -189,12 +254,11 @@ def _segments_to_ugrid(segment_dict: dict[str, Any]) -> UnstructuredGrid:
     return ugrid
 
 
-def _segments_to_polydata(segment_dict: dict[str, Any]) -> PolyData:
-    pdata = PolyData()
-    pdata.points = _get_or_raise(segment_dict, "points")
-
+def _numpy_to_vtk_cells(
+    offset: NDArray[np.int32] | NDArray[np.int64],
+    connectivity: NDArray[np.int32] | NDArray[np.int64],
+) -> vtkCellArray:
     # convert to vtk arrays without copying
-    connectivity = _get_or_raise(segment_dict, "cell_connectivity")
     dtype = connectivity.dtype
     if dtype == np.int32:
         vtk_dtype = vtkTypeInt32Array().GetDataType()
@@ -205,15 +269,52 @@ def _segments_to_polydata(segment_dict: dict[str, Any]) -> PolyData:
         raise ValueError(msg)
     connectivity_vtk = numpy_to_vtk(connectivity, deep=False, array_type=vtk_dtype)
 
-    offset = _get_or_raise(segment_dict, "offset")
     offset_vtk = numpy_to_vtk(offset, deep=False, array_type=vtk_dtype)
-
     carr = vtkCellArray()
     carr.SetData(offset_vtk, connectivity_vtk)
-    pdata.SetPolys(carr)
+    return carr
+
+
+def _segments_to_polydata(segment_dict: dict[str, Any]) -> PolyData:
+    pdata = PolyData()
+    pdata.points = _get_or_raise(segment_dict, "points")
+
+    if "poly_offset" in segment_dict:
+        poly = _numpy_to_vtk_cells(
+            _get_or_raise(segment_dict, "poly_offset"),
+            _get_or_raise(segment_dict, "poly_connectivity"),
+        )
+        pdata.SetPolys(poly)
+
+    if "line_offset" in segment_dict:
+        lines = _numpy_to_vtk_cells(
+            _get_or_raise(segment_dict, "line_offset"),
+            _get_or_raise(segment_dict, "line_connectivity"),
+        )
+        pdata.SetLines(lines)
+
+    if "vert_offset" in segment_dict:
+        verts = _numpy_to_vtk_cells(
+            _get_or_raise(segment_dict, "vert_offset"),
+            _get_or_raise(segment_dict, "vert_connectivity"),
+        )
+        pdata.SetVerts(verts)
 
     _add_data(pdata, segment_dict)
     return pdata
+
+
+def _segments_to_imagedata(segment_dict: dict[str, Any], metadata: dict[str, Any]) -> ImageData:
+    image_data = ImageData(
+        dimensions=metadata[f"dimensions{IMAGE_DATA_SUFFIX}"],
+        origin=metadata[f"origin{IMAGE_DATA_SUFFIX}"],
+        spacing=metadata[f"spacing{IMAGE_DATA_SUFFIX}"],
+        direction_matrix=metadata[f"direction_matrix{IMAGE_DATA_SUFFIX}"],
+        offset=metadata[f"offset{IMAGE_DATA_SUFFIX}"],
+    )
+
+    _add_data(image_data, segment_dict)
+    return image_data
 
 
 def _apply_metadata(ds: DataSet, metadata: dict[str, Any]) -> None:
@@ -290,6 +391,8 @@ def decompress(filename: Path | str) -> DataSet:
         ds = _segments_to_ugrid(segment_dict)
     elif ds_type == "PolyData":
         ds = _segments_to_polydata(segment_dict)
+    elif ds_type == "ImageData":
+        ds = _segments_to_imagedata(segment_dict, metadata)
     else:
         msg = f"Unsupported DataSet type `{ds_type}`"
         raise RuntimeError(msg)

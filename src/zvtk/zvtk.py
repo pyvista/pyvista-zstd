@@ -39,10 +39,61 @@ POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
+OFFSET_SUFFIX = "_offset"
+CONNECTIVITY_SUFFIX = "_connectivity"
+
+# for all
+POINTS = "points"
+
+# for UnstructuredGrid
+CELLS = "cells"
+POLYHEDRON = "polyhedron"
+POLYHEDRON_LOCATION = "polyhedron_locaction"
+
+# for PolyData
+POLYS = "polys"
+LINES = "lines"
+STRIPS = "strips"
+VERTS = "verts"
+
+
+def _add_cell_array(
+    arrays: dict[str, np.ndarray],
+    name: str,
+    cell_array: vtkCellArray,
+    *,
+    force_int32: bool = False,
+) -> None:
+    if not cell_array:
+        return
+
+    offsets = vtk_to_numpy(cell_array.GetOffsetsArray())
+    connectivity = vtk_to_numpy(cell_array.GetConnectivityArray())
+
+    # compress to int32 whenever possible
+    if force_int32 and connectivity.size <= np.iinfo(np.int32).max:
+        offsets = offsets.astype(np.int32, copy=False)
+        connectivity = connectivity.astype(np.int32, copy=False)
+
+    arrays[f"{name}{OFFSET_SUFFIX}"] = offsets
+    arrays[f"{name}{CONNECTIVITY_SUFFIX}"] = connectivity
+
+
+def _extract_cell_array(
+    name: str, segments: dict[str, Any], *, require: bool = False
+) -> vtkCellArray | None:
+    conn_key = f"{name}{CONNECTIVITY_SUFFIX}"
+    if conn_key not in segments:
+        if require:
+            msg = f"Missing {name} array"
+            raise RuntimeError(msg)
+        return None
+
+    return _numpy_to_vtk_cells(segments[f"{name}{OFFSET_SUFFIX}"], segments[conn_key])
 
 
 def _prepare_arrays_pointset(ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays["points"] = ds.points
+    arrays[POINTS] = ds.points
 
 
 def _prepare_arrays_rgrid(ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -51,46 +102,35 @@ def _prepare_arrays_rgrid(ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) 
     arrays["z"] = ds.z
 
 
-def _prepare_arrays_polydata(ds: PolyData, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays["points"] = ds.points
-
-    if ds.n_faces_strict:
-        arrays["poly_offset"] = ds._offset_array  # noqa: SLF001
-        arrays["poly_connectivity"] = ds._connectivity_array  # noqa: SLF001
-
-    # lines
-    lines = ds.GetLines()
-    if lines:
-        arrays["line_offset"] = vtk_to_numpy(lines.GetOffsetsArray())
-        arrays["line_connectivity"] = vtk_to_numpy(lines.GetConnectivityArray())
-
-    # strips
-    strips = ds.GetStrips()
-    if strips:
-        arrays["strip_offset"] = vtk_to_numpy(strips.GetOffsetsArray())
-        arrays["strip_connectivity"] = vtk_to_numpy(strips.GetConnectivityArray())
-
-    # vertices
-    verts = ds.GetVerts()
-    if verts:
-        arrays["vert_offset"] = vtk_to_numpy(verts.GetOffsetsArray())
-        arrays["vert_connectivity"] = vtk_to_numpy(verts.GetConnectivityArray())
+def _prepare_arrays_polydata(
+    ds: PolyData, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True
+) -> None:
+    arrays[POINTS] = ds.points
+    _add_cell_array(arrays, POLYS, ds.GetPolys(), force_int32=force_int32)
+    _add_cell_array(arrays, LINES, ds.GetLines(), force_int32=force_int32)
+    _add_cell_array(arrays, STRIPS, ds.GetStrips(), force_int32=force_int32)
+    _add_cell_array(arrays, VERTS, ds.GetVerts(), force_int32=force_int32)
 
 
-def _prepare_arrays_ugrid(ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays["points"] = ds.points
-    arrays["offset"] = ds.offset
-    arrays["cell_connectivity"] = ds.cell_connectivity
+def _prepare_arrays_ugrid(
+    ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True
+) -> None:
+    arrays[POINTS] = ds.points
     arrays["celltypes"] = ds.celltypes
 
-    faces = ds.GetPolyhedronFaces()
-    if faces:
-        arrays["poly_conn"] = vtk_to_numpy(faces.GetConnectivityArray())
-        arrays["poly_offset"] = vtk_to_numpy(faces.GetOffsetsArray())
-
-        faces_off = ds.GetPolyhedronFaceLocations()
-        arrays["poly_locations_conn"] = vtk_to_numpy(faces_off.GetConnectivityArray())
-        arrays["poly_locations_offset"] = vtk_to_numpy(faces_off.GetOffsetsArray())
+    _add_cell_array(arrays, CELLS, ds.GetCells(), force_int32=force_int32)
+    _add_cell_array(
+        arrays,
+        POLYHEDRON,
+        ds.GetPolyhedronFaces(),
+        force_int32=force_int32,
+    )
+    _add_cell_array(
+        arrays,
+        POLYHEDRON_LOCATION,
+        ds.GetPolyhedronFaceLocations(),
+        force_int32=force_int32,
+    )
 
 
 def _prepare_metadata_imagedata(ds: ImageData, metadata: dict[str, Any]) -> None:
@@ -101,7 +141,15 @@ def _prepare_metadata_imagedata(ds: ImageData, metadata: dict[str, Any]) -> None
     metadata[f"offset{IMAGE_DATA_SUFFIX}"] = ds.offset
 
 
-def compress(ds: DataSet, filename: Path | str, *, progress_bar: bool = False) -> None:  # noqa: PLR0915, C901
+def compress(  # noqa: C901, PLR0915, PLR0913
+    ds: DataSet,
+    filename: Path | str,
+    *,
+    progress_bar: bool = False,
+    force_int32: bool = True,
+    level: int = 3,
+    n_threads: int = 4,
+) -> None:
     """
     Compress a PyVista or VTK dataset.
 
@@ -116,6 +164,28 @@ def compress(ds: DataSet, filename: Path | str, *, progress_bar: bool = False) -
     All file types should end in ``.zvtk``, borrowing both from the legacy
     VTK extension and the ``zst`` file type.
 
+    Parameters
+    ----------
+    ds : pyvista.DataSet
+        Dataset to compress. All PyVista dataset types except for
+        :class:`pyvista.MultiBlock` are supported.
+    filename : pathlib.Path | str
+        Path to the file.
+    force_int32 : bool, default: True
+        Write offset and connectivity arrays as int32 whenever possible. Only
+        applies to :class:`pyvista.PolyData` and
+        :class:`pyvista.UnstructuredGrid`.
+    progress_bar : bool, default: True
+        Show a progress bar while downloading.
+    level : int, default: 3
+        Compression level. Valid values are all negative integers through
+        22. Lower values generally yield faster operations with lower
+        compression ratios. Higher values are generally slower but compress
+        better.
+    n_threads : int, default: 4
+        Number of threads to use when compressing. A value of ``-1`` uses all
+        available cores.
+
     """
     metadata: dict[str, int | tuple | str] = {FILE_VERSION_KEY: FILE_VERSION}
 
@@ -129,10 +199,10 @@ def compress(ds: DataSet, filename: Path | str, *, progress_bar: bool = False) -
     arrays: dict[str, NDArray[Any]] = {}
     if isinstance(ds, PolyData):
         ds_type = "PolyData"
-        _prepare_arrays_polydata(ds, arrays)
+        _prepare_arrays_polydata(ds, arrays, force_int32=force_int32)
     elif isinstance(ds, UnstructuredGrid):
         ds_type = "UnstructuredGrid"
-        _prepare_arrays_ugrid(ds, arrays)
+        _prepare_arrays_ugrid(ds, arrays, force_int32=force_int32)
     elif isinstance(ds, ImageData):
         ds_type = "ImageData"
         _prepare_metadata_imagedata(ds, metadata)
@@ -175,7 +245,7 @@ def compress(ds: DataSet, filename: Path | str, *, progress_bar: bool = False) -
 
     arrays["__metadata__"] = np.frombuffer(meta_bytes, dtype=np.uint8)
 
-    cctx = zstd.ZstdCompressor(level=0, threads=8)
+    cctx = zstd.ZstdCompressor(level=level, threads=n_threads)
     frame_meta = []  # list of tuples: (compressed_end, decompressed_size)
     with filename.open("wb") as fout, cctx.stream_writer(fout) as compressor:
         for name, arr in tqdm(arrays.items(), desc="Compressing", disable=not progress_bar):
@@ -261,47 +331,29 @@ def _add_data(ds: DataSet, segment_dict: dict[str, Any]) -> None:
             field_data.set_array(array, name)
 
 
-def _segments_to_ugrid(segment_dict: dict[str, Any]) -> UnstructuredGrid:
-    # convert to vtk arrays without copying
-    offset = _get_or_raise(segment_dict, "offset")
-    dtype = offset.dtype
-    if dtype == np.int32:
-        vtk_dtype = vtkTypeInt32Array().GetDataType()
-    elif dtype == np.int64:
-        vtk_dtype = vtkTypeInt64Array().GetDataType()
-    offset_vtk = numpy_to_vtk(offset, deep=False, array_type=vtk_dtype)
+def _segments_to_ugrid(segments: dict[str, Any]) -> UnstructuredGrid:
+    cells = _extract_cell_array(CELLS, segments)
 
-    connectivity = _get_or_raise(segment_dict, "cell_connectivity")
-    connectivity_vtk = numpy_to_vtk(connectivity, deep=False, array_type=vtk_dtype)
-
-    cell_array = vtkCellArray()
-    cell_array.SetData(offset_vtk, connectivity_vtk)
-
-    celltypes = _get_or_raise(segment_dict, "celltypes")
+    celltypes = _get_or_raise(segments, "celltypes")
     celltypes_vtk = numpy_to_vtk(celltypes, deep=False, array_type=VTK_UNSIGNED_CHAR)
 
     ugrid = UnstructuredGrid()
-    ugrid.points = _get_or_raise(segment_dict, "points")
+    ugrid.points = _get_or_raise(segments, POINTS)
 
-    if "poly_conn" in segment_dict:
-        polyhedron_faces = _numpy_to_vtk_cells(
-            _get_or_raise(segment_dict, "poly_offset"),
-            _get_or_raise(segment_dict, "poly_conn"),
-        )
-        polyhedron_face_locations = _numpy_to_vtk_cells(
-            _get_or_raise(segment_dict, "poly_locations_offset"),
-            _get_or_raise(segment_dict, "poly_locations_conn"),
-        )
+    poly = _extract_cell_array(POLYHEDRON, segments)
+    poly_loc = _extract_cell_array(POLYHEDRON_LOCATION, segments)
+
+    if poly and poly_loc:
         ugrid.SetPolyhedralCells(
             celltypes_vtk,
-            cell_array,
-            polyhedron_face_locations,
-            polyhedron_faces,
+            cells,
+            poly_loc,
+            poly,
         )
     else:
-        ugrid.SetCells(celltypes_vtk, cell_array)
+        ugrid.SetCells(celltypes_vtk, cells)
 
-    _add_data(ugrid, segment_dict)
+    _add_data(ugrid, segments)
     return ugrid
 
 
@@ -326,49 +378,26 @@ def _numpy_to_vtk_cells(
     return carr
 
 
-def _segments_to_polydata(segment_dict: dict[str, Any]) -> PolyData:
+def _segments_to_polydata(segments: dict[str, Any]) -> PolyData:
     pdata = PolyData()
-    pdata.points = _get_or_raise(segment_dict, "points")
+    pdata.points = _get_or_raise(segments, POINTS)
 
-    if "poly_offset" in segment_dict:
-        poly = _numpy_to_vtk_cells(
-            _get_or_raise(segment_dict, "poly_offset"),
-            _get_or_raise(segment_dict, "poly_connectivity"),
-        )
-        pdata.SetPolys(poly)
+    pdata.SetPolys(_extract_cell_array(POLYS, segments))
+    pdata.SetLines(_extract_cell_array(LINES, segments))
+    pdata.SetStrips(_extract_cell_array(STRIPS, segments))
+    pdata.SetVerts(_extract_cell_array(VERTS, segments))
 
-    if "line_offset" in segment_dict:
-        lines = _numpy_to_vtk_cells(
-            _get_or_raise(segment_dict, "line_offset"),
-            _get_or_raise(segment_dict, "line_connectivity"),
-        )
-        pdata.SetLines(lines)
-
-    if "strip_offset" in segment_dict:
-        strips = _numpy_to_vtk_cells(
-            _get_or_raise(segment_dict, "strip_offset"),
-            _get_or_raise(segment_dict, "strip_connectivity"),
-        )
-        pdata.SetStrips(strips)
-
-    if "vert_offset" in segment_dict:
-        verts = _numpy_to_vtk_cells(
-            _get_or_raise(segment_dict, "vert_offset"),
-            _get_or_raise(segment_dict, "vert_connectivity"),
-        )
-        pdata.SetVerts(verts)
-
-    _add_data(pdata, segment_dict)
+    _add_data(pdata, segments)
     return pdata
 
 
-def _segments_to_pointset(segment_dict: dict[str, Any]) -> PointSet:
-    pset = PointSet(_get_or_raise(segment_dict, "points"))
-    _add_data(pset, segment_dict)
+def _segments_to_pointset(segments: dict[str, Any]) -> PointSet:
+    pset = PointSet(_get_or_raise(segments, POINTS))
+    _add_data(pset, segments)
     return pset
 
 
-def _segments_to_imagedata(segment_dict: dict[str, Any], metadata: dict[str, Any]) -> ImageData:
+def _segments_to_imagedata(segments: dict[str, Any], metadata: dict[str, Any]) -> ImageData:
     image_data = ImageData(
         dimensions=metadata[f"dimensions{IMAGE_DATA_SUFFIX}"],
         origin=metadata[f"origin{IMAGE_DATA_SUFFIX}"],
@@ -377,17 +406,17 @@ def _segments_to_imagedata(segment_dict: dict[str, Any], metadata: dict[str, Any
         offset=metadata[f"offset{IMAGE_DATA_SUFFIX}"],
     )
 
-    _add_data(image_data, segment_dict)
+    _add_data(image_data, segments)
     return image_data
 
 
-def _segments_to_rgrid(segment_dict: dict[str, Any]) -> RectilinearGrid:
+def _segments_to_rgrid(segments: dict[str, Any]) -> RectilinearGrid:
     rgrid = RectilinearGrid(
-        _get_or_raise(segment_dict, "x"),
-        _get_or_raise(segment_dict, "y"),
-        _get_or_raise(segment_dict, "z"),
+        _get_or_raise(segments, "x"),
+        _get_or_raise(segments, "y"),
+        _get_or_raise(segments, "z"),
     )
-    _add_data(rgrid, segment_dict)
+    _add_data(rgrid, segments)
     return rgrid
 
 

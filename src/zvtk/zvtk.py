@@ -34,6 +34,9 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
+# Maximum number of set threads before relying on zstandard to automatically
+# set them
+MAX_SET_THREADS = 8
 
 FILE_VERSION = 0
 FILE_VERSION_KEY = "FILE_VERSION"
@@ -524,79 +527,23 @@ def _apply_metadata(ds: DataSet, metadata: Metadata) -> None:
         cd.active_normals_name = metadata.cell_data_active_normals_name
 
 
-def read(filename: Path | str) -> DataSet:
-    """Decompress a ``zvtk`` file."""
-    filename = Path(filename)
-    with filename.open("rb") as f:
-        f.seek(-8, 2)
-        num_frames = struct.unpack("<Q", f.read(8))[0]
+def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
+    """
+    Decompress a ``zvtk`` file.
 
-        # Each frame has 16 bytes: (compressed_end_offset, decompressed_size)
-        f.seek(-(8 + num_frames * 16), 2)
-        meta_data = f.read(num_frames * 16)
+    This is a convenience function that uses :class:`Reader`. Use that class to
+    finely tune reading in a file.
 
-        # unpack as list of tuples
-        frame_meta = [
-            struct.unpack("<QQ", meta_data[i * 16 : (i + 1) * 16]) for i in range(num_frames)
-        ]
+    Parameters
+    ----------
+    filename : pathlib.Path | str
+        Path to the file.
+    n_threads : None | int, optional
+        Number of threads to use. If omitted, the best number of threads to
+        decompress the file will be used.
 
-        # compute start/end of each frame for compressed segments
-        frame_starts = [0] + [end for end, _ in frame_meta[:-1]]
-        frame_ends = [end for end, _ in frame_meta]
-
-        # decompressed sizes
-        sizes = [dsz for _, dsz in frame_meta]
-        decompressed_sizes = struct.pack(f"={len(sizes)}Q", *sizes)
-
-        # mmap the file for BufferWithSegments
-        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-
-    # construct BufferWithSegments
-    segments_bytes = b"".join(
-        struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends)
-    )
-    frames = BufferWithSegments(mm, segments_bytes)
-
-    # decompress with multi-threaded buffer API
-    dctx = zstd.ZstdDecompressor()
-    segments = dctx.multi_decompress_to_buffer(
-        frames, decompressed_sizes=decompressed_sizes, threads=8
-    )
-
-    segment_dict = dict(_reconstruct_array(s) for s in segments)
-
-    # metadata array is JSON
-    metadata_raw = segment_dict.pop("__metadata__").tobytes().decode("utf-8")
-    metadata = Metadata.from_json(metadata_raw)
-
-    if metadata.file_version > FILE_VERSION:
-        warnings.warn(
-            f"The file version {metadata.file_version} of this zvtk file is "
-            f"newer than the version supported by this library {FILE_VERSION}. This "
-            "file may fail to read. Consider upgrading `zvtk`.",
-            stacklevel=0,
-        )
-
-    # convert this to match when Python 3.9 goes EOL
-    ds_type = metadata.ds_type
-    if ds_type == "UnstructuredGrid":
-        ds = _segments_to_ugrid(segment_dict)
-    elif ds_type == "PolyData":
-        ds = _segments_to_polydata(segment_dict)
-    elif ds_type == "ImageData":
-        ds = _segments_to_imagedata(segment_dict, metadata)
-    elif ds_type == "PointSet":
-        ds = _segments_to_pointset(segment_dict)
-    elif ds_type == "RectilinearGrid":
-        ds = _segments_to_rgrid(segment_dict)
-    else:
-        msg = f"zvtk does not support DataSet type `{ds_type}` for compression"
-        raise RuntimeError(msg)
-
-    # dataset metadata
-    _apply_metadata(ds, metadata)
-
-    return ds
+    """
+    return Reader(filename).read(n_threads=n_threads)
 
 
 class Reader:
@@ -625,11 +572,6 @@ class Reader:
             msg = f"Filename must end in '.zvtk', not '{self._filename.suffix}'"
             raise ValueError(msg)
 
-        self._metadata = self._load_metadata()
-
-    def _load_metadata(self) -> Metadata:
-        """Load the metadata from the zvtk file without full decompression."""
-        # find the metadata
         with self._filename.open("rb") as f:
             f.seek(-8, 2)
             num_frames = struct.unpack("<Q", f.read(8))[0]
@@ -641,29 +583,94 @@ class Reader:
             frame_starts = [0] + [end for end, _ in frame_meta[:-1]]
             frame_ends = [end for end, _ in frame_meta]
             sizes = [dsz for _, dsz in frame_meta]
-            decompressed_sizes = struct.pack(f"={len(sizes)}Q", *sizes)
-            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            self._decompressed_sizes = struct.pack(f"={len(sizes)}Q", *sizes)
+            self._mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
         # prepare the metadata frame and decompress it
         segments_bytes = b"".join(
             struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends)
         )
-        frames = BufferWithSegments(mm, segments_bytes)
 
+        self._frames = BufferWithSegments(self._mm, segments_bytes)
+        self._metadata = self._load_metadata()
+
+    @property
+    def decompressed_sizes(self) -> NDArray[np.uint64]:
+        """
+        Return decompressed frame sizes.
+
+        This an array containing 64-bit unsigned integers containing the
+        decompressed sizes in bytes of each frame.
+        """
+        return np.frombuffer(self._decompressed_sizes, dtype=np.uint64)
+
+    @property
+    def nbytes(self) -> int:
+        """Return the size of the decompressed dataset."""
+        return int(self.decompressed_sizes.sum())
+
+    def _load_metadata(self) -> Metadata:
+        """Load the metadata from the zvtk file without full decompression."""
+        dctx = zstd.ZstdDecompressor()
+
+        # read in only the last segment
+        segments = dctx.multi_decompress_to_buffer(
+            [self._frames[-1]],
+            decompressed_sizes=self._decompressed_sizes[-8:],
+            threads=0,  # tiny
+        )
+        name, arr = _reconstruct_array(segments[0])
+        if name != "__metadata__":
+            msg = "Metadata not found in zvtk file"
+            raise RuntimeError(msg)
+
+        metadata = Metadata.from_json(arr.tobytes().decode("utf-8"))
+
+        if metadata.file_version > FILE_VERSION:
+            warnings.warn(
+                f"The file version {metadata.file_version} of this zvtk file is "
+                f"newer than the version supported by this library {FILE_VERSION}. "
+                "This file may fail to read. Consider upgrading `zvtk`.",
+                stacklevel=0,
+            )
+
+        return metadata
+
+    def read(self, n_threads: int | None = None) -> DataSet:
+        """Read in the dataset from the zvtk file."""
+        if n_threads is None:
+            size_mb = self.nbytes / 1024**2
+            n_threads = int(size_mb // 2)  # rough guess
+            n_threads = -1 if n_threads > MAX_SET_THREADS else n_threads
+
+        # Decompress with multi-threaded buffer API
         dctx = zstd.ZstdDecompressor()
         segments = dctx.multi_decompress_to_buffer(
-            frames, decompressed_sizes=decompressed_sizes, threads=1
+            self._frames,
+            decompressed_sizes=self._decompressed_sizes,
+            threads=n_threads,
         )
 
-        for s in segments:
-            name, arr = _reconstruct_array(s)
-            if name == "__metadata__":
-                metadata_raw = arr.tobytes().decode("utf-8")
+        segment_dict = dict(_reconstruct_array(s) for s in segments)
 
-                return Metadata.from_json(metadata_raw)
+        # convert this to match when Python 3.9 goes EOL
+        ds_type = self._metadata.ds_type
+        if ds_type == "UnstructuredGrid":
+            ds = _segments_to_ugrid(segment_dict)
+        elif ds_type == "PolyData":
+            ds = _segments_to_polydata(segment_dict)
+        elif ds_type == "ImageData":
+            ds = _segments_to_imagedata(segment_dict, self._metadata)
+        elif ds_type == "PointSet":
+            ds = _segments_to_pointset(segment_dict)
+        elif ds_type == "RectilinearGrid":
+            ds = _segments_to_rgrid(segment_dict)
+        else:
+            msg = f"zvtk does not support DataSet type `{ds_type}` for compression"
+            raise RuntimeError(msg)
 
-        msg = "No metadata found in zvtk file"
-        raise RuntimeError(msg)
+        _apply_metadata(ds, self._metadata)
+        return ds
 
     def __repr__(self) -> str:
         """Return a representation of the dataset's metadata."""

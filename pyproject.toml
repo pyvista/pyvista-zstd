@@ -68,4 +68,5 @@ required-imports = ["from __future__ import annotations"]
 keep-runtime-typing = true
 
 [tool.pytest.ini_options]
+addopts = "--cov=zvtk --cov-fail-under=90"
 testpaths = 'tests'

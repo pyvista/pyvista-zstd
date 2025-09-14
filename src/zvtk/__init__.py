@@ -7,11 +7,12 @@ from importlib.metadata import version
 
 try:
     __version__ = version("zvtk")
-except PackageNotFoundError:
+except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
+from zvtk.zvtk import FILE_VERSION
 from zvtk.zvtk import Reader
 from zvtk.zvtk import read
 from zvtk.zvtk import write
 
-__all__ = ["Reader", "read", "write"]
+__all__ = ["FILE_VERSION", "Reader", "read", "write"]

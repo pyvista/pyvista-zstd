@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import warnings
 
 import numpy as np
 import pytest
+from pyvista.core.grid import ImageData
+from pyvista.core.grid import RectilinearGrid
+from pyvista.core.pointset import PointSet
+from pyvista.core.pointset import PolyData
+from pyvista.core.pointset import UnstructuredGrid
 
 import zvtk
 
@@ -13,11 +19,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from pyvista.core.dataset import DataSet
-    from pyvista.core.grid import ImageData
-    from pyvista.core.grid import RectilinearGrid
-    from pyvista.core.pointset import PointSet
-    from pyvista.core.pointset import PolyData
-    from pyvista.core.pointset import UnstructuredGrid
 
 
 def populate_data(ds: DataSet) -> None:
@@ -192,3 +193,173 @@ def test_rectilineargrid(rgrid: RectilinearGrid, tmp_path: Path) -> None:
     assert rgrid.cell_data == rgrid_out.cell_data
     assert rgrid.field_data == rgrid_out.field_data
     assert rgrid == rgrid_out
+
+
+def test_reader_array_selection(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Test Reader class with array sub-selection."""
+    populate_data(ugrid)
+
+    tmp_filename = tmp_path / "ugrid.zvtk"
+    zvtk.write(ugrid, tmp_filename)
+
+    reader = zvtk.Reader(tmp_filename)
+
+    # by default, all arrays available
+    assert reader.available_point_arrays
+    assert reader.available_cell_arrays
+    assert reader.available_field_arrays
+
+    # restrict to one array from each category
+    point_choice = next(iter(reader.available_point_arrays))
+    cell_choice = next(iter(reader.available_cell_arrays))
+    field_choice = next(iter(reader.available_field_arrays))
+
+    reader.selected_point_arrays = {point_choice}
+    reader.selected_cell_arrays = {cell_choice}
+    reader.selected_field_arrays = {field_choice}
+
+    out = reader.read()
+
+    # only selected arrays must be present
+    assert set(out.point_data.keys()) == {point_choice}
+    assert set(out.cell_data.keys()) == {cell_choice}
+    assert set(out.field_data.keys()) == {field_choice}
+
+    # test with no arrays
+
+    reader.selected_point_arrays = set()
+    reader.selected_cell_arrays = set()
+    reader.selected_field_arrays = set()
+
+    out = reader.read()
+
+    # only selected arrays must be present
+    assert not out.point_data
+    assert not out.cell_data
+    assert not out.field_data
+
+    # test wrong arrays
+    with pytest.raises(ValueError, match=r"point array\(s\) are not available"):
+        reader.selected_point_arrays = {"this is not a point array name"}
+    with pytest.raises(ValueError, match=r"cell array\(s\) are not available"):
+        reader.selected_cell_arrays = {"this is not a cell array name"}
+    with pytest.raises(ValueError, match=r"field array\(s\) are not available"):
+        reader.selected_field_arrays = {"this is not a field array name"}
+
+
+@pytest.mark.parametrize(
+    "ds_type",
+    [
+        ImageData,
+        RectilinearGrid,
+        PointSet,
+        PolyData,
+        UnstructuredGrid,
+    ],
+)
+def test_empty_objects(ds_type: str, tmp_path: Path) -> None:
+    """Test reading/writing empty objects."""
+    filename = tmp_path / f"{ds_type}.zvtk"
+    ds = ds_type()
+    zvtk.write(ds, filename)
+
+    reader = zvtk.Reader(filename)
+    out = reader.read()
+
+    assert isinstance(out, type(ds))
+    assert out.n_points == 0
+    assert out.n_cells == 0
+    assert not out.point_data
+    assert not out.cell_data
+    assert not out.field_data
+
+
+def test_invalid_filename(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Test reading and writing with the wrong extension raises an error."""
+    with pytest.raises(ValueError, match="Filename must end in"):
+        zvtk.write(ugrid, tmp_path / "tmp.vtk")
+
+    # ensure we can't read in the wrong file type
+    vtk_file = tmp_path / "ugrid.vtk"
+    ugrid.save(vtk_file)
+    with pytest.raises(ValueError, match="Filename must end in"):
+        zvtk.read(vtk_file)
+
+    # even if it's corrupted
+    renamed_file = vtk_file.with_suffix(".zvtk")
+    vtk_file.rename(renamed_file)
+    with pytest.raises(RuntimeError, match="File may be corrupted"):
+        zvtk.read(renamed_file)
+
+    empty_file = tmp_path / "empty.zvtk"
+    with empty_file.open("wb") as fid:
+        fid.write(b"\x00" * 1024)  # write 1 KB of zeros
+
+    with pytest.raises(RuntimeError, match="File may be corrupted"):
+        zvtk.read(empty_file)
+
+
+def test_use_int64(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Test Reader class with array sub-selection."""
+    populate_data(ugrid)
+
+    tmp_filename = tmp_path / "ugrid.zvtk"
+
+    zvtk.write(ugrid, tmp_filename, force_int32=False)
+    ugrid_out = zvtk.read(tmp_filename)
+    assert ugrid_out.cell_connectivity.dtype == np.int64
+
+    zvtk.write(ugrid, tmp_filename, force_int32=True)
+    ugrid_out = zvtk.read(tmp_filename)
+    assert ugrid_out.cell_connectivity.dtype == np.int32
+
+
+def test_future_version_warning(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Check that a warning is issued when reading a future version."""
+    filename = tmp_path / "future.zvtk"
+
+    orig_version = zvtk.FILE_VERSION
+    zvtk.write(ugrid, filename)
+
+    zvtk.zvtk.FILE_VERSION = -1
+    try:
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            zvtk.read(filename)
+            assert any("newer than the version" in str(wi.message) for wi in w)
+    finally:
+        zvtk.zvtk.FILE_VERSION = orig_version
+
+
+def test_reader_repr(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Test Reader class with array sub-selection."""
+    populate_data(ugrid)
+
+    tmp_filename = tmp_path / "ugrid.zvtk"
+    zvtk.write(ugrid, tmp_filename)
+    reader = zvtk.Reader(tmp_filename)
+    repr_str = repr(reader)
+
+    # check key metadata is mentioned
+    assert str(tmp_filename) in repr_str
+    assert type(ugrid).__name__ in repr_str
+    assert str(ugrid.n_points) in repr_str
+    assert str(ugrid.n_cells) in repr_str
+
+    # check that some of the point/cell/field arrays are listed
+    for arr_name in ugrid.point_data:
+        assert arr_name in repr_str
+    for arr_name in ugrid.cell_data:
+        assert arr_name in repr_str
+    for arr_name in ugrid.field_data:
+        assert arr_name in repr_str
+
+    ugrid.clear_data()
+    tmp_filename = tmp_path / "ugrid.zvtk"
+    zvtk.write(ugrid, tmp_filename)
+    reader = zvtk.Reader(tmp_filename)
+    repr_no_data_str = repr(reader)
+
+    assert "Point arrays" not in repr_no_data_str
+    assert "Cell arrays" not in repr_no_data_str
+    assert "Field arrays" not in repr_no_data_str

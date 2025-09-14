@@ -46,9 +46,10 @@ OFFSET_SUFFIX = "_offset"
 CONNECTIVITY_SUFFIX = "_connectivity"
 METADATA_KEY_COMPRESSION = "COMPRESSION"
 METADATA_KEY_COMPRESSION_LVL = "COMPRESSION_LEVEL"
+CELL_TYPES_KEY = "celltypes"
 
 # for all
-POINTS = "points"
+POINTS_KEY = "points"
 
 # for UnstructuredGrid
 CELLS = "cells"
@@ -101,6 +102,9 @@ class Metadata:
     direction_matrix: list[list[float]] | None = None
     offset: int | None = None
 
+    # required, but not initialized from dataset
+    frame_names: list[str] | None = None
+
     @classmethod
     def from_dataset(cls, ds: pv.DataSet, level: int) -> Metadata:
         """Create metadata from a dataset."""
@@ -143,13 +147,7 @@ class Metadata:
 
     def to_json(self) -> str:
         """Convert to JSON."""
-
-        def encode(obj: Any) -> Any:  # noqa: ANN401
-            if isinstance(obj, ArrayInfo):
-                return asdict(obj)
-            return obj
-
-        return json.dumps(asdict(self), default=encode, separators=(",", ":"))
+        return json.dumps(asdict(self), separators=(",", ":"))
 
     @classmethod
     def from_json(cls, s: str) -> Metadata:
@@ -199,33 +197,29 @@ def _add_cell_array(
     arrays[f"{name}{CONNECTIVITY_SUFFIX}"] = connectivity
 
 
-def _extract_cell_array(
-    name: str, segments: dict[str, Any], *, require: bool = False
-) -> vtkCellArray | None:
+def _extract_cell_array(name: str, segments: dict[str, Any]) -> vtkCellArray | None:
     conn_key = f"{name}{CONNECTIVITY_SUFFIX}"
     if conn_key not in segments:
-        if require:
-            msg = f"Missing {name} array"
-            raise RuntimeError(msg)
         return None
 
     return _numpy_to_vtk_cells(segments[f"{name}{OFFSET_SUFFIX}"], segments[conn_key])
 
 
 def _prepare_arrays_pointset(ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays[POINTS] = ds.points
+    arrays[POINTS_KEY] = ds.points
 
 
 def _prepare_arrays_rgrid(ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays["x"] = ds.x
-    arrays["y"] = ds.y
-    arrays["z"] = ds.z
+    if ds.n_points:
+        arrays["x"] = ds.x
+        arrays["y"] = ds.y
+        arrays["z"] = ds.z
 
 
 def _prepare_arrays_polydata(
     ds: PolyData, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True
 ) -> None:
-    arrays[POINTS] = ds.points
+    arrays[POINTS_KEY] = ds.points
     _add_cell_array(arrays, POLYS, ds.GetPolys(), force_int32=force_int32)
     _add_cell_array(arrays, LINES, ds.GetLines(), force_int32=force_int32)
     _add_cell_array(arrays, STRIPS, ds.GetStrips(), force_int32=force_int32)
@@ -235,8 +229,8 @@ def _prepare_arrays_polydata(
 def _prepare_arrays_ugrid(
     ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True
 ) -> None:
-    arrays[POINTS] = ds.points
-    arrays["celltypes"] = ds.celltypes
+    arrays[POINTS_KEY] = ds.points
+    arrays[CELL_TYPES_KEY] = ds.celltypes
 
     _add_cell_array(arrays, CELLS, ds.GetCells(), force_int32=force_int32)
     _add_cell_array(
@@ -336,6 +330,7 @@ def write(  # noqa: C901, PLR0913
 
     # dataset metadata
     metadata = Metadata.from_dataset(ds, level)
+    metadata.frame_names = list(arrays.keys())  # order matters
     meta_bytes = metadata.to_json().encode("utf-8")
 
     arrays["__metadata__"] = np.frombuffer(meta_bytes, dtype=np.uint8)
@@ -400,15 +395,6 @@ def _reconstruct_array(segment: BufferSegment) -> np.ndarray:
     return name, data
 
 
-def _get_or_raise(the_dict: dict[str, Any], key: str) -> NDArray:
-    """Extract a key and raise a helpful error if missing it."""
-    # extract critical arrays
-    if key not in the_dict:
-        msg = f"zvtk file missing `{key}` array"
-        raise RuntimeError(msg)
-    return the_dict[key]
-
-
 def _add_data(ds: DataSet, segment_dict: dict[str, Any]) -> None:
     # add point and cell data
     point_data = ds.point_data
@@ -429,11 +415,11 @@ def _add_data(ds: DataSet, segment_dict: dict[str, Any]) -> None:
 def _segments_to_ugrid(segments: dict[str, Any]) -> UnstructuredGrid:
     cells = _extract_cell_array(CELLS, segments)
 
-    celltypes = _get_or_raise(segments, "celltypes")
+    celltypes = segments[CELL_TYPES_KEY]
     celltypes_vtk = numpy_to_vtk(celltypes, deep=False, array_type=VTK_UNSIGNED_CHAR)
 
     ugrid = UnstructuredGrid()
-    ugrid.points = _get_or_raise(segments, POINTS)
+    ugrid.points = segments[POINTS_KEY]
 
     poly = _extract_cell_array(POLYHEDRON, segments)
     poly_loc = _extract_cell_array(POLYHEDRON_LOCATION, segments)
@@ -462,7 +448,7 @@ def _numpy_to_vtk_cells(
         vtk_dtype = vtkTypeInt32Array().GetDataType()
     elif dtype == np.int64:
         vtk_dtype = vtkTypeInt64Array().GetDataType()
-    else:
+    else:  # pragma: no cover
         msg = f"Invalid faces dtype {dtype}. Expected np.int32 or np.int64"
         raise ValueError(msg)
     connectivity_vtk = numpy_to_vtk(connectivity, deep=False, array_type=vtk_dtype)
@@ -475,7 +461,7 @@ def _numpy_to_vtk_cells(
 
 def _segments_to_polydata(segments: dict[str, Any]) -> PolyData:
     pdata = PolyData()
-    pdata.points = _get_or_raise(segments, POINTS)
+    pdata.points = segments[POINTS_KEY]
 
     pdata.SetPolys(_extract_cell_array(POLYS, segments))
     pdata.SetLines(_extract_cell_array(LINES, segments))
@@ -487,7 +473,7 @@ def _segments_to_polydata(segments: dict[str, Any]) -> PolyData:
 
 
 def _segments_to_pointset(segments: dict[str, Any]) -> PointSet:
-    pset = PointSet(_get_or_raise(segments, POINTS))
+    pset = PointSet(segments[POINTS_KEY])
     _add_data(pset, segments)
     return pset
 
@@ -506,11 +492,14 @@ def _segments_to_imagedata(segments: dict[str, Any], metadata: Metadata) -> Imag
 
 
 def _segments_to_rgrid(segments: dict[str, Any]) -> RectilinearGrid:
-    rgrid = RectilinearGrid(
-        _get_or_raise(segments, "x"),
-        _get_or_raise(segments, "y"),
-        _get_or_raise(segments, "z"),
-    )
+    if "x" in segments:
+        rgrid = RectilinearGrid(
+            segments.get("x"),
+            segments.get("y"),
+            segments.get("z"),
+        )
+    else:
+        rgrid = RectilinearGrid()
     _add_data(rgrid, segments)
     return rgrid
 
@@ -586,6 +575,12 @@ class Reader:
         with self._filename.open("rb") as f:
             f.seek(-8, 2)
             num_frames = struct.unpack("<Q", f.read(8))[0]
+
+            max_frames = 1_000_000
+            if num_frames > max_frames:
+                msg = "Bad number of frames. File may be corrupted."
+                raise RuntimeError(msg)
+
             f.seek(-(8 + num_frames * 16), 2)
             meta_data = f.read(num_frames * 16)
             frame_meta = [
@@ -601,6 +596,10 @@ class Reader:
         segments_bytes = b"".join(
             struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends)
         )
+
+        if not segments_bytes:
+            msg = "Empty segments. File may be corrupted."
+            raise RuntimeError(msg)
 
         self._frames = BufferWithSegments(self._mm, segments_bytes)
         self._metadata = self._load_metadata()
@@ -631,7 +630,7 @@ class Reader:
             threads=0,  # tiny
         )
         name, arr = _reconstruct_array(segments[0])
-        if name != "__metadata__":
+        if name != "__metadata__":  # pragma: no cover
             msg = "Metadata not found in zvtk file"
             raise RuntimeError(msg)
 
@@ -651,34 +650,175 @@ class Reader:
         """Read in the dataset from the zvtk file."""
         n_threads = _set_n_threads(n_threads, self.nbytes)
 
+        # map frame indices to names using metadata
+        frame_names = self._metadata.frame_names
+        if frame_names is None:  # pragma: no cover
+            msg = "Frame names not found in metadata."
+            raise RuntimeError(msg)
+
+        excluded = set()
+        for name in self.available_point_arrays - self.selected_point_arrays:
+            excluded.add(name + POINT_DATA_SUFFIX)
+        for name in self.available_cell_arrays - self.selected_cell_arrays:
+            excluded.add(name + CELL_DATA_SUFFIX)
+        for name in self.available_field_arrays - self.selected_field_arrays:
+            excluded.add(name + FIELD_DATA_SUFFIX)
+
+        selected_frames = []
+        sizes = []
+        selected_names = set(frame_names) - excluded
+        for ii, name in enumerate(frame_names):
+            if name in selected_names:
+                selected_frames.append(self._frames[ii])
+                # 8 bytes per frame
+                sizes.append(self._decompressed_sizes[ii * 8 : (ii + 1) * 8])
+
         # Decompress with multi-threaded buffer API
-        dctx = zstd.ZstdDecompressor()
-        segments = dctx.multi_decompress_to_buffer(
-            self._frames,
-            decompressed_sizes=self._decompressed_sizes,
-            threads=n_threads,
-        )
+        if selected_frames:
+            dctx = zstd.ZstdDecompressor()
+            segments_raw = dctx.multi_decompress_to_buffer(
+                selected_frames,
+                decompressed_sizes=b"".join(sizes),
+                threads=n_threads,
+            )
+            segments = dict(_reconstruct_array(segment) for segment in segments_raw)
+        else:
+            segments = {}
 
-        segment_dict = dict(_reconstruct_array(s) for s in segments)
+        return self._segments_to_ds(segments)
 
+    def _segments_to_ds(self, segments: dict[str, Any]) -> DataSet:
         # convert this to match when Python 3.9 goes EOL
         ds_type = self._metadata.ds_type
         if ds_type == "UnstructuredGrid":
-            ds = _segments_to_ugrid(segment_dict)
+            ds = _segments_to_ugrid(segments)
         elif ds_type == "PolyData":
-            ds = _segments_to_polydata(segment_dict)
+            ds = _segments_to_polydata(segments)
         elif ds_type == "ImageData":
-            ds = _segments_to_imagedata(segment_dict, self._metadata)
+            ds = _segments_to_imagedata(segments, self._metadata)
         elif ds_type == "PointSet":
-            ds = _segments_to_pointset(segment_dict)
+            ds = _segments_to_pointset(segments)
         elif ds_type == "RectilinearGrid":
-            ds = _segments_to_rgrid(segment_dict)
+            ds = _segments_to_rgrid(segments)
         else:
             msg = f"zvtk does not support DataSet type `{ds_type}` for compression"
             raise RuntimeError(msg)
-
         _apply_metadata(ds, self._metadata)
-        return ds
+
+    @property
+    def available_point_arrays(self) -> set[str]:
+        """Return a set of all point array names available in the dataset."""
+        return set(self._metadata.point_data_keys)
+
+    @property
+    def available_cell_arrays(self) -> set[str]:
+        """Return a set of all cell array names available in the dataset."""
+        return set(self._metadata.cell_data_keys)
+
+    @property
+    def available_field_arrays(self) -> set[str]:
+        """Return a set of all field array names available in the dataset."""
+        return set(self._metadata.field_data_keys)
+
+    @property
+    def selected_point_arrays(self) -> set[str]:
+        """
+        Return the set of currently selected point arrays to read.
+
+        Defaults to all available arrays.
+        """
+        if not hasattr(self, "_selected_point_arrays"):
+            return self.available_point_arrays.copy()
+        return self._selected_point_arrays
+
+    @selected_point_arrays.setter
+    def selected_point_arrays(self, value: set[str]) -> None:
+        """
+        Set the point arrays to read from the file.
+
+        Parameters
+        ----------
+        value : set[str]
+            A set of point array names to read. All names must exist in
+            `available_point_arrays`.
+
+        Raises
+        ------
+        ValueError
+            If any name in `value` is not available in the file.
+
+        """
+        invalid = value - self.available_point_arrays
+        if invalid:
+            msg = f"The following point array(s) are not available: {invalid}"
+            raise ValueError(msg)
+        self._selected_point_arrays = value.copy()
+
+    @property
+    def selected_cell_arrays(self) -> set[str]:
+        """
+        Return the set of currently selected cell arrays to read.
+
+        Defaults to all available arrays.
+        """
+        if not hasattr(self, "_selected_cell_arrays"):
+            return self.available_cell_arrays.copy()
+        return self._selected_cell_arrays
+
+    @selected_cell_arrays.setter
+    def selected_cell_arrays(self, value: set[str]) -> None:
+        """
+        Set the cell arrays to read from the file.
+
+        Parameters
+        ----------
+        value : set[str]
+            A set of cell array names to read. All names must exist in `available_cell_arrays`.
+
+        Raises
+        ------
+        ValueError
+            If any name in `value` is not available in the file.
+
+        """
+        invalid = value - self.available_cell_arrays
+        if invalid:
+            msg = f"The following cell array(s) are not available: {invalid}"
+            raise ValueError(msg)
+        self._selected_cell_arrays = value.copy()
+
+    @property
+    def selected_field_arrays(self) -> set[str]:
+        """
+        Return the set of currently selected field arrays to read.
+
+        Defaults to all available arrays.
+        """
+        if not hasattr(self, "_selected_field_arrays"):
+            return self.available_field_arrays.copy()
+        return self._selected_field_arrays
+
+    @selected_field_arrays.setter
+    def selected_field_arrays(self, value: set[str]) -> None:
+        """
+        Set the field arrays to read from the file.
+
+        Parameters
+        ----------
+        value : set[str]
+            A set of field array names to read. All names must exist in `available_field_arrays`.
+
+        Raises
+        ------
+        ValueError
+            If any name in `value` is not available in the file.
+
+        """
+        invalid = value - self.available_field_arrays
+        if invalid:
+            msg = f"The following field array(s) are not available: {invalid}"
+            raise ValueError(msg)
+        self._selected_field_arrays = value.copy()
 
     def __repr__(self) -> str:
         """Return a representation of the dataset's metadata."""

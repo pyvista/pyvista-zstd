@@ -7,6 +7,7 @@ import warnings
 
 import numpy as np
 import pytest
+from pyvista.core.composite import MultiBlock
 from pyvista.core.grid import ImageData
 from pyvista.core.grid import RectilinearGrid
 from pyvista.core.pointset import PointSet
@@ -32,9 +33,7 @@ def populate_data(ds: DataSet) -> None:
     pd["int8_data"] = rng.integers(-128, 127, n_points, dtype=np.int8)
     pd["int16_data"] = rng.integers(-32768, 32767, n_points, dtype=np.int16)
     pd["int32_data"] = rng.integers(-2147483648, 2147483647, n_points, dtype=np.int32)
-    pd["int64_data"] = rng.integers(
-        -9223372036854775808, 9223372036854775807, n_points, dtype=np.int64
-    )
+    pd["int64_data"] = rng.integers(-9223372036854775808, 9223372036854775807, n_points, dtype=np.int64)
     pd["uint8_data"] = rng.integers(0, 255, n_points, dtype=np.uint8)
     pd["uint16_data"] = rng.integers(0, 65535, n_points, dtype=np.uint16)
     pd["uint32_data"] = rng.integers(0, 4294967295, n_points, dtype=np.uint32)
@@ -215,8 +214,11 @@ def test_reader_array_selection(ugrid: UnstructuredGrid, tmp_path: Path) -> None
     field_choice = next(iter(reader.available_field_arrays))
 
     reader.selected_point_arrays = {point_choice}
+    assert reader.selected_point_arrays == {point_choice}
     reader.selected_cell_arrays = {cell_choice}
+    assert reader.selected_cell_arrays == {cell_choice}
     reader.selected_field_arrays = {field_choice}
+    assert reader.selected_field_arrays == {field_choice}
 
     out = reader.read()
 
@@ -380,3 +382,69 @@ def test_compression_level(tmp_path: Path) -> None:
 
     assert np.array_equal(np.sort(sizes)[::-1], sizes)
     assert (np.array(sizes) < nbytes_orig).all()
+
+
+def test_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
+    """Test setting compression level changes resulting file size."""
+    tmp_filename = tmp_path / "tmp.zvtk"
+    for ds in multi_block:
+        populate_data(ds)
+
+    zvtk.write(multi_block, tmp_filename)
+    multi_block_out = zvtk.read(tmp_filename)
+
+    assert multi_block == multi_block_out
+
+
+def test_multiblock_reader_class(multi_block: MultiBlock, tmp_path: Path) -> None:
+    """Test setting compression level changes resulting file size."""
+    tmp_filename = tmp_path / "tmp.zvtk"
+    for ds in multi_block:
+        populate_data(ds)
+
+    zvtk.write(multi_block, tmp_filename)
+    reader = zvtk.Reader(tmp_filename)
+    assert "MultiBlock" in repr(reader)
+
+    # test selective reading
+    for ii in range(len(multi_block)):
+        assert reader[ii].read() == multi_block[ii]
+
+    assert reader.read() == multi_block
+
+
+def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> None:
+    """Test reading a nested MultiBlock hierarchy."""
+    tmp_filename = tmp_path / "tmp_nested.zvtk"
+    for ds in multi_block_nested:
+        if isinstance(ds, MultiBlock):
+            for sub_ds in ds:
+                populate_data(sub_ds)
+        else:
+            populate_data(ds)
+
+    zvtk.write(multi_block_nested, tmp_filename)
+    reader = zvtk.Reader(tmp_filename)
+
+    # Check top-level MultiBlock hierarchy
+    assert "MultiBlock" in repr(reader)
+    raise RuntimeError(repr(reader))  # temp
+
+    # Test selective reading of top-level blocks
+    for ii in range(len(reader._ds_reader)):
+        top_block = reader[ii].read()
+        expected_block = multi_block_nested[ii]
+        assert top_block == expected_block
+
+    # Test recursive reading of nested blocks
+    for ii, child_reader in enumerate(reader._ds_reader._children):
+        if isinstance(multi_block_nested[ii], MultiBlock):
+            nested_reader = child_reader
+            for jj in range(len(nested_reader)):
+                nested_ds = nested_reader[jj].read()
+                expected_ds = multi_block_nested[ii][jj]
+                assert nested_ds == expected_ds
+
+    # Read entire hierarchy
+    full_ds = reader.read()
+    assert full_ds == multi_block_nested

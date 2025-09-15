@@ -14,7 +14,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.9",
 ]
-dependencies = ["pyvista>=0.45.0", "zstandard>=0.24.0"]
+dependencies = ["pyvista>=0.45.0", "tqdm>=4.0.0", "zstandard>=0.24.0"]
 dynamic = ["description"]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -42,7 +42,7 @@ ignore_missing_imports = true
 [tool.ruff]
 exclude = ['.git', 'build', 'dist', 'doc/_build', 'doc/examples', 'pycache__']
 indent-width = 4
-line-length = 99
+line-length = 120
 
 [tool.ruff.format]
 docstring-code-format = true

@@ -1,4 +1,10 @@
-"""Compress VTK objects using zstandard."""
+"""
+Compress VTK objects using zstandard.
+
+We're writing everything out using `zstandard frames
+<https://python-zstandard.readthedocs.io/en/latest/concepts.html>`_.
+
+"""
 
 from __future__ import annotations
 
@@ -15,6 +21,7 @@ import warnings
 
 import numpy as np
 import pyvista as pv
+from pyvista.core.composite import MultiBlock
 from pyvista.core.grid import ImageData
 from pyvista.core.grid import RectilinearGrid
 from pyvista.core.pointset import PointSet
@@ -47,6 +54,14 @@ CONNECTIVITY_SUFFIX = "_connectivity"
 METADATA_KEY_COMPRESSION = "COMPRESSION"
 METADATA_KEY_COMPRESSION_LVL = "COMPRESSION_LEVEL"
 CELL_TYPES_KEY = "celltypes"
+DS_METADATA_KEY = "__ds_metadata"
+MULTIBLOCK_METADATA_KEY = "__multiblock__ds_metadata"
+FILE_METADATA_KEY = "__zvtk_metadata"
+
+RGRID_X_SUFFIX = "_x_rgrid"
+RGRID_Y_SUFFIX = "_y_rgrid"
+RGRID_Z_SUFFIX = "_z_rgrid"
+
 
 # for all
 POINTS_KEY = "points"
@@ -72,13 +87,62 @@ class ArrayInfo:
 
 
 @dataclass
-class Metadata:
+class ZvtkFileMetadata:
+    """Zvtk file metadata."""
+
+    frame_names: list[str]
+    compression_level: int
+    compression: str = "zstandard"  # only option at the moment
+    file_version: int = FILE_VERSION
+
+    def to_json(self) -> str:
+        """Convert to JSON."""
+        return json.dumps(asdict(self), separators=(",", ":"))
+
+    @classmethod
+    def from_json(cls, s: str) -> MultiBlockMetadata:
+        """Create from JSON."""
+        return cls(**json.loads(s))
+
+
+@dataclass
+class MultiBlockMetadata:
+    """MultiBlock metadata."""
+
+    uid: str
+    children: dict[str]  # key: value
+    ds_type = "MultiBlock"
+
+    def to_json(self) -> str:
+        """Convert to JSON."""
+        return json.dumps(asdict(self), separators=(",", ":"))
+
+    @classmethod
+    def from_json(cls, s: str) -> MultiBlockMetadata:
+        """Create from JSON."""
+        return cls(**json.loads(s))
+
+    @classmethod
+    def from_array(cls, arr: str) -> MultiBlockMetadata:
+        """Create from a numpy uint8 array."""
+        raw_json = arr.tobytes().decode("utf-8")  # copy, but it's tiny
+        return MultiBlockMetadata.from_json(raw_json)
+
+    @classmethod
+    def from_multiblock(cls, mblock: MultiBlock) -> MultiBlockMetadata:
+        """Create from a multiblock."""
+        return cls(
+            uid=_make_ds_id(mblock),
+            children=[_make_ds_id(ds) for ds in mblock],
+        )
+
+
+@dataclass
+class DataSetMetadata:
     """DataSet metadata."""
 
-    file_version: int
     ds_type: str
-    compression: str
-    compression_level: int
+    uid: str
     n_points: int
     points_dtype: str | None
     n_cells: int
@@ -102,21 +166,16 @@ class Metadata:
     direction_matrix: list[list[float]] | None = None
     offset: int | None = None
 
-    # required, but not initialized from dataset
-    frame_names: list[str] | None = None
-
     @classmethod
-    def from_dataset(cls, ds: pv.DataSet, level: int) -> Metadata:
+    def from_dataset(cls, ds: pv.DataSet) -> DataSetMetadata:
         """Create metadata from a dataset."""
 
         def _summarize(arrays: pv.DataSetAttributes) -> dict[str, ArrayInfo]:
             return {k: ArrayInfo(shape=a.shape, dtype=str(a.dtype)) for k, a in arrays.items()}
 
         kwargs: dict[str, Any] = {
-            "file_version": FILE_VERSION,
             "ds_type": type(ds).__name__,
-            "compression": "zstandard",
-            "compression_level": level,
+            "uid": _make_ds_id(ds),
             "n_points": ds.n_points,
             "points_dtype": str(ds.points.dtype) if ds.n_points else None,
             "n_cells": ds.n_cells,
@@ -126,11 +185,11 @@ class Metadata:
             "field_data_keys": _summarize(ds.field_data),
             "point_data_active_scalars_name": ds.point_data.active_scalars_name,
             "point_data_active_vectors_name": ds.point_data.active_vectors_name,
-            "point_data_active_texture_coordinates_name": ds.point_data.active_texture_coordinates_name,  # noqa: E501
+            "point_data_active_texture_coordinates_name": ds.point_data.active_texture_coordinates_name,
             "point_data_active_normals_name": ds.point_data.active_normals_name,
             "cell_data_active_scalars_name": ds.cell_data.active_scalars_name,
             "cell_data_active_vectors_name": ds.cell_data.active_vectors_name,
-            "cell_data_active_texture_coordinates_name": ds.cell_data.active_texture_coordinates_name,  # noqa: E501
+            "cell_data_active_texture_coordinates_name": ds.cell_data.active_texture_coordinates_name,
             "cell_data_active_normals_name": ds.cell_data.active_normals_name,
         }
 
@@ -150,7 +209,13 @@ class Metadata:
         return json.dumps(asdict(self), separators=(",", ":"))
 
     @classmethod
-    def from_json(cls, s: str) -> Metadata:
+    def from_array(cls, arr: str) -> DataSetMetadata:
+        """Create from a numpy uint8 array."""
+        raw_json = arr.tobytes().decode("utf-8")  # copy, but it's tiny
+        return DataSetMetadata.from_json(raw_json)
+
+    @classmethod
+    def from_json(cls, s: str) -> DataSetMetadata:
         """Create from JSON."""
         raw = json.loads(s)
 
@@ -176,6 +241,7 @@ def _set_n_threads(n_threads: int | None, n_bytes: int, max_manual_threads: int 
 
 
 def _add_cell_array(
+    ds_id: str,
     arrays: dict[str, np.ndarray],
     name: str,
     cell_array: vtkCellArray,
@@ -193,53 +259,55 @@ def _add_cell_array(
         offsets = offsets.astype(np.int32, copy=False)
         connectivity = connectivity.astype(np.int32, copy=False)
 
-    arrays[f"{name}{OFFSET_SUFFIX}"] = offsets
-    arrays[f"{name}{CONNECTIVITY_SUFFIX}"] = connectivity
+    arrays[f"{ds_id}{name}{OFFSET_SUFFIX}"] = offsets
+    arrays[f"{ds_id}{name}{CONNECTIVITY_SUFFIX}"] = connectivity
 
 
-def _extract_cell_array(name: str, segments: dict[str, Any]) -> vtkCellArray | None:
-    conn_key = f"{name}{CONNECTIVITY_SUFFIX}"
+def _extract_cell_array(ds_id: str, name: str, segments: dict[str, Any]) -> vtkCellArray | None:
+    conn_key = f"{ds_id}{name}{CONNECTIVITY_SUFFIX}"
     if conn_key not in segments:
         return None
 
-    return _numpy_to_vtk_cells(segments[f"{name}{OFFSET_SUFFIX}"], segments[conn_key])
+    offset_key = f"{ds_id}{name}{OFFSET_SUFFIX}"
+    return _numpy_to_vtk_cells(segments[offset_key], segments[conn_key])
 
 
-def _prepare_arrays_pointset(ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays[POINTS_KEY] = ds.points
+def _add_arrays_pointset(ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
+    arrays[f"{_make_ds_id(ds)}{POINTS_KEY}"] = ds.points
 
 
-def _prepare_arrays_rgrid(ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
+def _add_arrays_rgrid(ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
     if ds.n_points:
-        arrays["x"] = ds.x
-        arrays["y"] = ds.y
-        arrays["z"] = ds.z
+        ds_id = _make_ds_id(ds)
+        arrays[f"{ds_id}{RGRID_X_SUFFIX}"] = ds.x
+        arrays[f"{ds_id}{RGRID_Y_SUFFIX}"] = ds.y
+        arrays[f"{ds_id}{RGRID_Z_SUFFIX}"] = ds.z
 
 
-def _prepare_arrays_polydata(
-    ds: PolyData, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True
-) -> None:
-    arrays[POINTS_KEY] = ds.points
-    _add_cell_array(arrays, POLYS, ds.GetPolys(), force_int32=force_int32)
-    _add_cell_array(arrays, LINES, ds.GetLines(), force_int32=force_int32)
-    _add_cell_array(arrays, STRIPS, ds.GetStrips(), force_int32=force_int32)
-    _add_cell_array(arrays, VERTS, ds.GetVerts(), force_int32=force_int32)
+def _add_arrays_polydata(ds: PolyData, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True) -> None:
+    ds_id = _make_ds_id(ds)
+    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    _add_cell_array(ds_id, arrays, POLYS, ds.GetPolys(), force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, LINES, ds.GetLines(), force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, STRIPS, ds.GetStrips(), force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, VERTS, ds.GetVerts(), force_int32=force_int32)
 
 
-def _prepare_arrays_ugrid(
-    ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True
-) -> None:
-    arrays[POINTS_KEY] = ds.points
-    arrays[CELL_TYPES_KEY] = ds.celltypes
+def _add_arrays_ugrid(ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True) -> None:
+    ds_id = _make_ds_id(ds)
+    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    arrays[f"{ds_id}{CELL_TYPES_KEY}"] = ds.celltypes
 
-    _add_cell_array(arrays, CELLS, ds.GetCells(), force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, CELLS, ds.GetCells(), force_int32=force_int32)
     _add_cell_array(
+        ds_id,
         arrays,
         POLYHEDRON,
         ds.GetPolyhedronFaces(),
         force_int32=force_int32,
     )
     _add_cell_array(
+        ds_id,
         arrays,
         POLYHEDRON_LOCATION,
         ds.GetPolyhedronFaceLocations(),
@@ -247,7 +315,7 @@ def _prepare_arrays_ugrid(
     )
 
 
-def write(  # noqa: C901, PLR0913
+def write(  # noqa: PLR0913
     ds: DataSet,
     filename: Path | str,
     *,
@@ -266,6 +334,7 @@ def write(  # noqa: C901, PLR0913
     * :class:`pyvista.RectilinearGrid`
     * :class:`pyvista.StructuredGrid`
     * :class:`pyvista.UnstructuredGrid`
+    * :class:`pyvista.MultiBlock`
 
     All file types should end in ``.zvtk``, borrowing both from the legacy
     VTK extension ``.vtk`` and the ``.zst`` file types.
@@ -293,77 +362,123 @@ def write(  # noqa: C901, PLR0913
         available cores and ``0`` disables multi-threading.
 
     """
-    ds = pv.wrap(ds)
-    filename = Path(filename)
+    Writer(ds, filename).write(
+        progress_bar=progress_bar,
+        force_int32=force_int32,
+        level=level,
+        n_threads=n_threads,
+    )
 
-    if filename.suffix != ".zvtk":
-        msg = f"Filename must end in '.zvtk', not '{filename.suffix}'"
-        raise ValueError(msg)
 
-    arrays: dict[str, NDArray[Any]] = {}
-    if isinstance(ds, PolyData):
-        _prepare_arrays_polydata(ds, arrays, force_int32=force_int32)
-    elif isinstance(ds, UnstructuredGrid):
-        _prepare_arrays_ugrid(ds, arrays, force_int32=force_int32)
-    elif isinstance(ds, ImageData):
-        pass
-    elif isinstance(ds, PointSet):
-        _prepare_arrays_pointset(ds, arrays)
-    elif isinstance(ds, RectilinearGrid):
-        _prepare_arrays_rgrid(ds, arrays)
-    else:
-        msg = f"Unsupported type {type(ds)}"
-        raise TypeError(msg)
+def _make_ds_id(ds: DataSet) -> str:
+    """Make a unique dataset ID using the memory address."""
+    # padded for 32-bit
+    return f"{id(ds):016x}"
 
-    point_data = ds.point_data
-    for key, array in point_data.items():
-        arrays[key + POINT_DATA_SUFFIX] = array
-    cell_data = ds.cell_data
-    for key, array in cell_data.items():
-        arrays[key + CELL_DATA_SUFFIX] = array
-    field_data = ds.field_data
-    for key, array in field_data.items():
-        arrays[key + FIELD_DATA_SUFFIX] = array
 
-    n_bytes = sum([arr.nbytes for arr in arrays.values()])
-    n_threads = _set_n_threads(n_threads, n_bytes)
+class Writer:
+    """Class to write a zvtk file."""
 
-    # dataset metadata
-    metadata = Metadata.from_dataset(ds, level)
-    metadata.frame_names = list(arrays.keys())  # order matters
-    meta_bytes = metadata.to_json().encode("utf-8")
+    def __init__(self, ds: DataSet, filename: Path | str) -> None:
+        """Initialize the writer."""
+        self._filename = Path(filename)
 
-    arrays["__metadata__"] = np.frombuffer(meta_bytes, dtype=np.uint8)
+        if self._filename.suffix != ".zvtk":
+            msg = f"Filename must end in '.zvtk', not '{self._filename.suffix}'"
+            raise ValueError(msg)
 
-    cctx = zstd.ZstdCompressor(level=level, threads=n_threads)
-    frame_meta = []  # list of tuples: (compressed_end, decompressed_size)
-    with filename.open("wb") as fout, cctx.stream_writer(fout) as compressor:
-        for name, arr in tqdm(arrays.items(), desc="Compressing", disable=not progress_bar):
-            # Prepare metadata
-            meta = struct.pack("<I", len(name)) + name.encode("utf-8")
-            meta += struct.pack("<I", arr.ndim)
-            for dim in arr.shape:
-                meta += struct.pack("<Q", dim)
-            meta += arr.dtype.str.encode("utf-8").ljust(16, b" ")
+        self._arrays: dict[str, NDArray[Any]] = {}
+        self._ds = pv.wrap(ds)
 
-            # Write metadata to the compressed stream
-            compressor.write(meta)
-            compressor.write(arr.data)
+    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:
+        """Extract dataset data as arrays."""
+        ds_id = _make_ds_id(ds)
 
-            # Record current frame end offset in compressed stream
-            # NOTE: stream_writer does not expose written bytes directly,
-            # so we track offsets by flushing using file tell()
-            compressor.flush(zstd.FLUSH_FRAME)  # ensures one frame
-            frame_end = fout.tell()
-            # record compressed end + decompressed size
-            frame_meta.append((frame_end, arr.nbytes + len(meta)))
+        if isinstance(ds, PolyData):
+            _add_arrays_polydata(ds, self._arrays, force_int32=force_int32)
+        elif isinstance(ds, UnstructuredGrid):
+            _add_arrays_ugrid(ds, self._arrays, force_int32=force_int32)
+        elif isinstance(ds, ImageData):
+            pass
+        elif isinstance(ds, PointSet):
+            _add_arrays_pointset(ds, self._arrays)
+        elif isinstance(ds, RectilinearGrid):
+            _add_arrays_rgrid(ds, self._arrays)
+        elif isinstance(ds, MultiBlock):
+            multi_meta = MultiBlockMetadata.from_multiblock(ds)
+            meta_bytes = multi_meta.to_json().encode("utf-8")
+            self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = np.frombuffer(meta_bytes, dtype=np.uint8)
 
-    # Write final metadata
-    with filename.open("ab") as fout:
-        fout.writelines(
-            struct.pack("<QQ", off, dsz) for off, dsz in frame_meta
-        )  # 16 bytes per frame
-        fout.write(struct.pack("<Q", len(frame_meta)))  # total frames at very end
+            for ds_child in ds:
+                self._add_ds_arrays(ds_child, force_int32=force_int32)
+            return
+        else:
+            msg = f"Unsupported type {type(ds)}"
+            raise TypeError(msg)
+
+        for key, array in ds.point_data.items():
+            self._arrays[f"{ds_id}{key}{POINT_DATA_SUFFIX}"] = array
+        for key, array in ds.cell_data.items():
+            self._arrays[f"{ds_id}{key}{CELL_DATA_SUFFIX}"] = array
+        for key, array in ds.field_data.items():
+            self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
+
+        # dataset metadata
+        metadata = DataSetMetadata.from_dataset(ds)
+        meta_bytes = metadata.to_json().encode("utf-8")
+        self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = np.frombuffer(meta_bytes, dtype=np.uint8)
+
+    def write(
+        self,
+        *,
+        progress_bar: bool = False,
+        force_int32: bool = True,
+        level: int = 3,
+        n_threads: int | None = None,
+    ) -> None:
+        """Write the dataset."""
+        self._add_ds_arrays(self._ds, force_int32=force_int32)
+
+        # optimal number of threads is based on how much we're writing to disk
+        n_bytes = sum([arr.nbytes for arr in self._arrays.values()])
+        n_threads = _set_n_threads(n_threads, n_bytes)
+
+        # finally, append file metadata as the final frame
+        file_meta = ZvtkFileMetadata(
+            frame_names=list(self._arrays.keys()),  # frame order matters
+            compression_level=level,
+        )
+        meta_bytes = file_meta.to_json().encode("utf-8")
+        self._arrays[FILE_METADATA_KEY] = np.frombuffer(meta_bytes, dtype=np.uint8)
+
+        cctx = zstd.ZstdCompressor(level=level, threads=n_threads)
+        frame_meta = []  # list of tuples: (compressed_end, decompressed_size)
+        with self._filename.open("wb") as fout, cctx.stream_writer(fout) as compressor:
+            for name, arr in tqdm(self._arrays.items(), desc="Compressing", disable=not progress_bar):
+                # Prepare metadata
+                meta = struct.pack("<I", len(name)) + name.encode("utf-8")
+                meta += struct.pack("<I", arr.ndim)
+                for dim in arr.shape:
+                    meta += struct.pack("<Q", dim)
+                meta += arr.dtype.str.encode("utf-8").ljust(16, b" ")
+
+                # Write metadata to the compressed stream
+                compressor.write(meta)
+                compressor.write(arr.data)
+
+                # Record current frame end offset in compressed stream
+                # NOTE: stream_writer does not expose written bytes directly,
+                # so we track offsets by flushing using file tell()
+                compressor.flush(zstd.FLUSH_FRAME)  # ensures one frame
+                frame_end = fout.tell()
+                # record compressed end + decompressed size
+                frame_meta.append((frame_end, arr.nbytes + len(meta)))
+
+        # Write out zvtk frame sizes as the last bit. This isn't compatible
+        # with zstandard compression, but we're using this for decompression
+        with self._filename.open("ab") as fout:
+            fout.writelines(struct.pack("<QQ", off, dsz) for off, dsz in frame_meta)  # 16 bytes per frame
+            fout.write(struct.pack("<Q", len(frame_meta)))  # total frames at very end
 
 
 def _reconstruct_array(segment: BufferSegment) -> np.ndarray:
@@ -395,34 +510,35 @@ def _reconstruct_array(segment: BufferSegment) -> np.ndarray:
     return name, data
 
 
-def _add_data(ds: DataSet, segment_dict: dict[str, Any]) -> None:
+def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
     # add point and cell data
     point_data = ds.point_data
     cell_data = ds.cell_data
     field_data = ds.field_data
     for key, array in segment_dict.items():
+        if not key.startswith(ds_id):
+            continue
+
+        # uid size is 16
         if key.endswith(POINT_DATA_SUFFIX):
-            name = key[: -len(POINT_DATA_SUFFIX)]
-            point_data.set_array(array, name)
+            point_data.set_array(array, key[16 : -len(POINT_DATA_SUFFIX)])
         if key.endswith(CELL_DATA_SUFFIX):
-            name = key[: -len(CELL_DATA_SUFFIX)]
-            cell_data.set_array(array, name)
+            cell_data.set_array(array, key[16 : -len(CELL_DATA_SUFFIX)])
         if key.endswith(FIELD_DATA_SUFFIX):
-            name = key[: -len(FIELD_DATA_SUFFIX)]
-            field_data.set_array(array, name)
+            field_data.set_array(array, key[16 : -len(FIELD_DATA_SUFFIX)])
 
 
-def _segments_to_ugrid(segments: dict[str, Any]) -> UnstructuredGrid:
-    cells = _extract_cell_array(CELLS, segments)
+def _segments_to_ugrid(ds_id: str, segments: dict[str, Any]) -> UnstructuredGrid:
+    cells = _extract_cell_array(ds_id, CELLS, segments)
 
-    celltypes = segments[CELL_TYPES_KEY]
+    celltypes = segments[f"{ds_id}{CELL_TYPES_KEY}"]
     celltypes_vtk = numpy_to_vtk(celltypes, deep=False, array_type=VTK_UNSIGNED_CHAR)
 
     ugrid = UnstructuredGrid()
-    ugrid.points = segments[POINTS_KEY]
+    ugrid.points = segments[f"{ds_id}{POINTS_KEY}"]
 
-    poly = _extract_cell_array(POLYHEDRON, segments)
-    poly_loc = _extract_cell_array(POLYHEDRON_LOCATION, segments)
+    poly = _extract_cell_array(ds_id, POLYHEDRON, segments)
+    poly_loc = _extract_cell_array(ds_id, POLYHEDRON_LOCATION, segments)
 
     if poly and poly_loc:
         ugrid.SetPolyhedralCells(
@@ -434,7 +550,6 @@ def _segments_to_ugrid(segments: dict[str, Any]) -> UnstructuredGrid:
     else:
         ugrid.SetCells(celltypes_vtk, cells)
 
-    _add_data(ugrid, segments)
     return ugrid
 
 
@@ -459,27 +574,24 @@ def _numpy_to_vtk_cells(
     return carr
 
 
-def _segments_to_polydata(segments: dict[str, Any]) -> PolyData:
+def _segments_to_polydata(ds_id: str, segments: dict[str, Any]) -> PolyData:
     pdata = PolyData()
-    pdata.points = segments[POINTS_KEY]
+    pdata.points = segments[f"{ds_id}{POINTS_KEY}"]
 
-    pdata.SetPolys(_extract_cell_array(POLYS, segments))
-    pdata.SetLines(_extract_cell_array(LINES, segments))
-    pdata.SetStrips(_extract_cell_array(STRIPS, segments))
-    pdata.SetVerts(_extract_cell_array(VERTS, segments))
+    pdata.SetPolys(_extract_cell_array(ds_id, POLYS, segments))
+    pdata.SetLines(_extract_cell_array(ds_id, LINES, segments))
+    pdata.SetStrips(_extract_cell_array(ds_id, STRIPS, segments))
+    pdata.SetVerts(_extract_cell_array(ds_id, VERTS, segments))
 
-    _add_data(pdata, segments)
     return pdata
 
 
-def _segments_to_pointset(segments: dict[str, Any]) -> PointSet:
-    pset = PointSet(segments[POINTS_KEY])
-    _add_data(pset, segments)
-    return pset
+def _segments_to_pointset(ds_id: str, segments: dict[str, Any]) -> PointSet:
+    return PointSet(segments[f"{ds_id}{POINTS_KEY}"])
 
 
-def _segments_to_imagedata(segments: dict[str, Any], metadata: Metadata) -> ImageData:
-    image_data = ImageData(
+def _metadata_to_imagedata(metadata: DataSetMetadata) -> ImageData:
+    return ImageData(
         dimensions=metadata.dimensions,
         origin=metadata.origin,
         spacing=metadata.spacing,
@@ -487,24 +599,21 @@ def _segments_to_imagedata(segments: dict[str, Any], metadata: Metadata) -> Imag
         offset=metadata.offset,
     )
 
-    _add_data(image_data, segments)
-    return image_data
 
-
-def _segments_to_rgrid(segments: dict[str, Any]) -> RectilinearGrid:
-    if "x" in segments:
+def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
+    if f"{ds_id}{RGRID_X_SUFFIX}" in segments:
         rgrid = RectilinearGrid(
-            segments.get("x"),
-            segments.get("y"),
-            segments.get("z"),
+            segments.get(f"{ds_id}{RGRID_X_SUFFIX}"),
+            segments.get(f"{ds_id}{RGRID_Y_SUFFIX}"),
+            segments.get(f"{ds_id}{RGRID_Z_SUFFIX}"),
         )
     else:
         rgrid = RectilinearGrid()
-    _add_data(rgrid, segments)
+
     return rgrid
 
 
-def _apply_metadata(ds: DataSet, metadata: Metadata) -> None:
+def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
     """Apply metadata to a dataset."""
     pd = ds.point_data
     if metadata.point_data_active_scalars_name in pd:
@@ -546,6 +655,65 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     return Reader(filename).read(n_threads=n_threads)
 
 
+class _DataSetReader:
+    def __init__(
+        self,
+        metadata: MultiBlockMetadata | DataSetMetadata,
+        parent: Reader,
+    ) -> None:
+        self._meta = metadata
+        self._parent = parent
+        self._children: list[_DataSetReader] = []
+
+        if isinstance(metadata, MultiBlockMetadata):
+            for child in metadata.children.values():
+                self._children.append(_DataSetReader(child, parent))
+
+    def __getitem__(self, idx: int) -> _DataSetReader:
+        if not isinstance(self._meta, MultiBlockMetadata):
+            raise TypeError("Only MultiBlock nodes are indexable")
+        return self._children[idx]
+
+    def __len__(self) -> int:
+        if not isinstance(self._meta, MultiBlockMetadata):
+            return 0
+        return len(self._children)
+
+    @property
+    def uid(self) -> str:
+        return self._meta.uid
+
+    @property
+    def children(self) -> list[_DataSetReader]:
+        return self._children
+
+    def read(self) -> DataSet | MultiBlock:
+        if isinstance(self._meta, DataSetMetadata):
+            return self._parent._read_ds(self.uid)  # noqa: SLF001
+        if isinstance(self._meta, MultiBlockMetadata):
+            mb = MultiBlock()
+            for child in self._children:
+                mb.append(child.read())
+            return mb
+        raise RuntimeError("Unknown metadata type")
+
+    def __repr__(self) -> str:
+        return self._repr_recursive(prefix="", is_last=True)
+
+    def _repr_recursive(self, prefix: str = "", is_last: bool = True) -> str:
+        connector = "└─ " if is_last else "├─ "
+        if isinstance(self._meta, DataSetMetadata):
+            return f"{prefix}{connector}{self._meta.ds_type}"
+        if isinstance(self._meta, MultiBlockMetadata):
+            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)})"]
+            for i, child in enumerate(self._children):
+                last = i == len(self._children) - 1
+                child_prefix = prefix + ("   " if is_last else "│  ")
+                lines.append(child._repr_recursive(child_prefix, last))  # noqa: SLF001
+            return "\n".join(lines)
+        return f"{prefix}{connector}Unknown"
+
+
 class Reader:
     """
     Class to control zvtk file decompression.
@@ -567,6 +735,9 @@ class Reader:
     def __init__(self, filename: Path | str) -> None:
         """Initialize the decompressor."""
         self._filename = Path(filename)
+        self._selected_point_arrays: set[str] | None = None
+        self._selected_cell_arrays: set[str] | None = None
+        self._selected_field_arrays: set[str] | None = None
 
         if self._filename.suffix != ".zvtk":
             msg = f"Filename must end in '.zvtk', not '{self._filename.suffix}'"
@@ -583,9 +754,7 @@ class Reader:
 
             f.seek(-(8 + num_frames * 16), 2)
             meta_data = f.read(num_frames * 16)
-            frame_meta = [
-                struct.unpack("<QQ", meta_data[i * 16 : (i + 1) * 16]) for i in range(num_frames)
-            ]
+            frame_meta = [struct.unpack("<QQ", meta_data[i * 16 : (i + 1) * 16]) for i in range(num_frames)]
             frame_starts = [0] + [end for end, _ in frame_meta[:-1]]
             frame_ends = [end for end, _ in frame_meta]
             sizes = [dsz for _, dsz in frame_meta]
@@ -602,7 +771,55 @@ class Reader:
             raise RuntimeError(msg)
 
         self._frames = BufferWithSegments(self._mm, segments_bytes)
-        self._metadata = self._load_metadata()
+        self._metadata = self._load_file_metadata()
+        self._ds_metadata = self._load_root_dataset_meta()
+        self.__ds_reader: _DataSetReader | None = None
+
+    def __getitem__(self, idx: int) -> _DataSetReader:
+        return self._ds_reader[idx]
+
+    def __len__(self) -> int:
+        return len(self._ds_reader)
+
+    @property
+    def _ds_reader(self) -> _DataSetReader:
+        if self.__ds_reader is None:
+            self.__ds_reader = self._load_ds_reader()
+
+        return self.__ds_reader
+
+    def _load_root_dataset_meta(self) -> None:
+        """
+        Identify all datasets.
+
+        There may be more than one dataset if it's a multi-block dataset, but
+        there's always a root dataset.
+        """
+        dmeta = [n for n in self._metadata.frame_names if n.endswith(DS_METADATA_KEY)]
+        if not dmeta:  # pragma: no cover
+            msg = "No dataset metadata found"
+            raise RuntimeError(msg)
+        return self._load_ds_meta(dmeta[0])
+
+    def _load_ds_meta(self, key: str) -> DataSetMetadata | MultiBlockMetadata:
+        index = self._metadata.frame_names.index(key)
+        dctx = zstd.ZstdDecompressor()
+
+        # read in only the segment
+        segments = dctx.multi_decompress_to_buffer(
+            [self._frames[index]],
+            decompressed_sizes=self._decompressed_sizes[index * 8 : (index + 1) * 8],
+            threads=0,  # tiny
+        )
+
+        name, arr = _reconstruct_array(segments[0])
+        if name.endswith(MULTIBLOCK_METADATA_KEY):
+            return MultiBlockMetadata.from_array(arr)
+        if name.endswith(DS_METADATA_KEY):
+            return DataSetMetadata.from_array(arr)
+
+        msg = "Metadata key invalid."
+        raise RuntimeError(msg)
 
     @property
     def decompressed_sizes(self) -> NDArray[np.uint64]:
@@ -619,7 +836,7 @@ class Reader:
         """Return the size of the decompressed dataset."""
         return int(self.decompressed_sizes.sum())
 
-    def _load_metadata(self) -> Metadata:
+    def _load_file_metadata(self) -> ZvtkFileMetadata:
         """Load the metadata from the zvtk file without full decompression."""
         dctx = zstd.ZstdDecompressor()
 
@@ -630,11 +847,11 @@ class Reader:
             threads=0,  # tiny
         )
         name, arr = _reconstruct_array(segments[0])
-        if name != "__metadata__":  # pragma: no cover
-            msg = "Metadata not found in zvtk file"
+        if name != FILE_METADATA_KEY:  # pragma: no cover
+            msg = "File metadata not found in zvtk file."
             raise RuntimeError(msg)
 
-        metadata = Metadata.from_json(arr.tobytes().decode("utf-8"))
+        metadata = ZvtkFileMetadata.from_json(arr.tobytes().decode("utf-8"))
 
         if metadata.file_version > FILE_VERSION:
             warnings.warn(
@@ -646,10 +863,8 @@ class Reader:
 
         return metadata
 
-    def read(self, n_threads: int | None = None) -> DataSet:
-        """Read in the dataset from the zvtk file."""
-        n_threads = _set_n_threads(n_threads, self.nbytes)
-
+    def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
+        """Read a single dataset."""
         # map frame indices to names using metadata
         frame_names = self._metadata.frame_names
         if frame_names is None:  # pragma: no cover
@@ -658,67 +873,190 @@ class Reader:
 
         excluded = set()
         for name in self.available_point_arrays - self.selected_point_arrays:
-            excluded.add(name + POINT_DATA_SUFFIX)
+            excluded.add(f"{ds_id}{name}{POINT_DATA_SUFFIX}")
         for name in self.available_cell_arrays - self.selected_cell_arrays:
-            excluded.add(name + CELL_DATA_SUFFIX)
+            excluded.add(f"{ds_id}{name}{CELL_DATA_SUFFIX}")
         for name in self.available_field_arrays - self.selected_field_arrays:
-            excluded.add(name + FIELD_DATA_SUFFIX)
+            excluded.add(f"{ds_id}{name}{FIELD_DATA_SUFFIX}")
 
         selected_frames = []
         sizes = []
-        selected_names = set(frame_names) - excluded
-        for ii, name in enumerate(frame_names):
-            if name in selected_names:
+        selected_frame_names = set(frame_names) - excluded
+
+        for ii, frame_name in enumerate(frame_names):
+            if not frame_name.startswith(ds_id):
+                continue
+            if frame_name in selected_frame_names:
                 selected_frames.append(self._frames[ii])
                 # 8 bytes per frame
                 sizes.append(self._decompressed_sizes[ii * 8 : (ii + 1) * 8])
 
         # Decompress with multi-threaded buffer API
+        d_sizes_bytes = b"".join(sizes)
+        ds_size = np.frombuffer(d_sizes_bytes, dtype=np.uint64).sum()
+        n_threads = _set_n_threads(n_threads, ds_size)
         if selected_frames:
             dctx = zstd.ZstdDecompressor()
             segments_raw = dctx.multi_decompress_to_buffer(
                 selected_frames,
-                decompressed_sizes=b"".join(sizes),
+                decompressed_sizes=d_sizes_bytes,
                 threads=n_threads,
             )
             segments = dict(_reconstruct_array(segment) for segment in segments_raw)
         else:
             segments = {}
 
-        return self._segments_to_ds(segments)
+        return self._segments_to_ds(ds_id, segments)
 
-    def _segments_to_ds(self, segments: dict[str, Any]) -> DataSet:
-        # convert this to match when Python 3.9 goes EOL
-        ds_type = self._metadata.ds_type
-        if ds_type == "UnstructuredGrid":
-            ds = _segments_to_ugrid(segments)
-        elif ds_type == "PolyData":
-            ds = _segments_to_polydata(segments)
-        elif ds_type == "ImageData":
-            ds = _segments_to_imagedata(segments, self._metadata)
-        elif ds_type == "PointSet":
-            ds = _segments_to_pointset(segments)
-        elif ds_type == "RectilinearGrid":
-            ds = _segments_to_rgrid(segments)
-        else:
-            msg = f"zvtk does not support DataSet type `{ds_type}` for compression"
+    def _load_ds_reader(self) -> _DataSetReader:
+        """Read metadata hierarchy from the zvtk file."""
+        if not isinstance(self._ds_metadata, MultiBlockMetadata):
+            return self._ds_metadata
+
+        # find only metadata frames
+        frame_names = self._metadata.frame_names
+        selected_frames = []
+        sizes = []
+        for ii, name in enumerate(frame_names):
+            if name.endswith((MULTIBLOCK_METADATA_KEY, DS_METADATA_KEY)):
+                selected_frames.append(self._frames[ii])
+                sizes.append(self._decompressed_sizes[ii * 8 : (ii + 1) * 8])
+
+        d_sizes_bytes = b"".join(sizes)
+        dctx = zstd.ZstdDecompressor()
+        segments_raw = dctx.multi_decompress_to_buffer(
+            selected_frames,
+            decompressed_sizes=d_sizes_bytes,
+            threads=0,
+        )
+        segments = dict(_reconstruct_array(segment) for segment in segments_raw)
+
+        # decode metadata objects
+        mblock_meta: dict[str, MultiBlockMetadata] = {}
+        dataset_meta: dict[str, DataSetMetadata] = {}
+        for key, segment in segments.items():
+            if key.endswith(MULTIBLOCK_METADATA_KEY):
+                meta = MultiBlockMetadata.from_array(segment)
+                mblock_meta[meta.uid] = meta
+            elif key.endswith(DS_METADATA_KEY):
+                uid = key[:16]
+                meta = DataSetMetadata.from_array(segment)
+                dataset_meta[uid] = meta
+
+        # assemble hierarchy tree by wiring children to their metadata
+        for uid, m in mblock_meta.items():
+            children_meta = {}
+            for child_uid in m.children:
+                if child_uid in mblock_meta:
+                    children_meta[child_uid] = mblock_meta[child_uid]
+                elif child_uid in dataset_meta:
+                    children_meta[child_uid] = dataset_meta[child_uid]
+                else:  # pragma: no cover
+                    msg = f"Metadata child '{child_uid}' not found for multiblock '{uid}'"
+                    raise RuntimeError(msg)
+            m.children = children_meta
+
+        root_uid = self._ds_metadata.uid
+
+        if root_uid not in mblock_meta:  # pragma: no cover
+            msg = "Top-level multiblock metadata not found."
             raise RuntimeError(msg)
-        _apply_metadata(ds, self._metadata)
+
+        return _DataSetReader(mblock_meta[root_uid], self)
+
+    def read(self, n_threads: int | None = None) -> DataSet:
+        """Read in the dataset from the zvtk file."""
+        if not isinstance(self._ds_metadata, MultiBlockMetadata):
+            return self._read_ds(self._ds_metadata.uid, n_threads)
+
+        # read everything
+        n_threads = _set_n_threads(n_threads, self.nbytes)
+
+        dctx = zstd.ZstdDecompressor()
+        segments_raw = dctx.multi_decompress_to_buffer(
+            self._frames,
+            decompressed_sizes=self._decompressed_sizes,
+            threads=n_threads,
+        )
+        segments = dict(_reconstruct_array(segment) for segment in segments_raw)
+
+        mblock_meta = []
+        dataset_map: dict[str, DataSet] = {}
+        for key, segment in segments.items():
+            if key.endswith(MULTIBLOCK_METADATA_KEY):
+                mblock_meta.append(MultiBlockMetadata.from_array(segment))
+            elif key.endswith(DS_METADATA_KEY):
+                uid = key[:16]
+                dataset_map[uid] = self._segments_to_ds(key[:16], segments)
+
+        # Build empty MultiBlock objects for every multiblock metadata entry.
+        multiblock_map: dict[str, MultiBlock] = {m.uid: MultiBlock() for m in mblock_meta}
+
+        # Populate each MultiBlock using its children list. Children may be
+        # datasets or other multiblocks (nested multiblocks).
+        for m in mblock_meta:
+            mb = multiblock_map[m.uid]
+            for child_uid in m.children:
+                if child_uid in multiblock_map:
+                    mb.append(multiblock_map[child_uid])
+                elif child_uid in dataset_map:
+                    mb.append(dataset_map[child_uid])
+                else:  # pragma: no cover
+                    msg = f"Multiblock child '{child_uid}' not found for multiblock '{m.uid}'"
+                    raise RuntimeError(msg)
+
+        # Return the top-level multiblock identified by the root metadata uid.
+        root_uid = self._ds_metadata.uid
+        if root_uid not in multiblock_map:  # pragma: no cover
+            msg = "Top-level multiblock metadata not found."
+            raise RuntimeError(msg)
+
+        return multiblock_map[root_uid]
+
+    def _segments_to_ds(self, ds_id: str, segments: dict[str, Any]) -> DataSet:
+        meta_arr = segments[f"{ds_id}{DS_METADATA_KEY}"]
+        ds_metadata = DataSetMetadata.from_array(meta_arr)
+
+        # convert this to match when Python 3.9 goes EOL
+        ds_type = ds_metadata.ds_type
+        if ds_type == "UnstructuredGrid":
+            ds = _segments_to_ugrid(ds_id, segments)
+        elif ds_type == "PolyData":
+            ds = _segments_to_polydata(ds_id, segments)
+        elif ds_type == "ImageData":
+            ds = _metadata_to_imagedata(ds_metadata)
+        elif ds_type == "PointSet":
+            ds = _segments_to_pointset(ds_id, segments)
+        elif ds_type == "RectilinearGrid":
+            ds = _segments_to_rgrid(ds_id, segments)
+        else:
+            msg = f"zvtk does not support DataSet type `{ds_type}` for decompression"
+            raise RuntimeError(msg)
+
+        _add_data(ds_id, ds, segments)
+        _apply_metadata(ds, ds_metadata)
+        return ds
 
     @property
     def available_point_arrays(self) -> set[str]:
         """Return a set of all point array names available in the dataset."""
-        return set(self._metadata.point_data_keys)
+        if isinstance(self._ds_metadata, MultiBlockMetadata):
+            return set()
+        return set(self._ds_metadata.point_data_keys)
 
     @property
     def available_cell_arrays(self) -> set[str]:
         """Return a set of all cell array names available in the dataset."""
-        return set(self._metadata.cell_data_keys)
+        if isinstance(self._ds_metadata, MultiBlockMetadata):
+            return set()
+        return set(self._ds_metadata.cell_data_keys)
 
     @property
     def available_field_arrays(self) -> set[str]:
         """Return a set of all field array names available in the dataset."""
-        return set(self._metadata.field_data_keys)
+        if isinstance(self._ds_metadata, MultiBlockMetadata):
+            return set()
+        return set(self._ds_metadata.field_data_keys)
 
     @property
     def selected_point_arrays(self) -> set[str]:
@@ -727,7 +1065,7 @@ class Reader:
 
         Defaults to all available arrays.
         """
-        if not hasattr(self, "_selected_point_arrays"):
+        if self._selected_point_arrays is None:
             return self.available_point_arrays.copy()
         return self._selected_point_arrays
 
@@ -740,7 +1078,7 @@ class Reader:
         ----------
         value : set[str]
             A set of point array names to read. All names must exist in
-            `available_point_arrays`.
+            `available_point_arrays`. An empty set (``set()``) deselects all.
 
         Raises
         ------
@@ -761,7 +1099,7 @@ class Reader:
 
         Defaults to all available arrays.
         """
-        if not hasattr(self, "_selected_cell_arrays"):
+        if self._selected_cell_arrays is None:
             return self.available_cell_arrays.copy()
         return self._selected_cell_arrays
 
@@ -773,7 +1111,8 @@ class Reader:
         Parameters
         ----------
         value : set[str]
-            A set of cell array names to read. All names must exist in `available_cell_arrays`.
+            A set of cell array names to read. All names must exist in
+            `available_cell_arrays`. An empty set (``set()``) deselects all.
 
         Raises
         ------
@@ -794,7 +1133,7 @@ class Reader:
 
         Defaults to all available arrays.
         """
-        if not hasattr(self, "_selected_field_arrays"):
+        if self._selected_field_arrays is None:
             return self.available_field_arrays.copy()
         return self._selected_field_arrays
 
@@ -806,7 +1145,8 @@ class Reader:
         Parameters
         ----------
         value : set[str]
-            A set of field array names to read. All names must exist in `available_field_arrays`.
+            A set of field array names to read. All names must exist in
+            `available_field_arrays`. An empty set (``set()``) deselects all.
 
         Raises
         ------
@@ -822,17 +1162,6 @@ class Reader:
 
     def __repr__(self) -> str:
         """Return a representation of the dataset's metadata."""
-        md = self._metadata
-        header = [
-            f"zvtk.Decompressor ({hex(id(self))})",
-            f"  File:               {self._filename}",
-            f"  Dataset Type:       {md.ds_type}",
-            f"  File Version:       {md.file_version}",
-            f"  Compression:        {md.compression}",
-            f"  Compression Level:  {md.compression_level}",
-            f"  N Points:           {md.n_points} ({md.points_dtype})",
-            f"  N Cells:            {md.n_cells}",
-        ]
 
         def _format_dsa(name: str, arrays: dict[str, ArrayInfo]) -> list[str]:
             if not arrays:
@@ -845,18 +1174,36 @@ class Reader:
                     lines.append(f"      {k:<24} {info.dtype:<10} {shape}")
             return lines
 
-        # Point data
-        header.extend(_format_dsa("Point", md.point_data_keys))
+        ds_md = self._ds_metadata
+        header = [
+            f"zvtk.Decompressor ({hex(id(self))})",
+            f"  File:               {self._filename}",
+            f"  File Version:       {self._metadata.file_version}",
+            f"  Compression:        {self._metadata.compression}",
+            f"  Compression Level:  {self._metadata.compression_level}",
+        ]
 
-        # Cell data
-        header.extend(_format_dsa("Cell", md.cell_data_keys))
+        if ds_md.ds_type == "MultiBlock":
+            header.append(f"  Dataset Type:       {ds_md.ds_type}")
+            header.append("  Hierarchy:")
+            header.append(self._ds_reader._repr_recursive(prefix="    ", is_last=True))  # noqa: SLF001
+        else:
+            header.extend(
+                [
+                    f"  Dataset Type:       {ds_md.ds_type}",
+                    f"  N Points:           {ds_md.n_points} ({ds_md.points_dtype})",
+                    f"  N Cells:            {ds_md.n_cells}",
+                ]
+            )
 
-        # Field data
-        if md.field_data_keys:
-            lines = ["  Field arrays"]
-            for k, info in md.field_data_keys.items():
-                shape = tuple(info.shape)
-                lines.append(f"      {k:<24} {info.dtype:<10} {shape}")
-            header.extend(lines)
+            # data arrays
+            header.extend(_format_dsa("Point", ds_md.point_data_keys))
+            header.extend(_format_dsa("Cell", ds_md.cell_data_keys))
+            if ds_md.field_data_keys:
+                lines = ["  Field arrays"]
+                for k, info in ds_md.field_data_keys.items():
+                    shape = tuple(info.shape)
+                    lines.append(f"      {k:<24} {info.dtype:<10} {shape}")
+                header.extend(lines)
 
         return "\n".join(header)

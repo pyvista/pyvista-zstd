@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 import pyvista as pv
+from pyvista.core.composite import MultiBlock
 from pyvista.core.grid import RectilinearGrid
 from pyvista.core.pointset import PointSet
 
@@ -65,3 +66,21 @@ def rgrid() -> RectilinearGrid:
     yrng = np.arange(-10, 10, 5)
     zrng = np.arange(-10, 10, 1)
     return RectilinearGrid(xrng, yrng, zrng)
+
+
+@pytest.fixture
+def multi_block(
+    rgrid: RectilinearGrid,
+    pointset: PointSet,
+    ugrid: UnstructuredGrid,
+    polydata: PolyData,
+    imagedata: ImageData,
+) -> MultiBlock:
+    """Return a pv.MultiBlock."""
+    return MultiBlock([rgrid, pointset, ugrid, polydata, imagedata])
+
+
+@pytest.fixture
+def multi_block_nested(multi_block, ugrid) -> MultiBlock:
+    """Return a pv.MultiBlock."""
+    return MultiBlock([ugrid, multi_block.copy(), multi_block.copy(), multi_block.copy()])

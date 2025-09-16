@@ -85,7 +85,7 @@ VTK_FLOAT = 10
 VTK_DOUBLE = 11
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class ArrayInfo:
     """Array metadata."""
 
@@ -93,7 +93,7 @@ class ArrayInfo:
     dtype: str
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class ZvtkFileMetadata:
     """Zvtk file metadata."""
 
@@ -155,7 +155,7 @@ class MultiBlockMetadata:
         return np.frombuffer(meta_bytes, dtype=np.uint8)
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class DataSetMetadata:
     """DataSet metadata."""
 
@@ -185,13 +185,15 @@ class DataSetMetadata:
     offset: int | None = None
 
     @classmethod
-    def from_dataset(cls, ds: pv.DataSet) -> DataSetMetadata:
+    def from_dataset(
+        cls,
+        ds: pv.DataSet,
+        point_info: dict[str, ArrayInfo],
+        cell_info: dict[str, ArrayInfo],
+        field_info: dict[str, ArrayInfo],
+    ) -> DataSetMetadata:
         """Create metadata from a dataset."""
-
-        def _summarize(arrays: pv.DataSetAttributes) -> dict[str, ArrayInfo]:
-            return {k: ArrayInfo(shape=a.shape, dtype=str(a.dtype)) for k, a in arrays.items()}
-
-        # many pyvista calls require intermediate object assembly, side step or
+        # Many pyvista calls require intermediate object assembly, side step or
         # do once when possible.
 
         # Get points
@@ -206,7 +208,6 @@ class DataSetMetadata:
 
         pd = ds.point_data
         cd = ds.cell_data
-
         kwargs: dict[str, Any] = {
             "ds_type": type(ds).__name__,
             "uid": _make_ds_id(ds),
@@ -214,9 +215,9 @@ class DataSetMetadata:
             "points_dtype": str(points_dtype),
             "n_cells": ds.n_cells,
             "celltypes_dtype": str(ds.celltypes.dtype) if hasattr(ds, "celltypes") else None,
-            "point_data_keys": _summarize(pd),
-            "cell_data_keys": _summarize(cd),
-            "field_data_keys": _summarize(ds.field_data),
+            "point_data_keys": point_info,
+            "cell_data_keys": cell_info,
+            "field_data_keys": field_info,
             "point_data_active_scalars_name": pd.active_scalars_name,
             "point_data_active_vectors_name": pd.active_vectors_name,
             "point_data_active_texture_coordinates_name": pd.active_texture_coordinates_name,
@@ -477,18 +478,25 @@ class Writer:
             msg = f"Unsupported type {type(ds)}"
             raise TypeError(msg)
 
+        point_info: dict[str, ArrayInfo] = {}
         for key, array in ds.point_data.items():
             self._arrays[f"{ds_id}{key}{POINT_DATA_SUFFIX}"] = array
+            point_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+
+        cell_info: dict[str, ArrayInfo] = {}
         for key, array in ds.cell_data.items():
             self._arrays[f"{ds_id}{key}{CELL_DATA_SUFFIX}"] = array
+            cell_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+
+        field_info: dict[str, ArrayInfo] = {}
         for key, array in ds.field_data.items():
             self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
+            field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
-        # dataset metadata
-        ds_meta = DataSetMetadata.from_dataset(ds)
+        # supply dataset metadata
+        ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info)
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
 
-    # @profile
     def write(
         self,
         *,

@@ -14,7 +14,12 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.9",
 ]
-dependencies = ["pyvista>=0.45.0", "tqdm>=4.0.0", "zstandard>=0.24.0"]
+dependencies = [
+  "pyvista>=0.45.0",
+  "tqdm>=4.0.0",
+  "vtk>=9.4.0",
+  "zstandard>=0.24.0",
+]
 dynamic = ["description"]
 license = "MIT"
 license-files = ["LICENSE"]

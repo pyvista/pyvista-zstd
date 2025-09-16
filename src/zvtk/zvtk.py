@@ -16,7 +16,7 @@ import mmap
 from pathlib import Path
 import struct
 from typing import TYPE_CHECKING
-from typing import Any
+from typing import Any, Literal
 import warnings
 
 import numpy as np
@@ -62,6 +62,7 @@ RGRID_X_SUFFIX = "_x_rgrid"
 RGRID_Y_SUFFIX = "_y_rgrid"
 RGRID_Z_SUFFIX = "_z_rgrid"
 
+Compression = Literal["zstandard", "lz4"]
 
 # for all
 POINTS_KEY = "points"
@@ -92,7 +93,7 @@ class ZvtkFileMetadata:
 
     frame_names: list[str]
     compression_level: int
-    compression: str = "zstandard"  # only option at the moment
+    compression: Compression = "zstandard"
     file_version: int = FILE_VERSION
 
     def to_json(self) -> str:
@@ -103,6 +104,11 @@ class ZvtkFileMetadata:
     def from_json(cls, s: str) -> ZvtkFileMetadata:
         """Create from JSON."""
         return cls(**json.loads(s))
+
+    def to_array(self) -> NDArray[np.uint8]:
+        """Output as a numpy uint8 array."""
+        meta_bytes = self.to_json().encode("utf-8")
+        return np.frombuffer(meta_bytes, dtype=np.uint8)
 
 
 @dataclass
@@ -179,6 +185,12 @@ class DataSetMetadata:
         def _summarize(arrays: pv.DataSetAttributes) -> dict[str, ArrayInfo]:
             return {k: ArrayInfo(shape=a.shape, dtype=str(a.dtype)) for k, a in arrays.items()}
 
+        # many pyvista calls require intermediate object assembly, side step or
+        # do once when possible
+        vtk_dtype = ds.GetPoints().GetDataType()
+        if vtk_dtype == 11:
+            
+
         kwargs: dict[str, Any] = {
             "ds_type": type(ds).__name__,
             "uid": _make_ds_id(ds),
@@ -232,6 +244,11 @@ class DataSetMetadata:
         raw["cell_data_keys"] = decode_mapping(raw.get("cell_data_keys", {}))
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
         return cls(**raw)
+
+    def to_array(self) -> NDArray[np.uint8]:
+        """Output as a numpy uint8 array."""
+        meta_bytes = self.to_json().encode("utf-8")
+        return np.frombuffer(meta_bytes, dtype=np.uint8)
 
 
 def _set_n_threads(n_threads: int | None, n_bytes: int, max_manual_threads: int = 8) -> int:
@@ -325,6 +342,7 @@ def write(  # noqa: PLR0913
     ds: DataSet,
     filename: Path | str,
     *,
+    compression: Compression = "zstandard",
     progress_bar: bool = False,
     force_int32: bool = True,
     level: int = 3,
@@ -368,18 +386,38 @@ def write(  # noqa: PLR0913
         available cores and ``0`` disables multi-threading.
 
     """
-    Writer(ds, filename).write(
-        progress_bar=progress_bar,
-        force_int32=force_int32,
-        level=level,
-        n_threads=n_threads,
-    )
+    writer = Writer(ds, filename)
+
+    if compression == "zstandard":
+        writer.write(
+            progress_bar=progress_bar,
+            force_int32=force_int32,
+            level=level,
+            n_threads=n_threads,
+        )
+    else:
+        writer.write_lz4(
+            progress_bar=progress_bar,
+            force_int32=force_int32,
+            level=level,
+            n_threads=n_threads,
+        )
 
 
 def _make_ds_id(ds: DataSet) -> str:
     """Make a unique dataset ID using the memory address."""
     # padded for 32-bit
     return f"{id(ds):016x}"
+
+
+def _pack_array_metadata(name: str, arr: np.ndarray) -> bytes:
+    """Serialize array metadata for writing to a compressed stream."""
+    meta = struct.pack("<I", len(name)) + name.encode("utf-8")
+    meta += struct.pack("<I", arr.ndim)
+    for dim in arr.shape:
+        meta += struct.pack("<Q", dim)
+    meta += arr.dtype.str.encode("utf-8").ljust(16, b" ")
+    return meta
 
 
 class Writer:
@@ -435,9 +473,8 @@ class Writer:
             self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
 
         # dataset metadata
-        metadata = DataSetMetadata.from_dataset(ds)
-        meta_bytes = metadata.to_json().encode("utf-8")
-        self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = np.frombuffer(meta_bytes, dtype=np.uint8)
+        ds_meta = DataSetMetadata.from_dataset(ds)
+        self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
 
     def write(
         self,
@@ -459,13 +496,13 @@ class Writer:
             frame_names=list(self._arrays.keys()),  # frame order matters
             compression_level=level,
         )
-        meta_bytes = file_meta.to_json().encode("utf-8")
-        self._arrays[FILE_METADATA_KEY] = np.frombuffer(meta_bytes, dtype=np.uint8)
+        self._arrays[FILE_METADATA_KEY] = file_meta.to_array()
 
         cctx = zstd.ZstdCompressor(level=level, threads=n_threads)
         frame_meta = []  # list of tuples: (compressed_end, decompressed_size)
         with self._filename.open("wb") as fout, cctx.stream_writer(fout) as compressor:
             for name, arr in tqdm(self._arrays.items(), desc="Compressing", disable=not progress_bar):
+                # _pack_array_metadata(name: str, arr: np.ndarray) -> bytes:
                 # Prepare metadata
                 meta = struct.pack("<I", len(name)) + name.encode("utf-8")
                 meta += struct.pack("<I", arr.ndim)

@@ -357,7 +357,7 @@ def test_reader_repr(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
         assert arr_name in repr_str
 
     ugrid.clear_data()
-    tmp_filename = tmp_path / "ugrid.zvtk"
+    tmp_filename = tmp_path / "ugrid-cleared.zvtk"
     zvtk.write(ugrid, tmp_filename)
     reader = zvtk.Reader(tmp_filename)
     repr_no_data_str = repr(reader)

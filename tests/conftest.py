@@ -76,11 +76,11 @@ def multi_block(
     polydata: PolyData,
     imagedata: ImageData,
 ) -> MultiBlock:
-    """Return a pv.MultiBlock."""
+    """Return a MultiBlock."""
     return MultiBlock([rgrid, pointset, ugrid, polydata, imagedata])
 
 
 @pytest.fixture
 def multi_block_nested(multi_block, ugrid) -> MultiBlock:
-    """Return a pv.MultiBlock."""
+    """Return a nested MultiBlock."""
     return MultiBlock([ugrid, multi_block.copy(), multi_block.copy(), multi_block.copy()])

@@ -100,7 +100,7 @@ class ZvtkFileMetadata:
         return json.dumps(asdict(self), separators=(",", ":"))
 
     @classmethod
-    def from_json(cls, s: str) -> MultiBlockMetadata:
+    def from_json(cls, s: str) -> ZvtkFileMetadata:
         """Create from JSON."""
         return cls(**json.loads(s))
 
@@ -110,8 +110,9 @@ class MultiBlockMetadata:
     """MultiBlock metadata."""
 
     uid: str
-    children: dict[str]  # key: value
+    children: list[str]
     ds_type = "MultiBlock"
+    children_ds: dict[str, MultiBlockMetadata | DataSetMetadata] | None = None
 
     def to_json(self) -> str:
         """Convert to JSON."""
@@ -123,7 +124,7 @@ class MultiBlockMetadata:
         return cls(**json.loads(s))
 
     @classmethod
-    def from_array(cls, arr: str) -> MultiBlockMetadata:
+    def from_array(cls, arr: NDArray[np.uint8]) -> MultiBlockMetadata:
         """Create from a numpy uint8 array."""
         raw_json = arr.tobytes().decode("utf-8")  # copy, but it's tiny
         return MultiBlockMetadata.from_json(raw_json)
@@ -135,6 +136,11 @@ class MultiBlockMetadata:
             uid=_make_ds_id(mblock),
             children=[_make_ds_id(ds) for ds in mblock],
         )
+
+    def to_array(self) -> NDArray[np.uint8]:
+        """Output as a numpy uint8 array."""
+        meta_bytes = self.to_json().encode("utf-8")
+        return np.frombuffer(meta_bytes, dtype=np.uint8)
 
 
 @dataclass
@@ -209,7 +215,7 @@ class DataSetMetadata:
         return json.dumps(asdict(self), separators=(",", ":"))
 
     @classmethod
-    def from_array(cls, arr: str) -> DataSetMetadata:
+    def from_array(cls, arr: NDArray[np.uint8]) -> DataSetMetadata:
         """Create from a numpy uint8 array."""
         raw_json = arr.tobytes().decode("utf-8")  # copy, but it's tiny
         return DataSetMetadata.from_json(raw_json)
@@ -390,7 +396,7 @@ class Writer:
         self._arrays: dict[str, NDArray[Any]] = {}
         self._ds = pv.wrap(ds)
 
-    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:
+    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901
         """Extract dataset data as arrays."""
         ds_id = _make_ds_id(ds)
 
@@ -405,12 +411,17 @@ class Writer:
         elif isinstance(ds, RectilinearGrid):
             _add_arrays_rgrid(ds, self._arrays)
         elif isinstance(ds, MultiBlock):
-            multi_meta = MultiBlockMetadata.from_multiblock(ds)
-            meta_bytes = multi_meta.to_json().encode("utf-8")
-            self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = np.frombuffer(meta_bytes, dtype=np.uint8)
+            # placeholder, array insertion order matters
+            self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = None
 
+            child_ids = []
             for ds_child in ds:
+                child_ids.append(_make_ds_id(ds_child))
                 self._add_ds_arrays(ds_child, force_int32=force_int32)
+
+            multi_meta = MultiBlockMetadata(uid=ds_id, children=child_ids)
+            self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = multi_meta.to_array()
+
             return
         else:
             msg = f"Unsupported type {type(ds)}"
@@ -666,12 +677,15 @@ class _DataSetReader:
         self._children: list[_DataSetReader] = []
 
         if isinstance(metadata, MultiBlockMetadata):
-            for child in metadata.children.values():
+            if metadata.children_ds is None:
+                return
+            for child in metadata.children_ds.values():
                 self._children.append(_DataSetReader(child, parent))
 
     def __getitem__(self, idx: int) -> _DataSetReader:
         if not isinstance(self._meta, MultiBlockMetadata):
-            raise TypeError("Only MultiBlock nodes are indexable")
+            msg = "Only MultiBlock nodes are indexable"
+            raise TypeError(msg)
         return self._children[idx]
 
     def __len__(self) -> int:
@@ -695,12 +709,14 @@ class _DataSetReader:
             for child in self._children:
                 mb.append(child.read())
             return mb
-        raise RuntimeError("Unknown metadata type")
+
+        msg = "Unknown metadata type"
+        raise RuntimeError(msg)
 
     def __repr__(self) -> str:
         return self._repr_recursive(prefix="", is_last=True)
 
-    def _repr_recursive(self, prefix: str = "", is_last: bool = True) -> str:
+    def _repr_recursive(self, prefix: str = "", *, is_last: bool = True) -> str:
         connector = "└─ " if is_last else "├─ "
         if isinstance(self._meta, DataSetMetadata):
             return f"{prefix}{connector}{self._meta.ds_type}"
@@ -709,7 +725,7 @@ class _DataSetReader:
             for i, child in enumerate(self._children):
                 last = i == len(self._children) - 1
                 child_prefix = prefix + ("   " if is_last else "│  ")
-                lines.append(child._repr_recursive(child_prefix, last))  # noqa: SLF001
+                lines.append(child._repr_recursive(child_prefix, is_last=last))  # noqa: SLF001
             return "\n".join(lines)
         return f"{prefix}{connector}Unknown"
 
@@ -776,9 +792,11 @@ class Reader:
         self.__ds_reader: _DataSetReader | None = None
 
     def __getitem__(self, idx: int) -> _DataSetReader:
+        """Return an indexed reader."""
         return self._ds_reader[idx]
 
     def __len__(self) -> int:
+        """Return the number of items in the reader."""
         return len(self._ds_reader)
 
     @property
@@ -788,18 +806,19 @@ class Reader:
 
         return self.__ds_reader
 
-    def _load_root_dataset_meta(self) -> None:
+    def _load_root_dataset_meta(self) -> DataSetMetadata | MultiBlockMetadata:
         """
-        Identify all datasets.
+        Return the root dataset metadata.
 
         There may be more than one dataset if it's a multi-block dataset, but
         there's always a root dataset.
         """
-        dmeta = [n for n in self._metadata.frame_names if n.endswith(DS_METADATA_KEY)]
-        if not dmeta:  # pragma: no cover
-            msg = "No dataset metadata found"
-            raise RuntimeError(msg)
-        return self._load_ds_meta(dmeta[0])
+        for frame_name in self._metadata.frame_names:
+            if frame_name.endswith(DS_METADATA_KEY):
+                return self._load_ds_meta(frame_name)
+
+        msg = "No dataset metadata found"
+        raise RuntimeError(msg)
 
     def _load_ds_meta(self, key: str) -> DataSetMetadata | MultiBlockMetadata:
         index = self._metadata.frame_names.index(key)
@@ -908,10 +927,11 @@ class Reader:
 
         return self._segments_to_ds(ds_id, segments)
 
-    def _load_ds_reader(self) -> _DataSetReader:
+    def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901
         """Read metadata hierarchy from the zvtk file."""
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
-            return self._ds_metadata
+            msg = "Can only index a MultiBlock compressed zvtk file."
+            raise TypeError(msg)
 
         # find only metadata frames
         frame_names = self._metadata.frame_names
@@ -936,16 +956,16 @@ class Reader:
         dataset_meta: dict[str, DataSetMetadata] = {}
         for key, segment in segments.items():
             if key.endswith(MULTIBLOCK_METADATA_KEY):
-                meta = MultiBlockMetadata.from_array(segment)
-                mblock_meta[meta.uid] = meta
+                mb_meta = MultiBlockMetadata.from_array(segment)
+                mblock_meta[mb_meta.uid] = mb_meta
             elif key.endswith(DS_METADATA_KEY):
                 uid = key[:16]
-                meta = DataSetMetadata.from_array(segment)
-                dataset_meta[uid] = meta
+                ds_meta = DataSetMetadata.from_array(segment)
+                dataset_meta[uid] = ds_meta
 
         # assemble hierarchy tree by wiring children to their metadata
         for uid, m in mblock_meta.items():
-            children_meta = {}
+            children_meta: dict[str, MultiBlockMetadata | DataSetMetadata] = {}
             for child_uid in m.children:
                 if child_uid in mblock_meta:
                     children_meta[child_uid] = mblock_meta[child_uid]
@@ -954,7 +974,7 @@ class Reader:
                 else:  # pragma: no cover
                     msg = f"Metadata child '{child_uid}' not found for multiblock '{uid}'"
                     raise RuntimeError(msg)
-            m.children = children_meta
+            m.children_ds = children_meta
 
         root_uid = self._ds_metadata.uid
 
@@ -1183,7 +1203,7 @@ class Reader:
             f"  Compression Level:  {self._metadata.compression_level}",
         ]
 
-        if ds_md.ds_type == "MultiBlock":
+        if isinstance(ds_md, MultiBlockMetadata):
             header.append(f"  Dataset Type:       {ds_md.ds_type}")
             header.append("  Hierarchy:")
             header.append(self._ds_reader._repr_recursive(prefix="    ", is_last=True))  # noqa: SLF001

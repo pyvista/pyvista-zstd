@@ -424,20 +424,24 @@ def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> No
             populate_data(ds)
 
     zvtk.write(multi_block_nested, tmp_filename)
+
+    multi_block_out = zvtk.read(tmp_filename)
+    assert multi_block_out == multi_block_nested
+
     reader = zvtk.Reader(tmp_filename)
 
-    # Check top-level MultiBlock hierarchy
-    assert "MultiBlock" in repr(reader)
-    raise RuntimeError(repr(reader))  # temp
+    # Check top-level MultiBlock hierarchy (one for dataset type, 4 in hierarchy
+    n_expected = 5
+    assert repr(reader).count("MultiBlock") == n_expected
 
     # Test selective reading of top-level blocks
-    for ii in range(len(reader._ds_reader)):
+    for ii in range(len(reader._ds_reader)):  # noqa: SLF001
         top_block = reader[ii].read()
         expected_block = multi_block_nested[ii]
         assert top_block == expected_block
 
     # Test recursive reading of nested blocks
-    for ii, child_reader in enumerate(reader._ds_reader._children):
+    for ii, child_reader in enumerate(reader._ds_reader._children):  # noqa: SLF001
         if isinstance(multi_block_nested[ii], MultiBlock):
             nested_reader = child_reader
             for jj in range(len(nested_reader)):

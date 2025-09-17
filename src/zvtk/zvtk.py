@@ -40,7 +40,7 @@ from zstandard import BufferSegment
 from zstandard import BufferWithSegments
 from zstandard import BufferWithSegmentsCollection
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
@@ -80,6 +80,7 @@ LINES = "lines"
 STRIPS = "strips"
 VERTS = "verts"
 
+EMPTY_DS = "EMPTY_DS________"  # must be 16 char to align with UID
 
 VTK_UNSIGNED_CHAR = 3
 VTK_FLOAT = 10
@@ -128,7 +129,7 @@ class MultiBlockMetadata:
     children_keys: list[str]
 
     # optional and used for ds reader
-    children_ds: dict[str, MultiBlockMetadata | DataSetMetadata] | None = None
+    children_ds: dict[str, MultiBlockMetadata | DataSetMetadata | None] | None = None
 
     def to_json(self) -> str:
         """Convert to JSON."""
@@ -449,7 +450,7 @@ class Writer:
         self._arrays: dict[str, NDArray[Any]] = {}
         self._ds = pv.wrap(ds)
 
-    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901
+    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901, PLR0912
         """Extract dataset data as arrays."""
         ds_id = _make_ds_id(ds)
 
@@ -471,8 +472,12 @@ class Writer:
 
             child_ids = []
             for ds_child in ds:
-                child_ids.append(_make_ds_id(ds_child))
-                self._add_ds_arrays(ds_child, force_int32=force_int32)
+                # special handling edge case
+                if ds_child is None:
+                    child_ids.append(EMPTY_DS)
+                else:
+                    child_ids.append(_make_ds_id(ds_child))
+                    self._add_ds_arrays(ds_child, force_int32=force_int32)
 
             multi_meta = MultiBlockMetadata(
                 uid=ds_id,
@@ -482,7 +487,7 @@ class Writer:
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = multi_meta.to_array()
 
             return
-        else:
+        else:  # pragma: no cover
             msg = f"Unsupported type {type(ds)}"
             raise TypeError(msg)
 
@@ -745,7 +750,7 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
 class _DataSetReader:
     def __init__(
         self,
-        metadata: MultiBlockMetadata | DataSetMetadata,
+        metadata: MultiBlockMetadata | DataSetMetadata | None,
         parent: Reader,
     ) -> None:
         self._meta = metadata
@@ -760,22 +765,21 @@ class _DataSetReader:
 
     def __getitem__(self, idx: int) -> _DataSetReader:
         if not isinstance(self._meta, MultiBlockMetadata):
-            msg = "Only MultiBlock nodes are indexable"
+            msg = "Only MultiBlock nodes are indexable."
             raise TypeError(msg)
         return self._children[idx]
 
     def __len__(self) -> int:
         if not isinstance(self._meta, MultiBlockMetadata):
-            return 0
+            msg = "Only MultiBlock nodes have a length."
+            raise TypeError(msg)
         return len(self._children)
 
     @property
     def uid(self) -> str:
+        if self._meta is None:
+            return EMPTY_DS
         return self._meta.uid
-
-    @property
-    def children(self) -> list[_DataSetReader]:
-        return self._children
 
     def read(self) -> DataSet | MultiBlock:
         if isinstance(self._meta, DataSetMetadata):
@@ -786,8 +790,11 @@ class _DataSetReader:
                 mb[key] = child.read()
             return mb
 
-        msg = "Unknown metadata type"
-        raise RuntimeError(msg)
+        if self._meta is None:
+            return None
+
+        msg = "Unknown metadata type"  # pragma: no cover
+        raise RuntimeError(msg)  # pragma: no cover
 
     def __repr__(self) -> str:
         return self._repr_recursive(prefix="", is_last=True)
@@ -803,7 +810,10 @@ class _DataSetReader:
                 child_prefix = prefix + ("   " if is_last else "│  ")
                 lines.append(child._repr_recursive(child_prefix, is_last=last))  # noqa: SLF001
             return "\n".join(lines)
-        return f"{prefix}{connector}Unknown"
+        if self._meta is None:
+            return f"{prefix}{connector}None"
+
+        return f"{prefix}{connector}Unknown"  # pragma: no cover
 
 
 class Reader:
@@ -893,8 +903,8 @@ class Reader:
             if frame_name.endswith(DS_METADATA_KEY):
                 return self._load_ds_meta(frame_name)
 
-        msg = "No dataset metadata found"
-        raise RuntimeError(msg)
+        msg = "No dataset metadata found"  # pragma: no cover
+        raise RuntimeError(msg)  # pragma: no cover
 
     def _load_ds_meta(self, key: str) -> DataSetMetadata | MultiBlockMetadata:
         index = self._metadata.frame_names.index(key) * 2  # times two for metadata
@@ -913,8 +923,8 @@ class Reader:
         if name.endswith(DS_METADATA_KEY):
             return DataSetMetadata.from_array(arr)
 
-        msg = "Metadata key invalid."
-        raise RuntimeError(msg)
+        msg = "Metadata key invalid."  # pragma: no cover
+        raise RuntimeError(msg)  # pragma: no cover
 
     @property
     def decompressed_sizes(self) -> NDArray[np.uint64]:
@@ -1007,14 +1017,14 @@ class Reader:
                 decompressed_sizes=d_sizes_bytes,
                 threads=n_threads,
             )
-        else:
+        else:  # pragma: no cover
             msg = "No selected frames"
             raise RuntimeError(msg)
 
-        segments = _raw_segments_to_arrays(segments_raw)
-        return self._segments_to_ds(ds_id, segments)
+        segments = _raw_segments_to_arrays(segments_raw)  # pragma: no cover
+        return self._segments_to_ds(ds_id, segments)  # pragma: no cover
 
-    def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901
+    def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901, PLR0912
         """Read metadata hierarchy from the zvtk file."""
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
             msg = "Can only index a MultiBlock compressed zvtk file."
@@ -1053,12 +1063,14 @@ class Reader:
 
         # assemble hierarchy tree by wiring children to their metadata
         for uid, m in mblock_meta.items():
-            children_meta: dict[str, MultiBlockMetadata | DataSetMetadata] = {}
+            children_meta: dict[str, MultiBlockMetadata | DataSetMetadata | None] = {}
             for child_uid in m.children:
                 if child_uid in mblock_meta:
                     children_meta[child_uid] = mblock_meta[child_uid]
                 elif child_uid in dataset_meta:
                     children_meta[child_uid] = dataset_meta[child_uid]
+                elif child_uid == EMPTY_DS:
+                    children_meta[child_uid] = None
                 else:  # pragma: no cover
                     msg = f"Metadata child '{child_uid}' not found for multiblock '{uid}'"
                     raise RuntimeError(msg)
@@ -1072,7 +1084,7 @@ class Reader:
 
         return _DataSetReader(mblock_meta[root_uid], self)
 
-    def read(self, n_threads: int | None = None) -> DataSet:
+    def read(self, n_threads: int | None = None) -> DataSet:  # noqa: C901
         """Read in the dataset from the zvtk file."""
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
             return self._read_ds(self._ds_metadata.uid, n_threads)
@@ -1109,6 +1121,8 @@ class Reader:
                     mb[child_key] = multiblock_map[child_uid]
                 elif child_uid in dataset_map:
                     mb[child_key] = dataset_map[child_uid]
+                elif child_uid == EMPTY_DS:
+                    mb[child_key] = None
                 else:  # pragma: no cover
                     msg = f"Multiblock child '{child_uid}' not found for multiblock '{m.uid}'"
                     raise RuntimeError(msg)
@@ -1139,7 +1153,7 @@ class Reader:
             ds = _segments_to_rgrid(ds_id, segments)
         elif ds_type == "StructuredGrid":
             ds = _segments_to_sgrid(ds_id, segments, ds_metadata)
-        else:
+        else:  # pragma: no cover
             msg = f"zvtk does not support DataSet type `{ds_type}` for decompression"
             raise RuntimeError(msg)
 

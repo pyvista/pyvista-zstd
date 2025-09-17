@@ -436,6 +436,14 @@ def test_multiblock_reader_class(multi_block: MultiBlock, tmp_path: Path) -> Non
 
     assert reader.read() == multi_block
 
+    with pytest.raises(TypeError, match="Only MultiBlock nodes are indexable."):
+        reader[ii][0]
+
+    with pytest.raises(TypeError, match="Only MultiBlock nodes have a length."):
+        len(reader[ii])
+
+    assert type(multi_block[0]).__name__ in repr(reader[0])
+
 
 def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> None:
     """Test reading a nested MultiBlock hierarchy."""
@@ -464,6 +472,8 @@ def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> No
         expected_block = multi_block_nested[ii]
         assert top_block == expected_block
 
+    assert len(multi_block_nested)
+
     # Test recursive reading of nested blocks
     for ii, child_reader in enumerate(reader._ds_reader._children):  # noqa: SLF001
         if isinstance(multi_block_nested[ii], MultiBlock):
@@ -476,3 +486,19 @@ def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> No
     # Read entire hierarchy
     full_ds = reader.read()
     assert full_ds == multi_block_nested
+
+
+def test_multiblock_empty(multi_block: MultiBlock, tmp_path: Path) -> None:
+    """Test that an empty multiblock is encoded correctly."""
+    tmp_filename = tmp_path / "tmp.zvtk"
+    multi_block.append(MultiBlock([None]))
+
+    zvtk.write(multi_block, tmp_filename)
+    multi_block_out = zvtk.read(tmp_filename)
+
+    assert multi_block.keys() == multi_block_out.keys()
+    assert multi_block == multi_block_out
+
+    reader = zvtk.Reader(tmp_filename)
+    assert "None" in repr(reader)
+    assert reader[-1][0].read() is None

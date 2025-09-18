@@ -502,3 +502,15 @@ def test_multiblock_empty(multi_block: MultiBlock, tmp_path: Path) -> None:
     reader = zvtk.Reader(tmp_filename)
     assert "None" in repr(reader)
     assert reader[-1][0].read() is None
+
+
+def test_multiblock_duplicate(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Ensure duplicate blocks save correctly."""
+    tmp_filename = tmp_path / "tmp.zvtk"
+    mblock = MultiBlock([ugrid, ugrid])
+    assert mblock[0] is mblock[1]
+
+    zvtk.write(mblock, tmp_filename)
+    mblock_out = zvtk.read(tmp_filename)
+
+    assert mblock_out[0] is mblock_out[1]

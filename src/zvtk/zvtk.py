@@ -450,8 +450,16 @@ class Writer:
         self._arrays: dict[str, NDArray[Any]] = {}
         self._ds = pv.wrap(ds)
 
+        # used to hold a reference to the dataset. This is necessary for
+        # multiblocks to avoid having them collected and getting duplicate
+        # memory addresses
+        self._refs: list[DataSet | MultiBlock] = []
+
     def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901, PLR0912
         """Extract dataset data as arrays."""
+        # Hold on to a reference of the dataset to avoid it being collected
+        # while we generate all memory IDs
+        self._refs.append(ds)
         ds_id = _make_ds_id(ds)
 
         if isinstance(ds, PolyData):
@@ -470,9 +478,11 @@ class Writer:
             # placeholder, array insertion order matters
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = None
 
+            # We have to convert to a list of blocks for unique memory IDs in a
+            # handful of edge cases.
             child_ids = []
             for ds_child in ds:
-                # special handling edge case
+                # special handling none edge case
                 if ds_child is None:
                     child_ids.append(EMPTY_DS)
                 else:
@@ -553,6 +563,9 @@ class Writer:
             # 16 bytes per frame
             fout.writelines(struct.pack("<QQ", off, dsz) for off, dsz in frame_meta)
             fout.write(struct.pack("<Q", len(frame_meta)))  # total frames at very end
+
+        # no need to hold onto any references as all IDs have been written
+        self._refs = []
 
 
 def _reconstruct_array(meta_segment: BufferSegment, arr_segment: BufferSegment) -> np.ndarray:

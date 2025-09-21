@@ -1,6 +1,8 @@
 # zvtk - Seamlessly Compress VTK Datasets using Zstandard
 
-**tl;dr** Read in VTK datasets ~37x faster, write ~14x faster, all while using ~28% less space vs. VTK's modern XML format.
+**tl;dr** Read in VTK datasets 37x faster, write 14x faster, all while using 28% less space vs. VTK's modern XML format.
+
+![Read/Write Speedup and Compression Ratios](benchmarks/figures/examples-fig3.png)
 
 ### Usage
 
@@ -41,9 +43,12 @@ ds_in = zvtk.read("sphere.zvtk")
 
 ### Rational
 
-VTK's XML writer is flexible and supports [most datasets](https://docs.vtk.org/en/latest/vtk_file_formats/vtkxml_file_format.html), but its compression is limited to a single thread, limited subset of compression algorithms, and the XML format has significant overhead.
+VTK's XML writer is flexible and supports [most datasets](https://docs.vtk.org/en/latest/vtk_file_formats/vtkxml_file_format.html), but its compression is limited to a single thread, has only a subset of compression algorithms, and the XML format adds significant overhead.
 
-To demonstrate this, the following writes out a single file without compression. This example requires `pyvista>=0.47.0` for the `compression` parameter.
+To demonstrate this, the following example writes out a single file without compression. This example requires `pyvista>=0.47.0` for the `compression` parameter.
+
+<details>
+<summary>Dataset Creation</summary>
 
 ```py
 import time
@@ -74,42 +79,46 @@ nbytes = (
 )
 print(f"Size in memory: {nbytes / 1024**2:.2f} MB")
 print()
-
-# save using VTK XML format
-tmp_path = Path("/tmp/ds.vtu")
-tstart = time.time()
-ugrid.save(tmp_path, compression=None)
-print(f"Compressed in {time.time() - tstart:.2f} seconds")
-nbytes_disk = tmp_path.stat().st_size
-print(f"  File size:            {nbytes_disk / 1024**2:.2f} MB")
-print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
-print()
 ```
 
-This results in:
+</details>
 
-```
+```py
+>>> print(f"Size in memory: {nbytes / 1024**2:.2f} MB")
+
 Size in memory: 1993.89 MB
+```
 
-Compressed in 7.93 seconds
+```py
+Save using VTK XML format
+
+>>> tmp_path = Path("/tmp/ds.vtu")
+>>> tstart = time.time()
+>>> ugrid.save(tmp_path, compression=None)
+>>> print(f"Written without compression in {time.time() - tstart:.2f} seconds")
+>>> nbytes_disk = tmp_path.stat().st_size
+>>> print(f"  File size:            {nbytes_disk / 1024**2:.2f} MB")
+>>> print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
+>>> print()
+
+Written without compression in 7.93 seconds
 File size:            2858.94 MB
 Compression Ratio:    0.6974239255525742
 ```
 
-This amounts to around a 43% overhead. Using the default compression we can get the
-file size down to 791 MB, but it takes 19 seconds to compress.
+This amounts to around a 43% overhead using VTK's XML writer. Using the default
+compression we can get the file size down to 791 MB, but it takes 19 seconds to
+compress.
 
 ```py
-tstart = time.time()
-ugrid.save(tmp_path, compression='zlib')  # default
-print(f"Compressed in {time.time() - tstart:.2f} seconds")
-nbytes_disk = tmp_path.stat().st_size
-print(f"  File size:            {nbytes_disk / 1024**2:.2f} MB")
-print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
-print()
-```
+>>> tstart = time.time()
+>>> ugrid.save(tmp_path, compression='zlib')  # default
+>>> print(f"Compressed in {time.time() - tstart:.2f} seconds")
+>>> nbytes_disk = tmp_path.stat().st_size
+>>> print(f"  File size:            {nbytes_disk / 1024**2:.2f} MB")
+>>> print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
+>>> print()
 
-```
 Compressed in 18.83 seconds
 File size:            791.05 MB
 Compression Ratio:    2.5205590295735663
@@ -118,7 +127,7 @@ Compression Ratio:    2.5205590295735663
 Clearly there's room for improvement here as this amounts to a compression rate
 of 105.89 MB/s.
 
-### VTK Compression with Zstandard - zvtk
+### VTK Compression with Zstandard: zvtk
 
 This library, `zvtk`, writes out VTK datasets with minimal overhead and uses
 [Zstandard](https://github.com/facebook/zstd) for compression. Moreover, it's
@@ -165,7 +174,7 @@ This amounts to a single-core compression rate of 685.18 MB/s, which is in agree
 
 Reading it in is also fast. Comparing with VTK's XML reader using defaults:
 
-```
+```py
 Read VTK XML
 
 >>> print(f"Read VTK XML:")
@@ -184,12 +193,16 @@ Read zstd
 This is a 11x speedup for this dataset versus VTK's XML, and it's still fast
 even with multi-threading disabled:
 
-```
+```py
 >>> timeit zvtk.read("/tmp/ds.zvtk", n_threads=0)
 1.11 s ± 4.51 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 ```
 
 This amounts to 1796 MB/s for a single core, which is also in agreement with Zstandard's [benchmarks](https://github.com/facebook/zstd#benchmarks).
+
+Additionally, you can control the compression level
+
+![Read/Write Speed vs. Compression Level](benchmarks/figures/zvtk-single-ds-fig4.png)
 
 These benchmarks were performed on a, a `i9-14900KF` running the Linux kernel
 `6.12.41` using `zstandard==0.24.0` from PyPI. Storage was a 2TB Samsung 990
@@ -204,5 +217,3 @@ The `benchmarks/` directory contains additional benchmarks using many datasets, 
 ![Compression Ratio vs. VTK's XML](benchmarks/figures/synthetic-fig4.png)
 
 ![Read/Write Speed vs. Number of Threads](benchmarks/figures/zvtk-single-ds-fig3.png)
-
-![Read/Write Speed vs. Compression Level](benchmarks/figures/zvtk-single-ds-fig4.png)

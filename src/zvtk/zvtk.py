@@ -1070,6 +1070,7 @@ class Reader:
 
         return metadata
 
+    # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
         """Read a single dataset."""
         # map frame indices to names using metadata
@@ -1089,6 +1090,10 @@ class Reader:
         selected_frames = []
         sizes = []
         selected_frame_names = set(frame_names) - excluded
+
+        # downselect to the matching dataset id
+        selected_frame_names = {f for f in selected_frame_names if f.startswith(ds_id)}
+
         n_frames = len(frame_names)
         if len(selected_frame_names) == n_frames:
             # Decompress with multi-threaded buffer API

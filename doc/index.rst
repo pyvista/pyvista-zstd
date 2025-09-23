@@ -11,7 +11,7 @@
    :caption: Examples
    :hidden:
 
-   examples/index
+   auto_examples/index
 
 
 .. toctree::

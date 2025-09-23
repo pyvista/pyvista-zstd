@@ -1,0 +1,737 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Synthetic Dataset Benchmarks &#8212; zvtk 0.1.dev0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=d2d258e8" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../_static/documentation_options.js?v=0264dbde"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=49e1bf35"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'benchmarks/synthetic_dataset';</script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="ZVTK Compression and Threading Benchmarks" href="zvtk_benchmark.html" />
+    <link rel="prev" title="PyVista Examples Benchmarks" href="pv_examples.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="zvtk 0.1.dev0 documentation - Home"/>
+    <script>document.write(`<img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark" alt="zvtk 0.1.dev0 documentation - Home"/>`);</script>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pyvista/zvtk" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../index.html">zvtk</a></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../auto_examples/index.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../auto_examples/00-save-and-load.html">Save and Load DataSet using zvtk</a></li>
+
+<li class="toctree-l2"><a class="reference internal" href="../auto_examples/02-selective-multiblock.html">Selectively Load a MultiBlock</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../auto_examples/01-compare.html">Compare Saving a Surface DataSet</a></li>
+</ul>
+</details></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../_autosummary/zvtk.read.html">zvtk.read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../_autosummary/zvtk.write.html">zvtk.write</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../_autosummary/zvtk.Reader.html">zvtk.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.read.html">zvtk.Reader.read</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.show_frame_compression.html">zvtk.Reader.show_frame_compression</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.__init__.html">zvtk.Reader.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.read.html">zvtk.Reader.read</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.show_frame_compression.html">zvtk.Reader.show_frame_compression</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.available_cell_arrays.html">zvtk.Reader.available_cell_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.available_field_arrays.html">zvtk.Reader.available_field_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.available_point_arrays.html">zvtk.Reader.available_point_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.decompressed_sizes.html">zvtk.Reader.decompressed_sizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.nbytes.html">zvtk.Reader.nbytes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.selected_cell_arrays.html">zvtk.Reader.selected_cell_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.selected_field_arrays.html">zvtk.Reader.selected_field_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Reader.selected_point_arrays.html">zvtk.Reader.selected_point_arrays</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../_autosummary/zvtk.Writer.html">zvtk.Writer</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Writer.write.html">zvtk.Writer.write</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Writer.__init__.html">zvtk.Writer.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/zvtk.Writer.write.html">zvtk.Writer.write</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Benchmarks</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="pv_examples.html">PyVista Examples Benchmarks</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Synthetic Dataset Benchmarks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zvtk_benchmark.html">ZVTK Compression and Threading Benchmarks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="compression_alg_comparison.html">Compression Algorithm Comparison</a></li>
+</ul>
+</details></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/benchmarks/synthetic_dataset.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Synthetic Dataset Benchmarks</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-size-comparison">File Size Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-time-comparison">Write Time Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-time-comparison">Read Time Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#speedup-vs-dataset-size">Speedup vs Dataset Size</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compression-ratios-vs-dataset-size">Compression Ratios vs Dataset Size</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#benchmark-script">Benchmark Script</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="synthetic-dataset-benchmarks">
+<h1>Synthetic Dataset Benchmarks<a class="headerlink" href="#synthetic-dataset-benchmarks" title="Link to this heading">#</a></h1>
+<p>These benchmarks evaluate <code class="docutils literal notranslate"><span class="pre">zvtk</span></code> performance on synthetic
+<code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.UnstructuredGrid`s</span> <span class="pre">generated</span> <span class="pre">from</span>
+<span class="pre">:class:`pyvista.ImageData</span></code>. Dataset sizes range from a handful of KB to over 5
+GB.</p>
+<section id="file-size-comparison">
+<h2>File Size Comparison<a class="headerlink" href="#file-size-comparison" title="Link to this heading">#</a></h2>
+<figure class="align-center" id="id1">
+<img alt="File size comparison: ZVTK vs VTK XML" src="../_images/synthetic-fig0.png" />
+<figcaption>
+<p><span class="caption-text">File size comparison for synthetic unstructured grids</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><code class="docutils literal notranslate"><span class="pre">zvtk</span></code> consistently produces smaller files than VTK XML.  The red line indicates
+the linear fit ratio between <code class="docutils literal notranslate"><span class="pre">zvtk</span></code> and VTK file sizes, showing a 26% reduction
+in file size for <code class="docutils literal notranslate"><span class="pre">zvtk</span></code> files vs. VTK XML using zlib (default).</p>
+</section>
+<section id="write-time-comparison">
+<h2>Write Time Comparison<a class="headerlink" href="#write-time-comparison" title="Link to this heading">#</a></h2>
+<figure class="align-center" id="id2">
+<img alt="Write performance comparison: ZVTK vs VTK XML" src="../_images/synthetic-fig1.png" />
+<figcaption>
+<p><span class="caption-text">Write time comparison for synthetic unstructured grids</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><code class="docutils literal notranslate"><span class="pre">zvtk</span></code> write times are consistently lower than VTK XML, about 37 times faster
+for this dataset.</p>
+</section>
+<section id="read-time-comparison">
+<h2>Read Time Comparison<a class="headerlink" href="#read-time-comparison" title="Link to this heading">#</a></h2>
+<figure class="align-center" id="id3">
+<img alt="Read performance comparison: ZVTK vs VTK XML" src="../_images/synthetic-fig2.png" />
+<figcaption>
+<p><span class="caption-text">Read time comparison for synthetic unstructured grids</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Reading <code class="docutils literal notranslate"><span class="pre">zvtk</span></code> files is substantially faster than VTK XML across all dataset
+sizes, about 14 times faster than VTK.</p>
+</section>
+<section id="speedup-vs-dataset-size">
+<h2>Speedup vs Dataset Size<a class="headerlink" href="#speedup-vs-dataset-size" title="Link to this heading">#</a></h2>
+<figure class="align-center" id="id4">
+<img alt="Read/Write speedup vs dataset size" src="../_images/synthetic-fig3.png" />
+<figcaption>
+<p><span class="caption-text">Read/Write speedup (zvtk / VTK XML) versus dataset size</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Both read and write operations achieve multiple-fold speedups with <code class="docutils literal notranslate"><span class="pre">zvtk</span></code>.
+Larger datasets show the most pronounced improvements.</p>
+</section>
+<section id="compression-ratios-vs-dataset-size">
+<h2>Compression Ratios vs Dataset Size<a class="headerlink" href="#compression-ratios-vs-dataset-size" title="Link to this heading">#</a></h2>
+<figure class="align-center" id="id5">
+<img alt="Compression ratios vs dataset size" src="../_images/synthetic-fig4.png" />
+<figcaption>
+<p><span class="caption-text">Compression ratios (zvtk vs VTK XML) versus dataset size</span><a class="headerlink" href="#id5" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>ZVTK maintains higher compression than VTK XML for all synthetic dataset sizes.</p>
+</section>
+<section id="benchmark-script">
+<h2>Benchmark Script<a class="headerlink" href="#benchmark-script" title="Link to this heading">#</a></h2>
+<p>The benchmarks were executed using the following Python script:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Synthetic DataSet benchmarks.</span>
+
+<span class="sd">Create a synatic unstructured grid from imagedata.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pyvista</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pv</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">seaborn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sns</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">zvtk</span>
+
+<span class="n">tmp_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/zvtk_test&quot;</span><span class="p">)</span>
+<span class="n">tmp_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="c1"># Synthetic ImageData -&gt; UnstructuredGrid</span>
+<span class="k">for</span> <span class="n">n_dim</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">300</span><span class="p">,</span> <span class="mi">20</span><span class="p">)):</span>  <span class="c1"># adjust step for speed</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;synthetic_</span><span class="si">{</span><span class="n">n_dim</span><span class="si">}</span><span class="s2">^3&quot;</span>
+    <span class="n">imdata</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">ImageData</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="p">(</span><span class="n">n_dim</span><span class="p">,</span> <span class="n">n_dim</span><span class="p">,</span> <span class="n">n_dim</span><span class="p">))</span>
+    <span class="n">ugrid</span> <span class="o">=</span> <span class="n">imdata</span><span class="o">.</span><span class="n">to_tetrahedra</span><span class="p">()</span>
+
+    <span class="c1"># Add point/cell data</span>
+    <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;sample_point_data&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_points</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;sample_cell_data&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_cells</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+
+    <span class="c1"># Save/read timing for VTK</span>
+    <span class="n">filename</span> <span class="o">=</span> <span class="n">tmp_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.vtu&quot;</span>
+    <span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">ugrid</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="n">vtk_write_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">tstart</span>
+
+    <span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">pv</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="n">vtk_read_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">tstart</span>
+
+    <span class="n">vtk_fs</span> <span class="o">=</span> <span class="n">filename</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+
+    <span class="c1"># Save/read timing for zvtk</span>
+    <span class="n">out_file</span> <span class="o">=</span> <span class="n">tmp_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.zvtk&quot;</span>
+    <span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">writer</span> <span class="o">=</span> <span class="n">zvtk</span><span class="o">.</span><span class="n">Writer</span><span class="p">(</span><span class="n">ugrid</span><span class="p">,</span> <span class="n">out_file</span><span class="p">)</span>
+    <span class="n">writer</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">n_threads</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">zvtk_write_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">tstart</span>
+    <span class="n">zvtk_fs</span> <span class="o">=</span> <span class="n">out_file</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+
+    <span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">reader</span> <span class="o">=</span> <span class="n">zvtk</span><span class="o">.</span><span class="n">Reader</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+    <span class="n">reader</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+    <span class="n">zvtk_read_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">tstart</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="n">reader</span><span class="o">.</span><span class="n">nbytes</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
+            <span class="s2">&quot;ds_type&quot;</span><span class="p">:</span> <span class="s2">&quot;UnstructuredGrid&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;raw_nbytes&quot;</span><span class="p">:</span> <span class="n">reader</span><span class="o">.</span><span class="n">nbytes</span><span class="p">,</span>
+            <span class="s2">&quot;vtk_nbytes&quot;</span><span class="p">:</span> <span class="n">vtk_fs</span><span class="p">,</span>
+            <span class="s2">&quot;zvtk_nbytes&quot;</span><span class="p">:</span> <span class="n">zvtk_fs</span><span class="p">,</span>
+            <span class="s2">&quot;vtk_write_time&quot;</span><span class="p">:</span> <span class="n">vtk_write_time</span><span class="p">,</span>
+            <span class="s2">&quot;zvtk_write_time&quot;</span><span class="p">:</span> <span class="n">zvtk_write_time</span><span class="p">,</span>
+            <span class="s2">&quot;vtk_read_time&quot;</span><span class="p">:</span> <span class="n">vtk_read_time</span><span class="p">,</span>
+            <span class="s2">&quot;zvtk_read_time&quot;</span><span class="p">:</span> <span class="n">zvtk_read_time</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="p">)</span>
+
+<span class="c1"># Build DataFrame and compute ratios</span>
+<span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">&quot;write_speedup&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;zvtk_write_time&quot;</span><span class="p">]</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">&quot;read_speedup&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;zvtk_read_time&quot;</span><span class="p">]</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">&quot;compression_ratio_vtk&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;vtk_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">]</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">&quot;compression_ratio_zvtk&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;zvtk_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">]</span>
+
+<span class="n">summary</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+
+<span class="n">summary</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>  <span class="c1"># synthetic benchmark results</span>
+
+<span class="n">sns</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">style</span><span class="o">=</span><span class="s2">&quot;whitegrid&quot;</span><span class="p">)</span>
+
+<span class="c1"># Convert bytes to MB for better readability</span>
+<span class="n">summary</span><span class="p">[</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
+<span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
+<span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_MB&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
+
+
+<span class="c1">###############################################################################</span>
+<span class="c1"># 1. File size comparison with ratio fit</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;zvtk_MB&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+
+<span class="c1"># 1:1 reference line</span>
+<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_MB&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">&quot;k--&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;1:1 line&quot;</span><span class="p">)</span>
+
+<span class="c1"># Linear fit forced through origin to get ratio</span>
+<span class="n">ratio_coef</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_MB&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">))</span>
+<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">&quot;r-&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK&quot;</span><span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;VTK XML file size (MB)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;ZVTK file size (MB)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;File size comparison: ZVTK vs VTK XML&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+<span class="c1">###############################################################################</span>
+<span class="c1"># 2. Write time comparison with ratio fit</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;zvtk_write_time&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+
+<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_write_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">&quot;k--&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;1:1 line&quot;</span><span class="p">)</span>
+
+<span class="n">ratio_coef</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_write_time&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">&quot;r-&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK&quot;</span><span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;VTK write time (s)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;ZVTK write time (s)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Write performance comparison: ZVTK vs VTK XML&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+<span class="c1">###############################################################################</span>
+<span class="c1"># 3. Read time comparison with ratio fit</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;zvtk_read_time&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+
+<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_read_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">&quot;k--&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;1:1 line&quot;</span><span class="p">)</span>
+
+<span class="n">ratio_coef</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;zvtk_read_time&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">&quot;r-&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK&quot;</span><span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;VTK read time (s)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;ZVTK read time (s)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Read performance comparison: ZVTK vs VTK XML&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+
+<span class="c1">###############################################################################</span>
+<span class="c1"># 4. Ratios summary (speedup and compression)</span>
+<span class="c1"># 4a. Speedup summary</span>
+<span class="n">summary_speedup</span> <span class="o">=</span> <span class="n">summary</span><span class="o">.</span><span class="n">melt</span><span class="p">(</span>
+    <span class="n">id_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">],</span>
+    <span class="n">value_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;write_speedup&quot;</span><span class="p">,</span> <span class="s2">&quot;read_speedup&quot;</span><span class="p">],</span>
+    <span class="n">var_name</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span>
+    <span class="n">value_name</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">lineplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary_speedup</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">hue</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Raw dataset size (MB)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Speedup (ZVTK / VTK XML)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Read/Write Speedup vs Dataset Size&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+<span class="c1"># 4b. Compression ratio summary</span>
+<span class="n">summary_compression</span> <span class="o">=</span> <span class="n">summary</span><span class="o">.</span><span class="n">melt</span><span class="p">(</span>
+    <span class="n">id_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">],</span>
+    <span class="n">value_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;compression_ratio_vtk&quot;</span><span class="p">,</span> <span class="s2">&quot;compression_ratio_zvtk&quot;</span><span class="p">],</span>
+    <span class="n">var_name</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span>
+    <span class="n">value_name</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">lineplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary_compression</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">hue</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Raw dataset size (MB)&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Compression Ratio&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Compression Ratios vs Dataset Size&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-size-comparison">File Size Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-time-comparison">Write Time Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-time-comparison">Read Time Comparison</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#speedup-vs-dataset-size">Speedup vs Dataset Size</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compression-ratios-vs-dataset-size">Compression Ratios vs Dataset Size</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#benchmark-script">Benchmark Script</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Alex Kaszynski
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2025-2025, The PyVista Developers.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

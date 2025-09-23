@@ -1,0 +1,686 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>zvtk &#8212; zvtk 0.1.dev0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css?v=d2d258e8" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="_static/documentation_options.js?v=ce969aa5"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="_static/copybutton.js?v=49e1bf35"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'index';</script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Examples" href="auto_examples/index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="0.1.dev0" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="#">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="zvtk 0.1.dev0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="zvtk 0.1.dev0 documentation - Home"/>
+  
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="#">
+    zvtk
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pyvista/zvtk" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="#">
+    zvtk
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="auto_examples/index.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pyvista/zvtk" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none"></div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="zvtk">
+<h1>zvtk<a class="headerlink" href="#zvtk" title="Link to this heading">#</a></h1>
+<p>Seamlessly compress VTK datasets using <a class="reference external" href="https://github.com/facebook/zstd">Zstandard</a>.</p>
+<p><strong>Read in VTK datasets 37x faster, write 14x faster, all while using 28% less
+space versus VTK’s modern XML format.</strong></p>
+<figure class="align-default" id="id1">
+<img alt="Read/Write Speedup and Compression Ratios" src="images/speed-up.png" />
+<figcaption>
+<p><span class="caption-text">Read/Write Speedup and Compression Ratios</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<p>Install with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>zvtk
+</pre></div>
+</div>
+<p>Compatible with all VTK dataset types. Uses
+<a class="reference external" href="https://docs.pyvista.org/">PyVista</a> under the hood.</p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">zvtk</span>
+
+<span class="c1"># create and write out</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">Sphere</span><span class="p">()</span>
+<span class="n">zvtk</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="s2">&quot;dataset.zvtk&quot;</span><span class="p">)</span>
+
+<span class="c1"># read in and show these are identical</span>
+<span class="n">ds_in</span> <span class="o">=</span> <span class="n">zvtk</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;dataset.zvtk&quot;</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">ds</span> <span class="o">==</span> <span class="n">ds_in</span>
+</pre></div>
+</div>
+<p><strong>Alternative VTK example</strong></p>
+<div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">vtk</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">zvtk</span>
+
+<span class="c1"># create dataset using VTK source</span>
+<span class="n">sphere_source</span> <span class="o">=</span> <span class="n">vtk</span><span class="o">.</span><span class="n">vtkSphereSource</span><span class="p">()</span>
+<span class="n">sphere_source</span><span class="o">.</span><span class="n">SetRadius</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span>
+<span class="n">sphere_source</span><span class="o">.</span><span class="n">SetThetaResolution</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">sphere_source</span><span class="o">.</span><span class="n">SetPhiResolution</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span>
+<span class="n">sphere_source</span><span class="o">.</span><span class="n">Update</span><span class="p">()</span>
+
+<span class="n">vtk_ds</span> <span class="o">=</span> <span class="n">sphere_source</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span>
+
+<span class="c1"># read back</span>
+<span class="n">zvtk</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">vtk_ds</span><span class="p">,</span> <span class="s2">&quot;sphere.zvtk&quot;</span><span class="p">)</span>
+<span class="n">ds_in</span> <span class="o">=</span> <span class="n">zvtk</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;sphere.zvtk&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="rational">
+<h2>Rational<a class="headerlink" href="#rational" title="Link to this heading">#</a></h2>
+<p>VTK’s XML writer is flexible and supports <a class="reference external" href="https://docs.vtk.org/en/latest/vtk_file_formats/vtkxml_file_format.html">most
+datasets</a>,
+but its compression is limited to a single thread, has only a subset of
+compression algorithms, and the XML format adds significant overhead.</p>
+<p>To demonstrate this, the following example writes out a single file
+without compression. This example requires <code class="docutils literal notranslate"><span class="pre">pyvista&gt;=0.47.0</span></code> for the
+<code class="docutils literal notranslate"><span class="pre">compression</span></code> parameter.</p>
+<details><summary><p>Dataset Creation</p>
+</summary><div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pyvista</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pv</span>
+<span class="n">tmp_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/zvtk_test&quot;</span><span class="p">)</span>
+<span class="n">tmp_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="c1"># Generate a single unstructured grid</span>
+<span class="n">n_dim</span> <span class="o">=</span> <span class="mi">200</span>
+<span class="n">imdata</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">ImageData</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="p">(</span><span class="n">n_dim</span><span class="p">,</span> <span class="n">n_dim</span><span class="p">,</span> <span class="n">n_dim</span><span class="p">))</span>
+<span class="n">ugrid</span> <span class="o">=</span> <span class="n">imdata</span><span class="o">.</span><span class="n">to_tetrahedra</span><span class="p">()</span>
+
+<span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;pdata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_points</span><span class="p">)</span>
+<span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;cdata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_cells</span><span class="p">)</span>
+
+<span class="n">nbytes</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">ugrid</span><span class="o">.</span><span class="n">points</span><span class="o">.</span><span class="n">nbytes</span>
+    <span class="o">+</span> <span class="n">ugrid</span><span class="o">.</span><span class="n">cell_connectivity</span><span class="o">.</span><span class="n">nbytes</span>
+    <span class="o">+</span> <span class="n">ugrid</span><span class="o">.</span><span class="n">offset</span><span class="o">.</span><span class="n">nbytes</span>
+    <span class="o">+</span> <span class="n">ugrid</span><span class="o">.</span><span class="n">celltypes</span><span class="o">.</span><span class="n">nbytes</span>
+    <span class="o">+</span> <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;pdata&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">nbytes</span>
+    <span class="o">+</span> <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;cdata&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">nbytes</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Size in memory: </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">()</span>
+</pre></div>
+</div>
+</details><div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Size in memory: </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+
+<span class="go">Size in memory: 1993.89 MB</span>
+</pre></div>
+</div>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="go">Save using VTK XML format</span>
+
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tmp_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.vtu&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Written without compression in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">()</span>
+
+<span class="go">Written without compression in 7.93 seconds</span>
+<span class="go">File size:            2858.94 MB</span>
+<span class="go">Compression Ratio:    0.6974239255525742</span>
+</pre></div>
+</div>
+<p>This amounts to around a 43% overhead using VTK’s XML writer. Using the
+default compression we can get the file size down to 791 MB, but it
+takes 19 seconds to compress.</p>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s1">&#39;zlib&#39;</span><span class="p">)</span>  <span class="c1"># default</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Compressed in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">()</span>
+
+<span class="go">Compressed in 18.83 seconds</span>
+<span class="go">File size:            791.05 MB</span>
+<span class="go">Compression Ratio:    2.5205590295735663</span>
+</pre></div>
+</div>
+<p>Clearly there’s room for improvement here as this amounts to a
+compression rate of 105.89 MB/s.</p>
+</section>
+<section id="vtk-compression-with-zstandard-zvtk">
+<h2>VTK Compression with Zstandard: zvtk<a class="headerlink" href="#vtk-compression-with-zstandard-zvtk" title="Link to this heading">#</a></h2>
+<p>This library, <code class="docutils literal notranslate"><span class="pre">zvtk</span></code>, writes out VTK datasets with minimal overhead
+and uses <a class="reference external" href="https://github.com/facebook/zstd">Zstandard</a> for
+compression. Moreover, it’s been implemented with multi-threading
+support for both read and write operations.</p>
+<p>Let’s compress that file again but this time using <code class="docutils literal notranslate"><span class="pre">zvtk</span></code>:</p>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">zvtk</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tmp_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.zvtk&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">zvtk</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ugrid</span><span class="p">,</span> <span class="n">tmp_path</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Compressed zvtk in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="go">Compressed zvtk in 0.92 seconds</span>
+<span class="go">Threads:              -1</span>
+<span class="go">File size:            660.41 MB</span>
+<span class="go">Compression Ratio:    3.019175309922273</span>
+</pre></div>
+</div>
+<p>This gives us a write performance of 2167 MB/s using the default number
+of threads and compression level, resulting in a 20x speedup in write
+performance versus VTK’s XML writer. This speedup is most noticeable for
+larger files:</p>
+<figure class="align-default" id="id2">
+<img alt="Speedup versus VTK’s XML" src="images/synthetic-fig3.png" />
+<figcaption>
+<p><span class="caption-text">Speedup versus VTK’s XML</span><a class="headerlink" href="#id2" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Even when disabling multi-threading we can still achieve excellent
+performance:</p>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">zvtk</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ugrid</span><span class="p">,</span> <span class="n">tmp_path</span><span class="p">,</span> <span class="n">n_threads</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Compressed zvtk in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="go">Compressed zvtk in 2.91 seconds</span>
+<span class="go">Threads:              0</span>
+<span class="go">File size:            660.47 MB</span>
+<span class="go">Compression Ratio:    3.0188911592355683</span>
+</pre></div>
+</div>
+<p>This amounts to a single-core compression rate of 685.18 MB/s, which is
+in agreement with Zstandard’s
+<a class="reference external" href="https://github.com/facebook/zstd#benchmarks">benchmarks</a>.</p>
+<p>Note that the benefit of threading drops off rapidly past 8 threads,
+though part of this is due to the performance versus efficiency cores of
+the CPU used for benchmarking (see below).</p>
+<figure class="align-default" id="id3">
+<img alt="Read/Write Speed versus Number of Threads" src="images/zvtk-single-ds-fig3.png" />
+<figcaption>
+<p><span class="caption-text">Read/Write Speed versus Number of Threads</span><a class="headerlink" href="#id3" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<hr class="docutils" />
+<p>Reading in the dataset is also fast. Comparing with VTK’s XML reader
+using defaults:</p>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="go">Read VTK XML</span>
+
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Read VTK XML:&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">pv</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.vtu&quot;</span><span class="p">)</span>
+<span class="go">6.22 s ± 9.21 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</span>
+
+<span class="go">Read zstd</span>
+
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Read zstd:&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">zvtk</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.zvtk&quot;</span><span class="p">)</span>
+<span class="go">563 ms ± 7.96 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</span>
+</pre></div>
+</div>
+<p>This is an 11x speedup for this dataset versus VTK’s XML, and it’s still
+fast even with multi-threading disabled:</p>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">zvtk</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.zvtk&quot;</span><span class="p">,</span> <span class="n">n_threads</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="go">1.11 s ± 4.51 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</span>
+</pre></div>
+</div>
+<p>This amounts to 1796 MB/s for a single core, which is also in agreement
+with Zstandard’s
+<a class="reference external" href="https://github.com/facebook/zstd#benchmarks">benchmarks</a>.</p>
+<p>Additionally, you can control Zstandard’s compression level by setting
+<code class="docutils literal notranslate"><span class="pre">level=</span></code>. A quick benchmark for this dataset indicates the defaults
+give a reasonable performance versus size tradeoff:</p>
+<figure class="align-default" id="id4">
+<img alt="Read/Write Speed versus Compression Level" src="images/zvtk-single-ds-fig4.png" />
+<figcaption>
+<p><span class="caption-text">Read/Write Speed versus Compression Level</span><a class="headerlink" href="#id4" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>Note that both <code class="docutils literal notranslate"><span class="pre">zvtk</span></code> and VTK’s XML default compression give
+relatively constant compression ratios for this dataset across varying
+file sizes:</p>
+<figure class="align-default" id="id5">
+<img alt="Compression Ratio versus VTK’s XML" src="images/synthetic-fig4.png" />
+<figcaption>
+<p><span class="caption-text">Compression Ratio versus VTK’s XML</span><a class="headerlink" href="#id5" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p>These benchmarks were performed on an <code class="docutils literal notranslate"><span class="pre">i9-14900KF</span></code> running the Linux
+kernel <code class="docutils literal notranslate"><span class="pre">6.12.41</span></code> using <code class="docutils literal notranslate"><span class="pre">zstandard==0.24.0</span></code> from PyPI. Storage was a
+2TB Samsung 990 Pro without LUKS mounted at <code class="docutils literal notranslate"><span class="pre">/tmp</span></code>.</p>
+</section>
+<section id="additional-information">
+<h2>Additional Information<a class="headerlink" href="#additional-information" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code> directory contains additional benchmarks using many
+datasets, including all applicable datasets in <code class="docutils literal notranslate"><span class="pre">pyvista.examples</span></code> (see
+<a class="reference external" href="https://docs.pyvista.org/api/examples/dataset_gallery#dataset-gallery">PyVista Dataset
+Gallery</a>).</p>
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rational">Rational</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vtk-compression-with-zstandard-zvtk">VTK Compression with Zstandard: zvtk</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-information">Additional Information</a><ul class="nav section-nav flex-column">
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/index.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2025-2025, The PyVista Developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.1.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

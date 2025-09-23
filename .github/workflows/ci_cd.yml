@@ -77,10 +77,10 @@ jobs:
 
       - name: Set up vtk
         if: ${{ matrix.vtk-version != 'latest' }}
-        run: uv pip install --system vtk==${{ matrix.vtk-version }} --system
+        run: uv pip install --system vtk==${{ matrix.vtk-version }}
 
       - name: Install with test dependencies
-        run: uv pip install --system .[tests] --system
+        run: uv pip install --system .[tests]
 
       - name: Unit Testing
         run: pytest -vv

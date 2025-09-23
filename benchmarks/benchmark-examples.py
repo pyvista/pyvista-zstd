@@ -25,6 +25,7 @@ allowed = (
     pv.ImageData,
     pv.UnstructuredGrid,
     pv.RectilinearGrid,
+    pv.ExplicitStructuredGrid,
     pv.PointSet,
     pv.StructuredGrid,
 )

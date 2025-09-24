@@ -1,12 +1,22 @@
 zvtk
 ====
 
+|pypi| |ci| |mit|
+
+.. |pypi| image:: https://img.shields.io/pypi/v/zvtk.svg?logo=python&logoColor=white
+   :target: https://pypi.org/project/zvtk/
+.. |ci| image:: https://github.com/pyvista/zvtk/actions/workflows/ci_cd.yml/badge.svg
+   :target: https://github.com/pyvista/zvtk/actions/workflows/ci_cd.yml
+.. |mit| image:: https://img.shields.io/badge/License-MIT-yellow.svg
+   :target: https://opensource.org/license/mit/
+
+
 Seamlessly compress VTK datasets using `Zstandard <https://github.com/facebook/zstd>`_.
 
 **Read in VTK datasets 37x faster, write 14x faster, all while using 28% less
 space versus VTK’s modern XML format.**
 
-.. figure:: images/speed-up.png
+.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/speed-up.png
    :alt: Read/Write Speedup and Compression Ratios
 
    Read/Write Speedup and Compression Ratios
@@ -183,7 +193,7 @@ of threads and compression level, resulting in a 20x speedup in write
 performance versus VTK’s XML writer. This speedup is most noticeable for
 larger files:
 
-.. figure:: images/synthetic-fig3.png
+.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/synthetic-fig3.png
    :alt: Speedup versus VTK’s XML
 
    Speedup versus VTK’s XML
@@ -213,7 +223,7 @@ Note that the benefit of threading drops off rapidly past 8 threads,
 though part of this is due to the performance versus efficiency cores of
 the CPU used for benchmarking (see below).
 
-.. figure:: images/zvtk-single-ds-fig3.png
+.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/zvtk-single-ds-fig3.png
    :alt: Read/Write Speed versus Number of Threads
 
    Read/Write Speed versus Number of Threads
@@ -253,7 +263,7 @@ Additionally, you can control Zstandard’s compression level by setting
 ``level=``. A quick benchmark for this dataset indicates the defaults
 give a reasonable performance versus size tradeoff:
 
-.. figure:: images/zvtk-single-ds-fig4.png
+.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/zvtk-single-ds-fig4.png
    :alt: Read/Write Speed versus Compression Level
 
    Read/Write Speed versus Compression Level
@@ -262,7 +272,7 @@ Note that both ``zvtk`` and VTK’s XML default compression give
 relatively constant compression ratios for this dataset across varying
 file sizes:
 
-.. figure:: images/synthetic-fig4.png
+.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/synthetic-fig4.png
    :alt: Compression Ratio versus VTK’s XML
 
    Compression Ratio versus VTK’s XML

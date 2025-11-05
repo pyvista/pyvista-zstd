@@ -420,7 +420,7 @@ def write(  # noqa: PLR0913
         Write offset and connectivity arrays as int32 whenever possible. Only
         applies to :class:`pyvista.PolyData` and
         :class:`pyvista.UnstructuredGrid`.
-    progress_bar : bool, default: True
+    progress_bar : bool, default: False
         Show a progress bar while writing to disk.
     level : int, default: 3
         Compression level. Valid values are all negative integers through

@@ -34,13 +34,13 @@ Home = "https://github.com/pyvista/zvtk"
 [project.optional-dependencies]
 docs = [
   "numpydoc==1.10.0",
-  "sphinx-book-theme==1.1.4",
+  "sphinx-book-theme==1.2.0",
   "sphinx-copybutton==0.5.2",
   "sphinx-gallery==0.20.0",
   "sphinx-notfound-page==1.1.0",
   "sphinx==9.1.0",
 ]
-tests = ["pytest-cov==7.0.0", "pytest>=6.2.0"]
+tests = ["pytest-cov==7.1.0", "pytest>=6.2.0"]
 
 [tool.mypy]
 ignore_missing_imports = true

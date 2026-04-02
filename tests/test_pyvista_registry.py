@@ -8,19 +8,17 @@ from unittest.mock import MagicMock
 
 import pytest
 import pyvista as pv
-from pyvista.core.utilities.reader_registry import _custom_ext_readers
-from pyvista.core.utilities.reader_registry import _restore_registry_state
-from pyvista.core.utilities.reader_registry import _save_registry_state
 
 import zvtk
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-pytestmark = pytest.mark.skipif(
-    not hasattr(pv, "register_reader"),
-    reason="pyvista.register_reader not available",
-)
+pytest.importorskip("pyvista.core.utilities.reader_registry")
+
+from pyvista.core.utilities.reader_registry import _custom_ext_readers
+from pyvista.core.utilities.reader_registry import _restore_registry_state
+from pyvista.core.utilities.reader_registry import _save_registry_state
 
 
 @pytest.fixture(autouse=True)

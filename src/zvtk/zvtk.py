@@ -42,6 +42,8 @@ from zstandard import BufferWithSegments
 from zstandard import BufferWithSegmentsCollection
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
@@ -771,6 +773,24 @@ def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
         cd.active_normals_name = metadata.cell_data_active_normals_name
 
 
+try:
+    from pyvista import LocalFileRequiredError
+    from pyvista import has_scheme
+    from pyvista import register_reader
+except ImportError:
+    LocalFileRequiredError = None  # type: ignore[assignment, misc]
+    has_scheme = None  # type: ignore[assignment]
+
+    def register_reader(_key: str) -> Callable:  # type: ignore[no-redef]
+        """No-op fallback for pyvista < 0.48."""
+
+        def _identity(fn: Callable) -> Callable:
+            return fn
+
+        return _identity
+
+
+@register_reader(".zvtk")
 def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     """
     Decompress a ``zvtk`` file.
@@ -790,12 +810,21 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     -------
     pyvista.DataSet
 
+    Raises
+    ------
+    pyvista.LocalFileRequiredError
+        If *filename* is a remote URI. When called via
+        :func:`pyvista.read`, this triggers an automatic download
+        and retry with a local path.
+
     Examples
     --------
     >>> import zvtk
     >>> ds = zvtk.read("dataset.zvtk")
 
     """
+    if has_scheme is not None and has_scheme(str(filename)):
+        raise LocalFileRequiredError
     return Reader(filename).read(n_threads=n_threads)
 
 

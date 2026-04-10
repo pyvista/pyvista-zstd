@@ -27,6 +27,9 @@ python_requires = ">=3.10"
 readme = "README.rst"
 version = '0.2.dev0'
 
+[project.entry-points."pyvista.readers"]
+".zvtk" = "zvtk:read"
+
 [project.urls]
 Home = "https://github.com/pyvista/zvtk"
 

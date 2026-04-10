@@ -91,6 +91,24 @@ Compatible with all VTK dataset types. Uses
    zvtk.write(vtk_ds, "sphere.zvtk")
    ds_in = zvtk.read("sphere.zvtk")
 
+
+PyVista Integration
+~~~~~~~~~~~~~~~~~~~
+
+When ``zvtk`` is installed, it automatically registers with PyVista's
+reader registry. This means ``pv.read()`` handles ``.zvtk`` files
+directly:
+
+.. code:: py
+
+   import pyvista as pv
+
+   mesh = pv.read("dataset.zvtk")
+
+No additional imports needed. This works via PyVista's ``pyvista.readers``
+entry point group, so the registration happens at install time.
+
+
 Rational
 ~~~~~~~~
 

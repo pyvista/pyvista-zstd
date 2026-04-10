@@ -1,5 +1,5 @@
 """
-Compare zvtk's performance across many compression levels and number of threads.
+Compare pyvista-zstd's performance across many compression levels and number of threads.
 
 Size in memory: 6760.66 MB
 
@@ -17,11 +17,11 @@ import pyvista as pv
 import seaborn as sns
 from tqdm import tqdm
 
-import zvtk
+import pyvista_zstd
 
 sns.set(style="whitegrid")
 
-tmp_dir = Path("/tmp/zvtk_test")
+tmp_dir = Path("/tmp/pyvista_zstd_test")
 tmp_dir.mkdir(exist_ok=True)
 
 rng = np.random.default_rng(42)
@@ -47,10 +47,10 @@ print(f"Size in memory: {nbytes / 1024**2:.2f} MB")
 print()
 
 ###############################################################################
-tmp_path = Path("/tmp/ds.zvtk")
-zvtk.write(ugrid, tmp_path)
+tmp_path = Path("/tmp/ds.pv")
+pyvista_zstd.write(ugrid, tmp_path)
 
-reader = zvtk.Reader(tmp_path)
+reader = pyvista_zstd.Reader(tmp_path)
 print(reader.show_frame_compression())
 
 
@@ -72,13 +72,13 @@ for level in tqdm(levels):
     for _ in range(n_times):
         # write
         tstart = time.time()
-        zvtk.write(ugrid, tmp_path, n_threads=8, level=level)
+        pyvista_zstd.write(ugrid, tmp_path, n_threads=8, level=level)
         wtime = time.time() - tstart
         w_elapsed.append(wtime)
 
         # read
         tstart = time.time()
-        _ = zvtk.read(tmp_path, n_threads=8)
+        _ = pyvista_zstd.read(tmp_path, n_threads=8)
         rtime = time.time() - tstart
         r_elapsed.append(rtime)
 
@@ -118,7 +118,7 @@ ax2.set_ylabel("Compression Ratio", color="tab:orange")
 sns.lineplot(data=df, x="level", y="compression_ratio", marker="o", ax=ax2, color="tab:orange")
 ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-plt.title("zvtk Write Time (log) and Compression Ratio vs Compression Level")
+plt.title("pyvista-zstd Write Time (log) and Compression Ratio vs Compression Level")
 fig.tight_layout()
 plt.show()
 
@@ -129,7 +129,7 @@ sns.lineplot(data=df, x="level", y="write_MBps", marker="o", label="Write")
 sns.lineplot(data=df, x="level", y="read_MBps", marker="o", label="Read")
 plt.xlabel("Compression Level")
 plt.ylabel("Speed (MB/s)")
-plt.title("zvtk Read/Write Speed vs Compression Level")
+plt.title("pyvista-zstd Read/Write Speed vs Compression Level")
 plt.legend()
 plt.tight_layout()
 plt.show()
@@ -176,13 +176,13 @@ for n_threads in tqdm(threads_list):
     for _ in range(n_times):
         # write
         tstart = time.time()
-        zvtk.write(ugrid, tmp_path, n_threads=n_threads, level=compression_level)
+        pyvista_zstd.write(ugrid, tmp_path, n_threads=n_threads, level=compression_level)
         wtime = time.time() - tstart
         w_elapsed.append(wtime)
 
         # read
         tstart = time.time()
-        _ = zvtk.read(tmp_path, n_threads=n_threads)
+        _ = pyvista_zstd.read(tmp_path, n_threads=n_threads)
         rtime = time.time() - tstart
         r_elapsed.append(rtime)
 
@@ -211,7 +211,7 @@ sns.lineplot(data=df, x="threads", y="read_time_s", marker="o", label="Read")
 plt.xlabel("Number of Threads")
 plt.ylabel("Time (s)")
 plt.yscale("log")
-plt.title("zvtk Write/Read Time vs Number of Threads")
+plt.title("pyvista-zstd Write/Read Time vs Number of Threads")
 plt.legend()
 plt.tight_layout()
 plt.show()
@@ -231,7 +231,7 @@ sns.lineplot(data=df, x="threads", y="write_speed_MBps", marker="o", label="Writ
 sns.lineplot(data=df, x="threads", y="read_speed_MBps", marker="o", label="Read")
 plt.xlabel("Number of Threads")
 plt.ylabel("Speed (MB/s)")
-plt.title("zvtk Read/Write Speed vs Number of Threads")
+plt.title("pyvista-zstd Read/Write Speed vs Number of Threads")
 plt.legend()
 plt.tight_layout()
 plt.show()

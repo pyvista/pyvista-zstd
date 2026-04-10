@@ -1,5 +1,5 @@
 """
-Save and Load DataSet using zvtk
+Save and Load DataSet using pyvista-zstd
 --------------------------------
 
 """
@@ -10,30 +10,30 @@ from pathlib import Path
 from pyvista import examples
 import pyvista as pv
 
-import zvtk
+import pyvista_zstd
 
 ###############################################################################
-# Download the pyvista carotid dataset and save it to disk using zvtk's
-# convenience function :func:`zvtk.write`:
+# Download the pyvista carotid dataset and save it to disk using pyvista-zstd's
+# convenience function :func:`pyvista-zstd.write`:
 
 ds = examples.download_carotid()
-zvtk.write(ds, "carotid.zvtk")
-print(f"Wrote {Path('carotid.zvtk').stat().st_size / 1024**2:.3} MB")
+pyvista_zstd.write(ds, "carotid.pv")
+print(f"Wrote {Path('carotid.pv').stat().st_size / 1024**2:.3} MB")
 
 
 ###############################################################################
-# Read the dataset back in using the convenience function :func:`zvtk.read`:
+# Read the dataset back in using the convenience function :func:`pyvista-zstd.read`:
 
-ds_in = zvtk.read("carotid.zvtk")
+ds_in = pyvista_zstd.read("carotid.pv")
 ds_in
 
 
 ###############################################################################
 # Alternatively, control the arrays which are read in using the
-# :class:`zvtk.Reader` class. First, create the reader. Note how we can view
+# :class:`pyvista-zstd.Reader` class. First, create the reader. Note how we can view
 # the content of the dataset without reading it in.
 
-reader = zvtk.Reader("carotid.zvtk")
+reader = pyvista_zstd.Reader("carotid.pv")
 reader
 
 
@@ -53,10 +53,10 @@ ds_in
 # Frame Compression
 # -----------------
 # Data written to a Zstandard file is typically written in "frames", and
-# ``zvtk`` writes out each array within a :class:`pyvista.DataSet` as an
+# ``pyvista-zstd`` writes out each array within a :class:`pyvista.DataSet` as an
 # individual frame. It's possible to see the compressed and decompressed sizes
-# of each individual frame written to a ``zvtk`` file using
-# :meth:`zvtk.Reader.show_frame_compression`. This can be helpful when
+# of each individual frame written to a ``pyvista-zstd`` file using
+# :meth:`pyvista-zstd.Reader.show_frame_compression`. This can be helpful when
 # determining the compressability of the internal arrays of a
 # ``pyvista.DataSet``.
 #

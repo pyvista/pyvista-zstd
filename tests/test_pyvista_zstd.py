@@ -1,4 +1,4 @@
-"""Test `zvtk` library."""
+"""Test `pyvista-zstd` library."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
-import zvtk
+import pyvista_zstd
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -96,17 +96,18 @@ def test_ugrid(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """Test unstructured grid."""
     populate_data(ugrid)
 
-    tmp_filename = tmp_path / "ugrid.zvtk"
-    zvtk.write(ugrid, tmp_filename)
-    ugrid_out = zvtk.read(tmp_filename)
+    tmp_filename = tmp_path / "ugrid.pv"
+    pyvista_zstd.write(ugrid, tmp_filename)
+    ugrid_out = pyvista_zstd.read(tmp_filename)
 
     assert ugrid.point_data == ugrid_out.point_data
     assert ugrid.cell_data == ugrid_out.cell_data
     assert ugrid.field_data == ugrid_out.field_data
 
-    # can remove with pyvista >= 0.47.0
-    np.allclose(ugrid.polyhedron_faces, ugrid_out.polyhedron_faces)
-    np.allclose(ugrid.polyhedron_face_locations, ugrid_out.polyhedron_face_locations)
+    assert np.allclose(ugrid.polyhedron_faces, ugrid_out.polyhedron_faces)
+    assert np.allclose(
+        ugrid.polyhedron_face_locations, ugrid_out.polyhedron_face_locations
+    )
 
     assert ugrid == ugrid_out
 
@@ -122,9 +123,9 @@ def test_polydata(polydata: PolyData, tmp_path: Path, *, strip: bool) -> None:
 
     populate_data(polydata)
 
-    tmp_filename = tmp_path / "polydata.zvtk"
-    zvtk.write(polydata, tmp_filename)
-    polydata_out = zvtk.read(tmp_filename)
+    tmp_filename = tmp_path / "polydata.pv"
+    pyvista_zstd.write(polydata, tmp_filename)
+    polydata_out = pyvista_zstd.read(tmp_filename)
 
     assert polydata.n_cells == polydata_out.n_cells
     assert polydata.n_strips == polydata_out.n_strips
@@ -140,9 +141,9 @@ def test_imagedata(imagedata: ImageData, tmp_path: Path) -> None:
     """Test unstructured grid."""
     populate_data(imagedata)
 
-    tmp_filename = tmp_path / "imagedata.zvtk"
-    zvtk.write(imagedata, tmp_filename)
-    imagedata_out = zvtk.read(tmp_filename)
+    tmp_filename = tmp_path / "imagedata.pv"
+    pyvista_zstd.write(imagedata, tmp_filename)
+    imagedata_out = pyvista_zstd.read(tmp_filename)
 
     assert imagedata.n_cells == imagedata_out.n_cells
     assert imagedata.n_points == imagedata_out.n_points
@@ -163,9 +164,9 @@ def test_pointset(pointset: PointSet, tmp_path: Path) -> None:
     """Test compressing a pointset."""
     populate_data(pointset)
 
-    tmp_filename = tmp_path / "pointset.zvtk"
-    zvtk.write(pointset, tmp_filename)
-    pointset_out = zvtk.read(tmp_filename)
+    tmp_filename = tmp_path / "pointset.pv"
+    pyvista_zstd.write(pointset, tmp_filename)
+    pointset_out = pyvista_zstd.read(tmp_filename)
 
     assert pointset.n_points == pointset_out.n_points
 
@@ -178,9 +179,9 @@ def test_rectilineargrid(rgrid: RectilinearGrid, tmp_path: Path) -> None:
     """Test compressing a RectilinearGrid."""
     populate_data(rgrid)
 
-    tmp_filename = tmp_path / "rgrid.zvtk"
-    zvtk.write(rgrid, tmp_filename)
-    rgrid_out = zvtk.read(tmp_filename)
+    tmp_filename = tmp_path / "rgrid.pv"
+    pyvista_zstd.write(rgrid, tmp_filename)
+    rgrid_out = pyvista_zstd.read(tmp_filename)
 
     assert rgrid.dimensions == rgrid_out.dimensions
     assert rgrid.n_points == rgrid_out.n_points
@@ -200,9 +201,9 @@ def test_sgrid(sgrid: StructuredGrid, tmp_path: Path) -> None:
     """Test compressing a RectilinearGrid."""
     populate_data(sgrid)
 
-    tmp_filename = tmp_path / "rgrid.zvtk"
-    zvtk.write(sgrid, tmp_filename)
-    sgrid_out = zvtk.read(tmp_filename)
+    tmp_filename = tmp_path / "rgrid.pv"
+    pyvista_zstd.write(sgrid, tmp_filename)
+    sgrid_out = pyvista_zstd.read(tmp_filename)
 
     assert sgrid.dimensions == sgrid_out.dimensions
     assert sgrid.n_points == sgrid_out.n_points
@@ -222,10 +223,10 @@ def test_reader_array_selection(ugrid: UnstructuredGrid, tmp_path: Path) -> None
     """Test Reader class with array sub-selection."""
     populate_data(ugrid)
 
-    tmp_filename = tmp_path / "ugrid.zvtk"
-    zvtk.write(ugrid, tmp_filename)
+    tmp_filename = tmp_path / "ugrid.pv"
+    pyvista_zstd.write(ugrid, tmp_filename)
 
-    reader = zvtk.Reader(tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
 
     table = reader.show_frame_compression()
     assert "Point Data: int64_data" in table
@@ -286,13 +287,13 @@ def test_reader_array_selection(ugrid: UnstructuredGrid, tmp_path: Path) -> None
         UnstructuredGrid,
     ],
 )
-def test_empty_objects(ds_type: str, tmp_path: Path) -> None:
+def test_empty_objects(ds_type: type[DataSet], tmp_path: Path) -> None:
     """Test reading/writing empty objects."""
-    filename = tmp_path / f"{ds_type.__name__}.zvtk"
+    filename = tmp_path / f"{ds_type.__name__}.pv"
     ds = ds_type()
-    zvtk.write(ds, filename)
+    pyvista_zstd.write(ds, filename)
 
-    reader = zvtk.Reader(filename)
+    reader = pyvista_zstd.Reader(filename)
     out = reader.read()
 
     assert isinstance(out, type(ds))
@@ -306,67 +307,67 @@ def test_empty_objects(ds_type: str, tmp_path: Path) -> None:
 def test_invalid_filename(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """Test reading and writing with the wrong extension raises an error."""
     with pytest.raises(ValueError, match="Filename must end in"):
-        zvtk.write(ugrid, tmp_path / "tmp.vtk")
+        pyvista_zstd.write(ugrid, tmp_path / "tmp.vtk")
 
     # ensure we can't read in the wrong file type
     vtk_file = tmp_path / "ugrid.vtk"
     ugrid.save(vtk_file)
     with pytest.raises(ValueError, match="Filename must end in"):
-        zvtk.read(vtk_file)
+        pyvista_zstd.read(vtk_file)
 
     # even if it's corrupted
-    renamed_file = vtk_file.with_suffix(".zvtk")
+    renamed_file = vtk_file.with_suffix(".pv")
     vtk_file.rename(renamed_file)
     with pytest.raises(RuntimeError, match="File may be corrupted"):
-        zvtk.read(renamed_file)
+        pyvista_zstd.read(renamed_file)
 
-    empty_file = tmp_path / "empty.zvtk"
+    empty_file = tmp_path / "empty.pv"
     with empty_file.open("wb") as fid:
         fid.write(b"\x00" * 1024)  # write 1 KB of zeros
 
     with pytest.raises(RuntimeError, match="File may be corrupted"):
-        zvtk.read(empty_file)
+        pyvista_zstd.read(empty_file)
 
 
 def test_use_int64(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """Test Reader class with array sub-selection."""
     populate_data(ugrid)
 
-    tmp_filename = tmp_path / "ugrid.zvtk"
+    tmp_filename = tmp_path / "ugrid.pv"
 
-    zvtk.write(ugrid, tmp_filename, force_int32=False)
-    ugrid_out = zvtk.read(tmp_filename)
+    pyvista_zstd.write(ugrid, tmp_filename, force_int32=False)
+    ugrid_out = pyvista_zstd.read(tmp_filename)
     assert ugrid_out.cell_connectivity.dtype == np.int64
 
-    zvtk.write(ugrid, tmp_filename, force_int32=True)
-    ugrid_out = zvtk.read(tmp_filename)
+    pyvista_zstd.write(ugrid, tmp_filename, force_int32=True)
+    ugrid_out = pyvista_zstd.read(tmp_filename)
     assert ugrid_out.cell_connectivity.dtype == np.int32
 
 
 def test_future_version_warning(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """Check that a warning is issued when reading a future version."""
-    filename = tmp_path / "future.zvtk"
+    filename = tmp_path / "future.pv"
 
-    orig_version = zvtk.FILE_VERSION
-    zvtk.write(ugrid, filename)
+    orig_version = pyvista_zstd.FILE_VERSION
+    pyvista_zstd.write(ugrid, filename)
 
-    zvtk.zvtk.FILE_VERSION = -1
+    pyvista_zstd.pyvista_zstd.FILE_VERSION = -1
     try:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            zvtk.read(filename)
+            pyvista_zstd.read(filename)
             assert any("newer than the version" in str(wi.message) for wi in w)
     finally:
-        zvtk.zvtk.FILE_VERSION = orig_version
+        pyvista_zstd.pyvista_zstd.FILE_VERSION = orig_version
 
 
 def test_reader_repr(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """Test Reader class with array sub-selection."""
     populate_data(ugrid)
 
-    tmp_filename = tmp_path / "ugrid.zvtk"
-    zvtk.write(ugrid, tmp_filename)
-    reader = zvtk.Reader(tmp_filename)
+    tmp_filename = tmp_path / "ugrid.pv"
+    pyvista_zstd.write(ugrid, tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
     repr_str = repr(reader)
 
     # check key metadata is mentioned
@@ -384,9 +385,9 @@ def test_reader_repr(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
         assert arr_name in repr_str
 
     ugrid.clear_data()
-    tmp_filename = tmp_path / "ugrid-cleared.zvtk"
-    zvtk.write(ugrid, tmp_filename)
-    reader = zvtk.Reader(tmp_filename)
+    tmp_filename = tmp_path / "ugrid-cleared.pv"
+    pyvista_zstd.write(ugrid, tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
     repr_no_data_str = repr(reader)
 
     assert "Point arrays" not in repr_no_data_str
@@ -396,7 +397,7 @@ def test_reader_repr(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
 
 def test_compression_level(tmp_path: Path) -> None:
     """Test setting compression level changes resulting file size."""
-    tmp_filename = tmp_path / "tmp.zvtk"
+    tmp_filename = tmp_path / "tmp.pv"
     ds = ImageData(dimensions=(30, 30, 30)).cast_to_unstructured_grid()
 
     cell_bytes = ds.celltypes.nbytes + ds.cell_connectivity.nbytes + ds.offset.nbytes
@@ -404,7 +405,7 @@ def test_compression_level(tmp_path: Path) -> None:
 
     sizes = []
     for level in [-10, 10, 20]:
-        zvtk.write(ds, tmp_filename, level=level)
+        pyvista_zstd.write(ds, tmp_filename, level=level)
         sizes.append(tmp_filename.stat().st_size)
 
     assert np.array_equal(np.sort(sizes)[::-1], sizes)
@@ -413,12 +414,12 @@ def test_compression_level(tmp_path: Path) -> None:
 
 def test_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
     """Test setting compression level changes resulting file size."""
-    tmp_filename = tmp_path / "tmp.zvtk"
+    tmp_filename = tmp_path / "tmp.pv"
     for ds in multi_block:
         populate_data(ds)
 
-    zvtk.write(multi_block, tmp_filename)
-    multi_block_out = zvtk.read(tmp_filename)
+    pyvista_zstd.write(multi_block, tmp_filename)
+    multi_block_out = pyvista_zstd.read(tmp_filename)
 
     assert multi_block.keys() == multi_block_out.keys()
     assert multi_block == multi_block_out
@@ -426,12 +427,12 @@ def test_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
 
 def test_multiblock_reader_class(multi_block: MultiBlock, tmp_path: Path) -> None:
     """Test setting compression level changes resulting file size."""
-    tmp_filename = tmp_path / "tmp.zvtk"
+    tmp_filename = tmp_path / "tmp.pv"
     for ds in multi_block:
         populate_data(ds)
 
-    zvtk.write(multi_block, tmp_filename)
-    reader = zvtk.Reader(tmp_filename)
+    pyvista_zstd.write(multi_block, tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
     assert "MultiBlock" in repr(reader)
 
     table = reader.show_frame_compression()
@@ -443,18 +444,19 @@ def test_multiblock_reader_class(multi_block: MultiBlock, tmp_path: Path) -> Non
 
     assert reader.read() == multi_block
 
+    leaf_reader = reader[0]
     with pytest.raises(TypeError, match="Only MultiBlock nodes are indexable."):
-        reader[ii][0]
+        _ = leaf_reader[0]
 
     with pytest.raises(TypeError, match="Only MultiBlock nodes have a length."):
-        len(reader[ii])
+        len(leaf_reader)
 
     assert type(multi_block[0]).__name__ in repr(reader[0])
 
 
 def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> None:
     """Test reading a nested MultiBlock hierarchy."""
-    tmp_filename = tmp_path / "tmp_nested.zvtk"
+    tmp_filename = tmp_path / "tmp_nested.pv"
     for ds in multi_block_nested:
         if isinstance(ds, MultiBlock):
             for sub_ds in ds:
@@ -462,12 +464,12 @@ def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> No
         else:
             populate_data(ds)
 
-    zvtk.write(multi_block_nested, tmp_filename)
+    pyvista_zstd.write(multi_block_nested, tmp_filename)
 
-    multi_block_out = zvtk.read(tmp_filename)
+    multi_block_out = pyvista_zstd.read(tmp_filename)
     assert multi_block_out == multi_block_nested
 
-    reader = zvtk.Reader(tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
 
     # Check top-level MultiBlock hierarchy (one for dataset type, 4 in hierarchy
     n_expected = 5
@@ -497,28 +499,28 @@ def test_multiblock_nested(multi_block_nested: MultiBlock, tmp_path: Path) -> No
 
 def test_multiblock_empty(multi_block: MultiBlock, tmp_path: Path) -> None:
     """Test that an empty multiblock is encoded correctly."""
-    tmp_filename = tmp_path / "tmp.zvtk"
+    tmp_filename = tmp_path / "tmp.pv"
     multi_block.append(MultiBlock([None]))
 
-    zvtk.write(multi_block, tmp_filename)
-    multi_block_out = zvtk.read(tmp_filename)
+    pyvista_zstd.write(multi_block, tmp_filename)
+    multi_block_out = pyvista_zstd.read(tmp_filename)
 
     assert multi_block.keys() == multi_block_out.keys()
     assert multi_block == multi_block_out
 
-    reader = zvtk.Reader(tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
     assert "None" in repr(reader)
     assert reader[-1][0].read() is None
 
 
 def test_multiblock_duplicate(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """Ensure duplicate blocks save correctly."""
-    tmp_filename = tmp_path / "tmp.zvtk"
+    tmp_filename = tmp_path / "tmp.pv"
     mblock = MultiBlock([ugrid, ugrid])
     assert mblock[0] is mblock[1]
 
-    zvtk.write(mblock, tmp_filename)
-    mblock_out = zvtk.read(tmp_filename)
+    pyvista_zstd.write(mblock, tmp_filename)
+    mblock_out = pyvista_zstd.read(tmp_filename)
 
     assert mblock_out[0] is mblock_out[1]
 
@@ -527,9 +529,9 @@ def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
     """Test read/write explicit structured grid."""
     populate_data(esgrid)
 
-    tmp_filename = tmp_path / "esgrid.zvtk"
-    zvtk.write(esgrid, tmp_filename)
-    reader = zvtk.Reader(tmp_filename)
+    tmp_filename = tmp_path / "esgrid.pv"
+    pyvista_zstd.write(esgrid, tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
     repr_str = repr(reader)
 
     # check key metadata is mentioned
@@ -547,9 +549,9 @@ def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
         assert arr_name in repr_str
 
     esgrid.clear_data()
-    tmp_filename = tmp_path / "esgrid-cleared.zvtk"
-    zvtk.write(esgrid, tmp_filename)
-    reader = zvtk.Reader(tmp_filename)
+    tmp_filename = tmp_path / "esgrid-cleared.pv"
+    pyvista_zstd.write(esgrid, tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
     repr_no_data_str = repr(reader)
 
     assert "Point arrays" not in repr_no_data_str

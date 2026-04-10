@@ -12,7 +12,7 @@ from pathlib import Path
 from pyvista import examples
 import pyvista as pv
 
-import zvtk
+import pyvista_zstd
 
 ###############################################################################
 # Get the file size of the dataset
@@ -48,24 +48,24 @@ print(f"  File size:      {vtp_filename.stat().st_size / 1024**2:.2f} MB\n")
 
 
 ###############################################################################
-# Write the dataset out using zvtk
+# Write the dataset out using pyvista-zstd
 
-print("zvtk")
-zvtk_filename = Path("nefertiti.zvtk")
-ttot = timeit.timeit(lambda: zvtk.write(ds, zvtk_filename), number=10)
+print("pyvista-zstd")
+pyvista_zstd_filename = Path("nefertiti.pv")
+ttot = timeit.timeit(lambda: pyvista_zstd.write(ds, pyvista_zstd_filename), number=10)
 print(f"  Time to save:   {ttot / 10:.3f} s")
-ttot = timeit.timeit(lambda: zvtk.read(zvtk_filename), number=10)
+ttot = timeit.timeit(lambda: pyvista_zstd.read(pyvista_zstd_filename), number=10)
 print(f"  Time to read:   {ttot / 10:.3f} s")
-print(f"  File size:      {zvtk_filename.stat().st_size / 1024**2:.2f} MB\n")
+print(f"  File size:      {pyvista_zstd_filename.stat().st_size / 1024**2:.2f} MB\n")
 
 
 ###############################################################################
-# Show the dataset is preserved with zvtk
+# Show the dataset is preserved with pyvista-zstd
 
-ds_in = zvtk.read(zvtk_filename)
+ds_in = pyvista_zstd.read(pyvista_zstd_filename)
 print("Dataset identical:", ds == ds_in)
 
 
 ###############################################################################
-# Show the dataset is preserved with zvtk
+# Show the dataset is preserved with pyvista-zstd
 ds_in.plot(cpos="yz", zoom=1.3)

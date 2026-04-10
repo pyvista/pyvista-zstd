@@ -1,5 +1,5 @@
 """
-Compare multiple VTK file compression approaches with zvtk.
+Compare multiple VTK file compression approaches with pyvista-zstd.
 
 Size in memory: 1993.89 MB
 
@@ -33,13 +33,13 @@ Saved using VTK HDF (.vtkhdf) file type in 14.45 seconds
   File size:            841.36 MB
   Compression Ratio:    2.3698297330779705
 
-Saved using zvtk (.zvtk) file type in 2.74 seconds
+Saved using pyvista-zstd (.pv) file type in 2.74 seconds
   Compression level:    3
   Threads:              0
   File size:            660.47 MB
   Compression Ratio:    3.018891167953701
 
-Saved using zvtk (.zvtk) file type in 1.08 seconds
+Saved using pyvista-zstd (.pv) file type in 1.08 seconds
   Compression level:    3
   Threads:              4
   File size:            660.41 MB
@@ -56,9 +56,9 @@ import numpy as np
 import pyvista as pv
 import vtk
 
-import zvtk
+import pyvista_zstd
 
-tmp_dir = Path("/tmp/zvtk_test")
+tmp_dir = Path("/tmp/pyvista_zstd_test")
 tmp_dir.mkdir(exist_ok=True)
 
 rng = np.random.default_rng(42)
@@ -140,14 +140,14 @@ print()
 
 
 ###############################################################################
-# zvtk (no threads, default compression)
+# pyvista-zstd (no threads, default compression)
 
 level = 3
 n_threads = 0
 tstart = time.time()
-tmp_path = Path("/tmp/ds.zvtk")
-zvtk.write(ugrid, tmp_path, n_threads=n_threads, level=level)
-print(f"Saved using zvtk (.zvtk) file type in {time.time() - tstart:.2f} seconds")
+tmp_path = Path("/tmp/ds.pv")
+pyvista_zstd.write(ugrid, tmp_path, n_threads=n_threads, level=level)
+print(f"Saved using pyvista-zstd (.pv) file type in {time.time() - tstart:.2f} seconds")
 nbytes_disk = tmp_path.stat().st_size
 print(f"  Compression level:    {level}")
 print(f"  Threads:              {n_threads}")
@@ -156,13 +156,13 @@ print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
 print()
 
 ###############################################################################
-# zvtk (4 threads, default compression)
+# pyvista-zstd (4 threads, default compression)
 level = 3
 n_threads = 4
 tstart = time.time()
-tmp_path = Path("/tmp/ds.zvtk")
-zvtk.write(ugrid, tmp_path, n_threads=n_threads, level=level)
-print(f"Saved using zvtk (.zvtk) file type in {time.time() - tstart:.2f} seconds")
+tmp_path = Path("/tmp/ds.pv")
+pyvista_zstd.write(ugrid, tmp_path, n_threads=n_threads, level=level)
+print(f"Saved using pyvista-zstd (.pv) file type in {time.time() - tstart:.2f} seconds")
 nbytes_disk = tmp_path.stat().st_size
 print(f"  Compression level:    {level}")
 print(f"  Threads:              {n_threads}")
@@ -171,13 +171,13 @@ print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
 print()
 
 ###############################################################################
-# zvtk (All threads, maximum compression)
+# pyvista-zstd (All threads, maximum compression)
 level = 22
 n_threads = -1
 tstart = time.time()
-tmp_path = Path("/tmp/ds.zvtk")
-zvtk.write(ugrid, tmp_path, n_threads=n_threads, level=level)
-print(f"Saved using zvtk (.zvtk) file type in {time.time() - tstart:.2f} seconds")
+tmp_path = Path("/tmp/ds.pv")
+pyvista_zstd.write(ugrid, tmp_path, n_threads=n_threads, level=level)
+print(f"Saved using pyvista-zstd (.pv) file type in {time.time() - tstart:.2f} seconds")
 nbytes_disk = tmp_path.stat().st_size
 print(f"  Compression level:    {level}")
 print(f"  Threads:              {n_threads}")

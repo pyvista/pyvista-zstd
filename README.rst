@@ -1,12 +1,12 @@
-zvtk
-====
+pyvista-zstd
+============
 
 |pypi| |ci| |mit|
 
-.. |pypi| image:: https://img.shields.io/pypi/v/zvtk.svg?logo=python&logoColor=white
-   :target: https://pypi.org/project/zvtk/
-.. |ci| image:: https://github.com/pyvista/zvtk/actions/workflows/ci_cd.yml/badge.svg
-   :target: https://github.com/pyvista/zvtk/actions/workflows/ci_cd.yml
+.. |pypi| image:: https://img.shields.io/pypi/v/pyvista-zstd.svg?logo=python&logoColor=white
+   :target: https://pypi.org/project/pyvista-zstd/
+.. |ci| image:: https://github.com/pyvista/pyvista-zstd/actions/workflows/ci_cd.yml/badge.svg
+   :target: https://github.com/pyvista/pyvista-zstd/actions/workflows/ci_cd.yml
 .. |mit| image:: https://img.shields.io/badge/License-MIT-yellow.svg
    :target: https://opensource.org/license/mit/
 
@@ -16,35 +16,35 @@ Seamlessly compress VTK datasets using `Zstandard <https://github.com/facebook/z
 **Read in VTK datasets 37x faster, write 14x faster, all while using 28% less
 space versus VTK’s modern XML format.**
 
-.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/speed-up.png
+.. figure:: https://github.com/pyvista/pyvista-zstd/raw/main/doc/images/speed-up.png
    :alt: Read/Write Speedup and Compression Ratios
 
    Read/Write Speedup and Compression Ratios
 
 
-+-------------------------+-------------------+-------------------+----------------------+
-| File Type / Method      | Write Speed       | Compression Ratio | Notes                |
-+=========================+===================+===================+======================+
-| Legacy VTK (.vtk)       | 465 MB/s          | 0.88              | Significant overhead |
-+-------------------------+-------------------+-------------------+----------------------+
-| VTK XML, none           | 256 MB/s          | 0.70              | Significant overhead |
-+-------------------------+-------------------+-------------------+----------------------+
-| VTK XML, zlib           | 105 MB/s          | 2.52              | VTK Default          |
-+-------------------------+-------------------+-------------------+----------------------+
-| VTK XML, lz4            | 401 MB/s          | 1.47              |                      |
-+-------------------------+-------------------+-------------------+----------------------+
-| VTK XML, lzma           | 9.93 MB/s         | 3.10              |                      |
-+-------------------------+-------------------+-------------------+----------------------+
-| VTK HDF (.vtkhdf), lvl0 | 1733 MB/s         | 0.93              | No compression       |
-+-------------------------+-------------------+-------------------+----------------------+
-| VTK HDF (.vtkhdf), lvl4 | 137 MB/s          | 2.37              | Default compression  |
-+-------------------------+-------------------+-------------------+----------------------+
-| zvtk (.zvtk), lvl3      | 711 MB/s          | 3.02              | Threads = 0          |
-+-------------------------+-------------------+-------------------+----------------------+
-| **zvtk (.zvtk), lvl3**  | **1845 MB/s**     | **3.02**          | **Threads = 4**      |
-+-------------------------+-------------------+-------------------+----------------------+
-| zvtk (.zvtk), lvl22     | 15.8 MB/s         | 3.79              | All threads (-1)     |
-+-------------------------+-------------------+-------------------+----------------------+
++------------------------------+-------------------+-------------------+----------------------+
+| File Type / Method           | Write Speed       | Compression Ratio | Notes                |
++==============================+===================+===================+======================+
+| Legacy VTK (.vtk)            | 465 MB/s          | 0.88              | Significant overhead |
++------------------------------+-------------------+-------------------+----------------------+
+| VTK XML, none                | 256 MB/s          | 0.70              | Significant overhead |
++------------------------------+-------------------+-------------------+----------------------+
+| VTK XML, zlib                | 105 MB/s          | 2.52              | VTK Default          |
++------------------------------+-------------------+-------------------+----------------------+
+| VTK XML, lz4                 | 401 MB/s          | 1.47              |                      |
++------------------------------+-------------------+-------------------+----------------------+
+| VTK XML, lzma                | 9.93 MB/s         | 3.10              |                      |
++------------------------------+-------------------+-------------------+----------------------+
+| VTK HDF (.vtkhdf), lvl0      | 1733 MB/s         | 0.93              | No compression       |
++------------------------------+-------------------+-------------------+----------------------+
+| VTK HDF (.vtkhdf), lvl4      | 137 MB/s          | 2.37              | Default compression  |
++------------------------------+-------------------+-------------------+----------------------+
+| pyvista-zstd (.pv), lvl3     | 711 MB/s          | 3.02              | Threads = 0          |
++------------------------------+-------------------+-------------------+----------------------+
+| **pyvista-zstd (.pv), lvl3** | **1845 MB/s**     | **3.02**          | **Threads = 4**      |
++------------------------------+-------------------+-------------------+----------------------+
+| pyvista-zstd (.pv), lvl22    | 15.8 MB/s         | 3.79              | All threads (-1)     |
++------------------------------+-------------------+-------------------+----------------------+
 
 
 Usage
@@ -54,21 +54,21 @@ Install with:
 
 .. code:: bash
 
-   pip install zvtk
+   pip install pyvista-zstd
 
 Compatible with all VTK dataset types. Uses
 `PyVista <https://docs.pyvista.org/>`__ under the hood.
 
 .. code:: py
 
-   import zvtk
+   import pyvista_zstd
 
    # create and write out
    ds = pv.Sphere()
-   zvtk.write(ds, "dataset.zvtk")
+   pyvista_zstd.write(ds, "dataset.pv")
 
    # read in and show these are identical
-   ds_in = zvtk.read("dataset.zvtk")
+   ds_in = pyvista_zstd.read("dataset.pv")
    assert ds == ds_in
 
 **Alternative VTK example**
@@ -76,7 +76,7 @@ Compatible with all VTK dataset types. Uses
 .. code:: py
 
    import vtk
-   import zvtk
+   import pyvista_zstd
 
    # create dataset using VTK source
    sphere_source = vtk.vtkSphereSource()
@@ -88,22 +88,22 @@ Compatible with all VTK dataset types. Uses
    vtk_ds = sphere_source.GetOutput()
 
    # read back
-   zvtk.write(vtk_ds, "sphere.zvtk")
-   ds_in = zvtk.read("sphere.zvtk")
+   pyvista_zstd.write(vtk_ds, "sphere.pv")
+   ds_in = pyvista_zstd.read("sphere.pv")
 
 
 PyVista Integration
 ~~~~~~~~~~~~~~~~~~~
 
-When ``zvtk`` is installed, it automatically registers with PyVista's
-reader registry. This means ``pv.read()`` handles ``.zvtk`` files
+When ``pyvista-zstd`` is installed, it automatically registers with PyVista's
+reader registry. This means ``pv.read()`` handles ``.pv`` files
 directly:
 
 .. code:: py
 
    import pyvista as pv
 
-   mesh = pv.read("dataset.zvtk")
+   mesh = pv.read("dataset.pv")
 
 No additional imports needed. This works via PyVista's ``pyvista.readers``
 entry point group, so the registration happens at install time.
@@ -180,28 +180,28 @@ takes 19 seconds to compress.
 Clearly there’s room for improvement here as this amounts to a
 compression rate of 105.89 MB/s.
 
-VTK Compression with Zstandard: zvtk
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+VTK Compression with Zstandard: pyvista-zstd
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This library, ``zvtk``, writes out VTK datasets with minimal overhead
+This library, ``pyvista-zstd``, writes out VTK datasets with minimal overhead
 and uses `Zstandard <https://github.com/facebook/zstd>`__ for
 compression. Moreover, it’s been implemented with multi-threading
 support for both read and write operations.
 
-Let’s compress that file again but this time using ``zvtk``:
+Let’s compress that file again but this time using ``pyvista-zstd``:
 
 .. code:: pycon
 
-   >>> import zvtk
-   >>> tmp_path = Path("/tmp/ds.zvtk")
+   >>> import pyvista_zstd
+   >>> tmp_path = Path("/tmp/ds.pv")
    >>> tstart = time.time()
-   >>> zvtk.write(ugrid, tmp_path)
-   >>> print(f"Compressed zvtk in {time.time() - tstart:.2f} seconds")
+   >>> pyvista_zstd.write(ugrid, tmp_path)
+   >>> print(f"Compressed pyvista_zstd in {time.time() - tstart:.2f} seconds")
    >>> nbytes_disk = tmp_path.stat().st_size
    >>> print(f"  File size:            {nbytes_disk / 1024**2:.2f} MB")
    >>> print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
 
-   Compressed zvtk in 0.92 seconds
+   Compressed pyvista_zstd in 0.92 seconds
    Threads:              -1
    File size:            660.41 MB
    Compression Ratio:    3.019175309922273
@@ -211,7 +211,7 @@ of threads and compression level, resulting in a 20x speedup in write
 performance versus VTK’s XML writer. This speedup is most noticeable for
 larger files:
 
-.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/synthetic-fig3.png
+.. figure:: https://github.com/pyvista/pyvista-zstd/raw/main/doc/images/synthetic-fig3.png
    :alt: Speedup versus VTK’s XML
 
    Speedup versus VTK’s XML
@@ -222,13 +222,13 @@ performance:
 .. code:: pycon
 
    >>> tstart = time.time()
-   >>> zvtk.write(ugrid, tmp_path, n_threads=0)
-   >>> print(f"Compressed zvtk in {time.time() - tstart:.2f} seconds")
+   >>> pyvista_zstd.write(ugrid, tmp_path, n_threads=0)
+   >>> print(f"Compressed pyvista_zstd in {time.time() - tstart:.2f} seconds")
    >>> nbytes_disk = tmp_path.stat().st_size
    >>> print(f"  File size:            {nbytes_disk / 1024**2:.2f} MB")
    >>> print(f"  Compression Ratio:    {nbytes / nbytes_disk}")
 
-   Compressed zvtk in 2.91 seconds
+   Compressed pyvista_zstd in 2.91 seconds
    Threads:              0
    File size:            660.47 MB
    Compression Ratio:    3.0188911592355683
@@ -241,7 +241,7 @@ Note that the benefit of threading drops off rapidly past 8 threads,
 though part of this is due to the performance versus efficiency cores of
 the CPU used for benchmarking (see below).
 
-.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/zvtk-single-ds-fig3.png
+.. figure:: https://github.com/pyvista/pyvista-zstd/raw/main/doc/images/pyvista-zstd-single-ds-fig3.png
    :alt: Read/Write Speed versus Number of Threads
 
    Read/Write Speed versus Number of Threads
@@ -262,7 +262,7 @@ using defaults:
    Read zstd
 
    >>> print(f"Read zstd:")
-   >>> timeit zvtk.read("/tmp/ds.zvtk")
+   >>> timeit pyvista_zstd.read("/tmp/ds.pv")
    563 ms ± 7.96 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 
 This is an 11x speedup for this dataset versus VTK’s XML, and it’s still
@@ -270,7 +270,7 @@ fast even with multi-threading disabled:
 
 .. code:: pycon
 
-   >>> timeit zvtk.read("/tmp/ds.zvtk", n_threads=0)
+   >>> timeit pyvista_zstd.read("/tmp/ds.pv", n_threads=0)
    1.11 s ± 4.51 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 
 This amounts to 1796 MB/s for a single core, which is also in agreement
@@ -281,16 +281,16 @@ Additionally, you can control Zstandard’s compression level by setting
 ``level=``. A quick benchmark for this dataset indicates the defaults
 give a reasonable performance versus size tradeoff:
 
-.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/zvtk-single-ds-fig4.png
+.. figure:: https://github.com/pyvista/pyvista-zstd/raw/main/doc/images/pyvista-zstd-single-ds-fig4.png
    :alt: Read/Write Speed versus Compression Level
 
    Read/Write Speed versus Compression Level
 
-Note that both ``zvtk`` and VTK’s XML default compression give
+Note that both ``pyvista-zstd`` and VTK’s XML default compression give
 relatively constant compression ratios for this dataset across varying
 file sizes:
 
-.. figure:: https://github.com/pyvista/zvtk/raw/main/doc/images/synthetic-fig4.png
+.. figure:: https://github.com/pyvista/pyvista-zstd/raw/main/doc/images/synthetic-fig4.png
    :alt: Compression Ratio versus VTK’s XML
 
    Compression Ratio versus VTK’s XML

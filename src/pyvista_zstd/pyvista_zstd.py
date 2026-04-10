@@ -61,7 +61,7 @@ METADATA_KEY_COMPRESSION_LVL = "COMPRESSION_LEVEL"
 CELL_TYPES_KEY = "celltypes"
 DS_METADATA_KEY = "__ds_metadata"
 MULTIBLOCK_METADATA_KEY = "__multiblock__ds_metadata"
-FILE_METADATA_KEY = "__zvtk_metadata"
+FILE_METADATA_KEY = "__pyvista_zstd_metadata"
 
 RGRID_X_SUFFIX = "_x_rgrid"
 RGRID_Y_SUFFIX = "_y_rgrid"
@@ -408,7 +408,7 @@ def write(  # noqa: PLR0913
     * :class:`pyvista.MultiBlock`
     * :class:`pyvista.ExplicitStructuredGrid`
 
-    All file types should end in ``.zvtk``, borrowing both from the legacy
+    All file types should end in ``.pv``, borrowing both from the legacy
     VTK extension ``.vtk`` and the ``.zst`` file types.
 
     Parameters
@@ -463,14 +463,14 @@ def _pack_array_metadata(name: str, arr: np.ndarray) -> bytes:
 
 
 class Writer:
-    """Class to write a zvtk file."""
+    """Class to write a pyvista-zstd file."""
 
     def __init__(self, ds: DataSet, filename: Path | str) -> None:
         """Initialize the writer."""
         self._filename = Path(filename)
 
-        if self._filename.suffix != ".zvtk":
-            msg = f"Filename must end in '.zvtk', not '{self._filename.suffix}'"
+        if self._filename.suffix != ".pv":
+            msg = f"Filename must end in '.pv', not '{self._filename.suffix}'"
             raise ValueError(msg)
 
         self._arrays: dict[str, NDArray[Any]] = {}
@@ -596,7 +596,9 @@ class Writer:
         self._refs = []
 
 
-def _reconstruct_array(meta_segment: BufferSegment, arr_segment: BufferSegment) -> np.ndarray:
+def _reconstruct_array(
+    meta_segment: BufferSegment, arr_segment: BufferSegment,
+) -> tuple[str, NDArray[Any]]:
     """
     Reconstruct a NumPy array from a single decompressed Zstd frame.
 
@@ -790,10 +792,10 @@ except ImportError:
         return _identity
 
 
-@register_reader(".zvtk")
+@register_reader(".pv")
 def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     """
-    Decompress a ``zvtk`` file.
+    Decompress a ``pyvista-zstd`` file.
 
     This is a convenience function that uses :class:`Reader`. Use that class to
     finely tune reading in a file.
@@ -819,8 +821,8 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
 
     Examples
     --------
-    >>> import zvtk
-    >>> ds = zvtk.read("dataset.zvtk")
+    >>> import pyvista_zstd
+    >>> ds = pyvista_zstd.read("dataset.pv")
 
     """
     if has_scheme is not None and has_scheme(str(filename)):
@@ -867,7 +869,7 @@ class _DataSetReader:
             return self._parent._read_ds(self.uid)  # noqa: SLF001
         if isinstance(self._meta, MultiBlockMetadata):
             mb = MultiBlock()
-            for key, child in zip(self._meta.children_keys, self._children):
+            for key, child in zip(self._meta.children_keys, self._children, strict=True):
                 mb[key] = child.read()
             return mb
 
@@ -899,9 +901,9 @@ class _DataSetReader:
 
 class Reader:
     """
-    Class to control zvtk file decompression.
+    Class to control pyvista-zstd file decompression.
 
-    Use this class in lieu of :func:`zvtk.read` to fine-tune reading in
+    Use this class in lieu of :func:`pyvista_zstd.read` to fine-tune reading in
     compressed files. With this you can:
 
     * Inspect the dataset before reading it.
@@ -912,23 +914,23 @@ class Reader:
     Parameters
     ----------
     filename : pathlib.Path | str
-        Path to the file. Must end in ``.zvtk``.
+        Path to the file. Must end in ``.pv``.
 
     Examples
     --------
     First write out an example dataset.
 
     >>> import pyvista as pv
-    >>> import zvtk
+    >>> import pyvista_zstd
     >>> ds = pv.Sphere()
-    >>> zvtk.write(ds, "sphere.zvtk")
+    >>> pyvista_zstd.write(ds, "sphere.pv")
 
     Create a reader.
 
-    >>> reader = zvtk.Reader("sphere.zvtk")
+    >>> reader = pyvista_zstd.Reader("sphere.pv")
     >>> reader
-    zvtk.Decompressor (0x7f1ed1496c00)
-      File:               sphere.zvtk
+    pyvista_zstd.Reader (0x7f1ed1496c00)
+      File:               sphere.pv
       File Version:       0
       Compression:        zstandard
       Compression Level:  3
@@ -961,8 +963,8 @@ class Reader:
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
 
-        if self._filename.suffix != ".zvtk":
-            msg = f"Filename must end in '.zvtk', not '{self._filename.suffix}'"
+        if self._filename.suffix != ".pv":
+            msg = f"Filename must end in '.pv', not '{self._filename.suffix}'"
             raise ValueError(msg)
 
         with self._filename.open("rb") as f:
@@ -970,7 +972,7 @@ class Reader:
             num_frames = struct.unpack("<Q", f.read(8))[0]
 
             max_frames = 1_000_000
-            if num_frames > max_frames:
+            if num_frames == 0 or num_frames > max_frames:
                 msg = "Bad number of frames. File may be corrupted."
                 raise RuntimeError(msg)
 
@@ -996,7 +998,8 @@ class Reader:
 
         # prepare the metadata frame and decompress it
         segments_bytes = b"".join(
-            struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends)
+            struct.pack("=QQ", start, end - start)
+            for start, end in zip(frame_starts, frame_ends, strict=True)
         )
 
         if not segments_bytes:
@@ -1073,7 +1076,7 @@ class Reader:
         return int(self.decompressed_sizes.sum())
 
     def _load_file_metadata(self) -> ZvtkFileMetadata:
-        """Load the metadata from the zvtk file without full decompression."""
+        """Load the metadata from the pyvista-zstd file without full decompression."""
         dctx = zstd.ZstdDecompressor()
 
         # read in only the last segment
@@ -1084,16 +1087,16 @@ class Reader:
         )
         name, arr = _reconstruct_array(*segments)
         if name != FILE_METADATA_KEY:  # pragma: no cover
-            msg = "File metadata not found in zvtk file."
+            msg = "File metadata not found in pyvista-zstd file."
             raise RuntimeError(msg)
 
         metadata = ZvtkFileMetadata.from_json(arr.tobytes().decode("utf-8"))
 
         if metadata.file_version > FILE_VERSION:
             warnings.warn(
-                f"The file version {metadata.file_version} of this zvtk file is "
+                f"The file version {metadata.file_version} of this pyvista-zstd file is "
                 f"newer than the version supported by this library {FILE_VERSION}. "
-                "This file may fail to read. Consider upgrading `zvtk`.",
+                "This file may fail to read. Consider upgrading `pyvista-zstd`.",
                 stacklevel=0,
             )
 
@@ -1157,13 +1160,13 @@ class Reader:
             msg = "No selected frames"
             raise RuntimeError(msg)
 
-        segments = _raw_segments_to_arrays(segments_raw)  # pragma: no cover
-        return self._segments_to_ds(ds_id, segments)  # pragma: no cover
+        segments = _raw_segments_to_arrays(segments_raw)
+        return self._segments_to_ds(ds_id, segments)
 
     def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901, PLR0912
-        """Read metadata hierarchy from the zvtk file."""
+        """Read metadata hierarchy from the pyvista-zstd file."""
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
-            msg = "Can only index a MultiBlock compressed zvtk file."
+            msg = "Can only index a MultiBlock compressed pyvista-zstd file."
             raise TypeError(msg)
 
         # find only metadata frames
@@ -1222,7 +1225,7 @@ class Reader:
 
     def read(self, n_threads: int | None = None) -> DataSet:  # noqa: C901
         """
-        Read in the dataset from the zvtk file.
+        Read in the dataset from the pyvista-zstd file.
 
         Parameters
         ----------
@@ -1233,10 +1236,10 @@ class Reader:
         Examples
         --------
         >>> import pyvista as pv
-        >>> import zvtk
+        >>> import pyvista_zstd
         >>> ds = pv.Sphere()
-        >>> zvtk.write(ds, "sphere.zvtk")
-        >>> reader = zvtk.Reader("sphere.zvtk")
+        >>> pyvista_zstd.write(ds, "sphere.pv")
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
         >>> ds_in = reader.read()
         >>> ds_in
         PolyData (0x7f1eca564520)
@@ -1279,7 +1282,7 @@ class Reader:
         # datasets or other multiblocks (nested multiblocks).
         for m in mblock_meta:
             mb = multiblock_map[m.uid]
-            for child_key, child_uid in zip(m.children_keys, m.children):
+            for child_key, child_uid in zip(m.children_keys, m.children, strict=True):
                 if child_uid in multiblock_map:
                     mb[child_key] = multiblock_map[child_uid]
                 elif child_uid in dataset_map:
@@ -1319,7 +1322,7 @@ class Reader:
         elif ds_type == "ExplicitStructuredGrid":
             ds = _segments_to_esgrid(ds_id, segments)
         else:  # pragma: no cover
-            msg = f"zvtk does not support DataSet type `{ds_type}` for decompression"
+            msg = f"pyvista-zstd does not support DataSet type `{ds_type}` for decompression"
             raise RuntimeError(msg)
 
         _add_data(ds_id, ds, segments)
@@ -1342,14 +1345,14 @@ class Reader:
 
         >>> import pyvista as pv
         >>> import numpy as np
-        >>> import zvtk
+        >>> import pyvista_zstd
         >>> ds = pv.Sphere()
         >>> ds.point_data["pdata"] = np.arange(ds.n_points)
-        >>> zvtk.write(ds, "sphere.zvtk")
+        >>> pyvista_zstd.write(ds, "sphere.pv")
 
         Create a reader and list available point arrays.
 
-        >>> reader = zvtk.Reader("sphere.zvtk")
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
         >>> reader.available_point_arrays
         {"Normals", "pdata"}
 
@@ -1374,14 +1377,14 @@ class Reader:
 
         >>> import pyvista as pv
         >>> import numpy as np
-        >>> import zvtk
+        >>> import pyvista_zstd
         >>> ds = pv.Sphere()
         >>> ds.point_data["pdata"] = np.arange(ds.n_points)
-        >>> zvtk.write(ds, "sphere.zvtk")
+        >>> pyvista_zstd.write(ds, "sphere.pv")
 
         Create a reader and list available point arrays.
 
-        >>> reader = zvtk.Reader("sphere.zvtk")
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
         >>> reader.available_point_arrays
         {"Normals", "pdata"}
 
@@ -1515,7 +1518,7 @@ class Reader:
 
         ds_md = self._ds_metadata
         header = [
-            f"zvtk.Decompressor ({hex(id(self))})",
+            f"pyvista_zstd.Reader ({hex(id(self))})",
             f"  File:               {self._filename}",
             f"  File Version:       {self._metadata.file_version}",
             f"  Compression:        {self._metadata.compression}",
@@ -1560,7 +1563,7 @@ class Reader:
 
         >>> import pyvista as pv
         >>> from pyvista import examples
-        >>> import zvtk
+        >>> import pyvista_zstd
         >>> ds = examples.download_aero_bracket()
         >>> ds
         UnstructuredGrid (0x7fd751589360)
@@ -1573,8 +1576,8 @@ class Reader:
 
         Compress it and then show the compressed frame sizes through the reader.
 
-        >>> zvtk.write(ds, "bracket.zvtk")
-        >>> reader = zvtk.Reader("bracket.zvtk")
+        >>> pyvista_zstd.write(ds, "bracket.pv")
+        >>> reader = pyvista_zstd.Reader("bracket.pv")
         >>> print(reader.show_frame_compression())
         Dataset ID       Frame Type                      Compressed   Decompressed Ratio
         --------------------------------------------------------------------------------
@@ -1591,8 +1594,8 @@ class Reader:
         Note how the compression ratio can be marginally improved by increasing
         the compression level.
 
-        >>> zvtk.write(ds, "bracket.zvtk", level=22)
-        >>> reader = zvtk.Reader("bracket.zvtk")
+        >>> pyvista_zstd.write(ds, "bracket.pv", level=22)
+        >>> reader = pyvista_zstd.Reader("bracket.pv")
         Dataset ID       Frame Type                      Compressed   Decompressed Ratio
         --------------------------------------------------------------------------------
         00007fd751589360 Points                          1.8MB        2.1MB        0.863
@@ -1616,7 +1619,7 @@ class Reader:
 
         # Group frames by dataset ID for better organization
         frame_data = []
-        for name, comp_size, decomp_size in zip(frame_names, c_sizes, d_sizes):
+        for name, comp_size, decomp_size in zip(frame_names, c_sizes, d_sizes, strict=True):
             # Extract dataset ID and frame type
             if len(name) >= UID_N_CHAR:
                 ds_id = name[:UID_N_CHAR]

@@ -1,4 +1,4 @@
-"""Configuration for zvtk testing."""
+"""Configuration for pyvista-zstd testing."""
 
 from __future__ import annotations
 

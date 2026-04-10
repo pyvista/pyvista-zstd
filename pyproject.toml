@@ -22,16 +22,16 @@ dependencies = [
 dynamic = ["description"]
 license = "MIT"
 license-files = ["LICENSE"]
-name = "zvtk"
+name = "pyvista-zstd"
 python_requires = ">=3.10"
 readme = "README.rst"
 version = '0.2.dev0'
 
 [project.entry-points."pyvista.readers"]
-".zvtk" = "zvtk:read"
+".pv" = "pyvista_zstd:read"
 
 [project.urls]
-Home = "https://github.com/pyvista/zvtk"
+Home = "https://github.com/pyvista/pyvista-zstd"
 
 
 [project.optional-dependencies]
@@ -77,5 +77,5 @@ required-imports = ["from __future__ import annotations"]
 keep-runtime-typing = true
 
 [tool.pytest.ini_options]
-addopts = "--cov=zvtk --cov-fail-under=90"
+addopts = "--cov=pyvista_zstd --cov-fail-under=90"
 testpaths = 'tests'

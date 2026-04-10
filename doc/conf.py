@@ -1,4 +1,4 @@
-"""Configuration for the documentation generation of zvtk."""
+"""Configuration for the documentation generation of pyvista-zstd."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pyvista
 
-import zvtk
+import pyvista_zstd
 
 # -- PyVista gallery configuration -------------------------------------------
 # Manage errors
@@ -28,13 +28,13 @@ pyvista.BUILDING_GALLERY = True
 
 # -- Project information -----------------------------------------------------
 
-project = "zvtk"
+project = "pyvista-zstd"
 year = datetime.date.today().year  # noqa: DTZ011
 copyright = f"2025-{year}, The PyVista Developers"  # noqa: A001
 author = "Alex Kaszynski"
 
 # The short X.Y version
-version = release = zvtk.__version__
+version = release = pyvista_zstd.__version__
 
 
 # -- General configuration ---------------------------------------------------
@@ -98,7 +98,7 @@ html_context = {
     # github_user }}/{{ github_repo }}/blob/{{ github_version }}{{ conf_py_path
     # }}{{ pagename }}{{ suffix }}
     "github_user": "pyvista",
-    "github_repo": "zvtk",
+    "github_repo": "pyvista-zstd",
     "github_version": "master/doc/",
     "menu_links_name": "Getting Connected",
     "menu_links": [
@@ -107,13 +107,13 @@ html_context = {
             '<i class="fa fa-comment fa-fw"></i> Support',
             "https://github.com/pyvista/pyvista-support",
         ),
-        ('<i class="fa fa-github fa-fw"></i> Source Code', "https://github.com/pyvista/zvtk"),
+        ('<i class="fa fa-github fa-fw"></i> Source Code', "https://github.com/pyvista/pyvista-zstd"),
     ],
 }
 
 html_theme_options = {
     "show_prev_next": False,
-    "github_url": "https://github.com/pyvista/zvtk",
+    "github_url": "https://github.com/pyvista/pyvista-zstd",
     "logo": {
         "image_light": "pyvista_logo_sm.png",
         "image_dark": "pyvista_logo_sm.png",
@@ -124,7 +124,7 @@ html_theme_options = {
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "zvtk"
+htmlhelp_basename = "pyvista_zstd"
 
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -135,7 +135,7 @@ latex_elements = {}
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "zvtk.tex", "zvtk Documentation", "Alex Kaszynski", "manual"),
+    (master_doc, "pyvista_zstd.tex", "pyvista-zstd Documentation", "Alex Kaszynski", "manual"),
 ]
 
 
@@ -143,7 +143,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "zvtk", "zvtk Documentation", [author], 1)]
+man_pages = [(master_doc, "pyvista_zstd", "pyvista-zstd Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output ----------------------------------------------
@@ -154,10 +154,10 @@ man_pages = [(master_doc, "zvtk", "zvtk Documentation", [author], 1)]
 texinfo_documents = [
     (
         master_doc,
-        "zvtk",
-        "zvtk Documentation",
+        "pyvista_zstd",
+        "pyvista-zstd Documentation",
         author,
-        "zvtk",
+        "pyvista_zstd",
         "One line description of project.",
         "Miscellaneous",
     ),

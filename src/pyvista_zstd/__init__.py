@@ -6,14 +6,14 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version
 
 try:
-    __version__ = version("zvtk")
+    __version__ = version("pyvista-zstd")
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
-from zvtk.zvtk import FILE_VERSION
-from zvtk.zvtk import Reader
-from zvtk.zvtk import Writer
-from zvtk.zvtk import read
-from zvtk.zvtk import write
+from pyvista_zstd.pyvista_zstd import FILE_VERSION
+from pyvista_zstd.pyvista_zstd import Reader
+from pyvista_zstd.pyvista_zstd import Writer
+from pyvista_zstd.pyvista_zstd import read
+from pyvista_zstd.pyvista_zstd import write
 
 __all__ = ["FILE_VERSION", "Reader", "Writer", "read", "write"]

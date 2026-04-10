@@ -17,9 +17,9 @@ import pyvista as pv
 import seaborn as sns
 from tqdm import tqdm
 
-import zvtk
+import pyvista_zstd
 
-tmp_dir = Path("/tmp/zvtk_test")
+tmp_dir = Path("/tmp/pyvista_zstd_test")
 tmp_dir.mkdir(exist_ok=True)
 
 rng = np.random.default_rng(42)
@@ -47,18 +47,18 @@ for n_dim in tqdm(range(10, 300, 20)):  # adjust step for speed
 
     vtk_fs = filename.stat().st_size
 
-    # Save/read timing for zvtk
-    out_file = tmp_dir / f"{name}.zvtk"
+    # Save/read timing for pyvista-zstd
+    out_file = tmp_dir / f"{name}.pv"
     tstart = time.time()
-    writer = zvtk.Writer(ugrid, out_file)
+    writer = pyvista_zstd.Writer(ugrid, out_file)
     writer.write(n_threads=4)
-    zvtk_write_time = time.time() - tstart
-    zvtk_fs = out_file.stat().st_size
+    pyvista_zstd_write_time = time.time() - tstart
+    pyvista_zstd_fs = out_file.stat().st_size
 
     tstart = time.time()
-    reader = zvtk.Reader(out_file)
+    reader = pyvista_zstd.Reader(out_file)
     reader.read()
-    zvtk_read_time = time.time() - tstart
+    pyvista_zstd_read_time = time.time() - tstart
 
     print(reader.nbytes / 1024**2)
     results.append(
@@ -67,20 +67,20 @@ for n_dim in tqdm(range(10, 300, 20)):  # adjust step for speed
             "ds_type": "UnstructuredGrid",
             "raw_nbytes": reader.nbytes,
             "vtk_nbytes": vtk_fs,
-            "zvtk_nbytes": zvtk_fs,
+            "pyvista_zstd_nbytes": pyvista_zstd_fs,
             "vtk_write_time": vtk_write_time,
-            "zvtk_write_time": zvtk_write_time,
+            "pyvista_zstd_write_time": pyvista_zstd_write_time,
             "vtk_read_time": vtk_read_time,
-            "zvtk_read_time": zvtk_read_time,
+            "pyvista_zstd_read_time": pyvista_zstd_read_time,
         }
     )
 
 # Build DataFrame and compute ratios
 df = pd.DataFrame(results)
-df["write_speedup"] = df["vtk_write_time"] / df["zvtk_write_time"]
-df["read_speedup"] = df["vtk_read_time"] / df["zvtk_read_time"]
+df["write_speedup"] = df["vtk_write_time"] / df["pyvista_zstd_write_time"]
+df["read_speedup"] = df["vtk_read_time"] / df["pyvista_zstd_read_time"]
 df["compression_ratio_vtk"] = df["vtk_nbytes"] / df["raw_nbytes"]
-df["compression_ratio_zvtk"] = df["zvtk_nbytes"] / df["raw_nbytes"]
+df["compression_ratio_pyvista_zstd"] = df["pyvista_zstd_nbytes"] / df["raw_nbytes"]
 
 summary = df.sort_values("raw_nbytes", ascending=False)
 
@@ -92,26 +92,26 @@ sns.set(style="whitegrid")
 # Convert bytes to MB for better readability
 summary["raw_MB"] = summary["raw_nbytes"] / 1e6
 summary["vtk_MB"] = summary["vtk_nbytes"] / 1e6
-summary["zvtk_MB"] = summary["zvtk_nbytes"] / 1e6
+summary["pyvista_zstd_MB"] = summary["pyvista_zstd_nbytes"] / 1e6
 
 
 ###############################################################################
 # 1. File size comparison with ratio fit
 plt.figure(figsize=(8, 6))
-sns.scatterplot(data=summary, x="vtk_MB", y="zvtk_MB", s=50)
+sns.scatterplot(data=summary, x="vtk_MB", y="pyvista_zstd_MB", s=50)
 
 # 1:1 reference line
-max_val = max(summary["vtk_MB"].max(), summary["zvtk_MB"].max())
+max_val = max(summary["vtk_MB"].max(), summary["pyvista_zstd_MB"].max())
 plt.plot([0, max_val], [0, max_val], "k--", lw=1, label="1:1 line")
 
 # Linear fit forced through origin to get ratio
-ratio_coef = 1 / float(np.sum(summary["vtk_MB"] * summary["zvtk_MB"]) / np.sum(summary["vtk_MB"] ** 2))
+ratio_coef = 1 / float(np.sum(summary["vtk_MB"] * summary["pyvista_zstd_MB"]) / np.sum(summary["vtk_MB"] ** 2))
 fit_line = 1 / ratio_coef * summary["vtk_MB"]
 plt.plot(summary["vtk_MB"], fit_line, "r-", lw=2, label=f"Fit ratio: {ratio_coef:.2f}× VTK")
 
 plt.xlabel("VTK XML file size (MB)")
-plt.ylabel("ZVTK file size (MB)")
-plt.title("File size comparison: ZVTK vs VTK XML")
+plt.ylabel("pyvista-zstd file size (MB)")
+plt.title("File size comparison: pyvista-zstd vs VTK XML")
 plt.legend()
 plt.tight_layout()
 plt.show()
@@ -119,20 +119,20 @@ plt.show()
 ###############################################################################
 # 2. Write time comparison with ratio fit
 plt.figure(figsize=(8, 6))
-sns.scatterplot(data=summary, x="vtk_write_time", y="zvtk_write_time", s=50)
+sns.scatterplot(data=summary, x="vtk_write_time", y="pyvista_zstd_write_time", s=50)
 
-max_val = max(summary["vtk_write_time"].max(), summary["zvtk_write_time"].max())
+max_val = max(summary["vtk_write_time"].max(), summary["pyvista_zstd_write_time"].max())
 plt.plot([0, max_val], [0, max_val], "k--", lw=1, label="1:1 line")
 
 ratio_coef = 1 / float(
-    np.sum(summary["vtk_write_time"] * summary["zvtk_write_time"]) / np.sum(summary["vtk_write_time"] ** 2)
+    np.sum(summary["vtk_write_time"] * summary["pyvista_zstd_write_time"]) / np.sum(summary["vtk_write_time"] ** 2)
 )
 fit_line = 1 / ratio_coef * summary["vtk_write_time"]
 plt.plot(summary["vtk_write_time"], fit_line, "r-", lw=2, label=f"Fit ratio: {ratio_coef:.2f}× VTK")
 
 plt.xlabel("VTK write time (s)")
-plt.ylabel("ZVTK write time (s)")
-plt.title("Write performance comparison: ZVTK vs VTK XML")
+plt.ylabel("pyvista-zstd write time (s)")
+plt.title("Write performance comparison: pyvista-zstd vs VTK XML")
 plt.legend()
 plt.tight_layout()
 plt.show()
@@ -140,20 +140,20 @@ plt.show()
 ###############################################################################
 # 3. Read time comparison with ratio fit
 plt.figure(figsize=(8, 6))
-sns.scatterplot(data=summary, x="vtk_read_time", y="zvtk_read_time", s=50)
+sns.scatterplot(data=summary, x="vtk_read_time", y="pyvista_zstd_read_time", s=50)
 
-max_val = max(summary["vtk_read_time"].max(), summary["zvtk_read_time"].max())
+max_val = max(summary["vtk_read_time"].max(), summary["pyvista_zstd_read_time"].max())
 plt.plot([0, max_val], [0, max_val], "k--", lw=1, label="1:1 line")
 
 ratio_coef = 1 / float(
-    np.sum(summary["vtk_read_time"] * summary["zvtk_read_time"]) / np.sum(summary["vtk_read_time"] ** 2)
+    np.sum(summary["vtk_read_time"] * summary["pyvista_zstd_read_time"]) / np.sum(summary["vtk_read_time"] ** 2)
 )
 fit_line = 1 / ratio_coef * summary["vtk_read_time"]
 plt.plot(summary["vtk_read_time"], fit_line, "r-", lw=2, label=f"Fit ratio: {ratio_coef:.2f}× VTK")
 
 plt.xlabel("VTK read time (s)")
-plt.ylabel("ZVTK read time (s)")
-plt.title("Read performance comparison: ZVTK vs VTK XML")
+plt.ylabel("pyvista-zstd read time (s)")
+plt.title("Read performance comparison: pyvista-zstd vs VTK XML")
 plt.legend()
 plt.tight_layout()
 plt.show()
@@ -172,7 +172,7 @@ summary_speedup = summary.melt(
 plt.figure(figsize=(10, 5))
 sns.lineplot(data=summary_speedup, x="raw_MB", y="value", hue="metric", marker="o")
 plt.xlabel("Raw dataset size (MB)")
-plt.ylabel("Speedup (ZVTK / VTK XML)")
+plt.ylabel("Speedup (pyvista-zstd / VTK XML)")
 plt.title("Read/Write Speedup vs Dataset Size")
 plt.tight_layout()
 plt.show()
@@ -180,7 +180,7 @@ plt.show()
 # 4b. Compression ratio summary
 summary_compression = summary.melt(
     id_vars=["raw_MB"],
-    value_vars=["compression_ratio_vtk", "compression_ratio_zvtk"],
+    value_vars=["compression_ratio_vtk", "compression_ratio_pyvista_zstd"],
     var_name="metric",
     value_name="value",
 )

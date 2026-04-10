@@ -11,24 +11,24 @@ from pathlib import Path
 from pyvista import examples
 import pyvista as pv
 
-import zvtk
+import pyvista_zstd
 
 ###############################################################################
-# First, download a multiblock dataset from pyvista and save it as a zvtk file.
+# First, download a multiblock dataset from pyvista and save it as a pyvista-zstd file.
 #
 # .. note::
-#    Unlike VTK, ``zvtk`` saves composite datasets as a single file.
+#    Unlike VTK, ``pyvista-zstd`` saves composite datasets as a single file.
 
 ds = examples.download_whole_body_ct_male()
 
-zvtk_filename = "whole_body_ct_male.zvtk"
-zvtk.write(ds, zvtk_filename)
+pyvista_zstd_filename = "whole_body_ct_male.pv"
+pyvista_zstd.write(ds, pyvista_zstd_filename)
 
 
 ###############################################################################
-# Next, create a :class:`zvtk.Reader` and show the global hierarchy
+# Next, create a :class:`pyvista-zstd.Reader` and show the global hierarchy
 
-reader = zvtk.Reader(zvtk_filename)
+reader = pyvista_zstd.Reader(pyvista_zstd_filename)
 reader
 
 

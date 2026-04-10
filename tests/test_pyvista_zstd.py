@@ -104,9 +104,10 @@ def test_ugrid(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     assert ugrid.cell_data == ugrid_out.cell_data
     assert ugrid.field_data == ugrid_out.field_data
 
-    # can remove with pyvista >= 0.47.0
-    np.allclose(ugrid.polyhedron_faces, ugrid_out.polyhedron_faces)
-    np.allclose(ugrid.polyhedron_face_locations, ugrid_out.polyhedron_face_locations)
+    assert np.allclose(ugrid.polyhedron_faces, ugrid_out.polyhedron_faces)
+    assert np.allclose(
+        ugrid.polyhedron_face_locations, ugrid_out.polyhedron_face_locations
+    )
 
     assert ugrid == ugrid_out
 
@@ -286,7 +287,7 @@ def test_reader_array_selection(ugrid: UnstructuredGrid, tmp_path: Path) -> None
         UnstructuredGrid,
     ],
 )
-def test_empty_objects(ds_type: str, tmp_path: Path) -> None:
+def test_empty_objects(ds_type: type[DataSet], tmp_path: Path) -> None:
     """Test reading/writing empty objects."""
     filename = tmp_path / f"{ds_type.__name__}.pv"
     ds = ds_type()
@@ -443,11 +444,12 @@ def test_multiblock_reader_class(multi_block: MultiBlock, tmp_path: Path) -> Non
 
     assert reader.read() == multi_block
 
+    leaf_reader = reader[0]
     with pytest.raises(TypeError, match="Only MultiBlock nodes are indexable."):
-        reader[ii][0]
+        _ = leaf_reader[0]
 
     with pytest.raises(TypeError, match="Only MultiBlock nodes have a length."):
-        len(reader[ii])
+        len(leaf_reader)
 
     assert type(multi_block[0]).__name__ in repr(reader[0])
 

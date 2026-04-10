@@ -12,6 +12,7 @@ import pyvista as pv
 import pyvista_zstd
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 pytest.importorskip("pyvista.core.utilities.reader_registry")
@@ -22,7 +23,7 @@ from pyvista.core.utilities.reader_registry import _save_registry_state
 
 
 @pytest.fixture(autouse=True)
-def _clean_registry() -> None:
+def _clean_registry() -> Iterator[None]:
     """Restore reader registry state after each test."""
     state = _save_registry_state()
     yield

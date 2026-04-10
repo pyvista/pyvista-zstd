@@ -596,7 +596,9 @@ class Writer:
         self._refs = []
 
 
-def _reconstruct_array(meta_segment: BufferSegment, arr_segment: BufferSegment) -> np.ndarray:
+def _reconstruct_array(
+    meta_segment: BufferSegment, arr_segment: BufferSegment,
+) -> tuple[str, NDArray[Any]]:
     """
     Reconstruct a NumPy array from a single decompressed Zstd frame.
 
@@ -867,7 +869,7 @@ class _DataSetReader:
             return self._parent._read_ds(self.uid)  # noqa: SLF001
         if isinstance(self._meta, MultiBlockMetadata):
             mb = MultiBlock()
-            for key, child in zip(self._meta.children_keys, self._children):
+            for key, child in zip(self._meta.children_keys, self._children, strict=True):
                 mb[key] = child.read()
             return mb
 
@@ -927,7 +929,7 @@ class Reader:
 
     >>> reader = pyvista_zstd.Reader("sphere.pv")
     >>> reader
-    pyvista_zstd.Decompressor (0x7f1ed1496c00)
+    pyvista_zstd.Reader (0x7f1ed1496c00)
       File:               sphere.pv
       File Version:       0
       Compression:        zstandard
@@ -970,7 +972,7 @@ class Reader:
             num_frames = struct.unpack("<Q", f.read(8))[0]
 
             max_frames = 1_000_000
-            if num_frames > max_frames:
+            if num_frames == 0 or num_frames > max_frames:
                 msg = "Bad number of frames. File may be corrupted."
                 raise RuntimeError(msg)
 
@@ -996,7 +998,8 @@ class Reader:
 
         # prepare the metadata frame and decompress it
         segments_bytes = b"".join(
-            struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends)
+            struct.pack("=QQ", start, end - start)
+            for start, end in zip(frame_starts, frame_ends, strict=True)
         )
 
         if not segments_bytes:
@@ -1157,8 +1160,8 @@ class Reader:
             msg = "No selected frames"
             raise RuntimeError(msg)
 
-        segments = _raw_segments_to_arrays(segments_raw)  # pragma: no cover
-        return self._segments_to_ds(ds_id, segments)  # pragma: no cover
+        segments = _raw_segments_to_arrays(segments_raw)
+        return self._segments_to_ds(ds_id, segments)
 
     def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901, PLR0912
         """Read metadata hierarchy from the pyvista-zstd file."""
@@ -1279,7 +1282,7 @@ class Reader:
         # datasets or other multiblocks (nested multiblocks).
         for m in mblock_meta:
             mb = multiblock_map[m.uid]
-            for child_key, child_uid in zip(m.children_keys, m.children):
+            for child_key, child_uid in zip(m.children_keys, m.children, strict=True):
                 if child_uid in multiblock_map:
                     mb[child_key] = multiblock_map[child_uid]
                 elif child_uid in dataset_map:
@@ -1515,7 +1518,7 @@ class Reader:
 
         ds_md = self._ds_metadata
         header = [
-            f"pyvista_zstd.Decompressor ({hex(id(self))})",
+            f"pyvista_zstd.Reader ({hex(id(self))})",
             f"  File:               {self._filename}",
             f"  File Version:       {self._metadata.file_version}",
             f"  Compression:        {self._metadata.compression}",
@@ -1616,7 +1619,7 @@ class Reader:
 
         # Group frames by dataset ID for better organization
         frame_data = []
-        for name, comp_size, decomp_size in zip(frame_names, c_sizes, d_sizes):
+        for name, comp_size, decomp_size in zip(frame_names, c_sizes, d_sizes, strict=True):
             # Extract dataset ID and frame type
             if len(name) >= UID_N_CHAR:
                 ds_id = name[:UID_N_CHAR]

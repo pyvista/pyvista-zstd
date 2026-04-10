@@ -181,7 +181,7 @@ Clearly there’s room for improvement here as this amounts to a
 compression rate of 105.89 MB/s.
 
 VTK Compression with Zstandard: pyvista-zstd
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This library, ``pyvista-zstd``, writes out VTK datasets with minimal overhead
 and uses `Zstandard <https://github.com/facebook/zstd>`__ for

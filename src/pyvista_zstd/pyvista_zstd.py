@@ -62,6 +62,10 @@ CELL_TYPES_KEY = "celltypes"
 DS_METADATA_KEY = "__ds_metadata"
 MULTIBLOCK_METADATA_KEY = "__multiblock__ds_metadata"
 FILE_METADATA_KEY = "__pyvista_zstd_metadata"
+LEGACY_FILE_METADATA_KEY = "__zvtk_metadata"
+FILE_SUFFIX = ".pv"
+LEGACY_FILE_SUFFIX = ".zvtk"
+SUPPORTED_READ_SUFFIXES = (FILE_SUFFIX, LEGACY_FILE_SUFFIX)
 
 RGRID_X_SUFFIX = "_x_rgrid"
 RGRID_Y_SUFFIX = "_y_rgrid"
@@ -469,8 +473,8 @@ class Writer:
         """Initialize the writer."""
         self._filename = Path(filename)
 
-        if self._filename.suffix != ".pv":
-            msg = f"Filename must end in '.pv', not '{self._filename.suffix}'"
+        if self._filename.suffix != FILE_SUFFIX:
+            msg = f"Filename must end in '{FILE_SUFFIX}', not '{self._filename.suffix}'"
             raise ValueError(msg)
 
         self._arrays: dict[str, NDArray[Any]] = {}
@@ -597,7 +601,8 @@ class Writer:
 
 
 def _reconstruct_array(
-    meta_segment: BufferSegment, arr_segment: BufferSegment,
+    meta_segment: BufferSegment,
+    arr_segment: BufferSegment,
 ) -> tuple[str, NDArray[Any]]:
     """
     Reconstruct a NumPy array from a single decompressed Zstd frame.
@@ -792,7 +797,8 @@ except ImportError:
         return _identity
 
 
-@register_reader(".pv")
+@register_reader(LEGACY_FILE_SUFFIX)
+@register_reader(FILE_SUFFIX)
 def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     """
     Decompress a ``pyvista-zstd`` file.
@@ -963,8 +969,8 @@ class Reader:
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
 
-        if self._filename.suffix != ".pv":
-            msg = f"Filename must end in '.pv', not '{self._filename.suffix}'"
+        if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
+            msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
             raise ValueError(msg)
 
         with self._filename.open("rb") as f:
@@ -998,8 +1004,7 @@ class Reader:
 
         # prepare the metadata frame and decompress it
         segments_bytes = b"".join(
-            struct.pack("=QQ", start, end - start)
-            for start, end in zip(frame_starts, frame_ends, strict=True)
+            struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends, strict=True)
         )
 
         if not segments_bytes:
@@ -1086,7 +1091,18 @@ class Reader:
             threads=0,  # tiny
         )
         name, arr = _reconstruct_array(*segments)
-        if name != FILE_METADATA_KEY:  # pragma: no cover
+        if name == LEGACY_FILE_METADATA_KEY:
+            # FutureWarning (not DeprecationWarning) because this is aimed at
+            # end users re-saving their data files, and Python's default
+            # warning filters hide DeprecationWarning from non-__main__ code.
+            warnings.warn(
+                f"'{self._filename}' is a legacy zvtk file. Support for the "
+                "'.zvtk' format will be removed in a future release; re-save "
+                "it with `pyvista_zstd.write(pyvista_zstd.read(path), new_path)`.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        elif name != FILE_METADATA_KEY:  # pragma: no cover
             msg = "File metadata not found in pyvista-zstd file."
             raise RuntimeError(msg)
 

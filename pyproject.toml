@@ -25,7 +25,7 @@ license-files = ["LICENSE"]
 name = "pyvista-zstd"
 python_requires = ">=3.10"
 readme = "README.rst"
-version = '0.2.dev0'
+version = '0.2.0'
 
 [project.entry-points."pyvista.readers"]
 ".pv" = "pyvista_zstd:read"

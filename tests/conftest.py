@@ -24,9 +24,48 @@ if TYPE_CHECKING:
 THIS_PATH = Path(__file__).parent
 
 
+VTK_HAS_POLYHEDRA_API = pv.vtk_version_info >= (9, 4)
+
+requires_polyhedra_api = pytest.mark.skipif(
+    not VTK_HAS_POLYHEDRA_API,
+    reason="Polyhedron round-trip requires VTK >= 9.4",
+)
+
+
 @pytest.fixture
 def ugrid() -> UnstructuredGrid:
-    """Return an unstructured grid."""
+    """Return a polyhedron-free unstructured grid (works on all VTK versions)."""
+    cells = np.array([8, 0, 1, 2, 3, 4, 5, 6, 7, 8, 8, 9, 10, 11, 12, 13, 14, 15])
+    cell_type = np.array([pv.CellType.HEXAHEDRON, pv.CellType.HEXAHEDRON], dtype=np.uint8)
+    points = np.array(
+        [
+            [0, 0, 0],
+            [1, 0, 0],
+            [1, 1, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+            [1, 0, 1],
+            [1, 1, 1],
+            [0, 1, 1],
+            [0, 0, 2],
+            [1, 0, 2],
+            [1, 1, 2],
+            [0, 1, 2],
+            [0, 0, 3],
+            [1, 0, 3],
+            [1, 1, 3],
+            [0, 1, 3],
+        ],
+        dtype=np.float32,
+    )
+    return pv.UnstructuredGrid(cells, cell_type, points)
+
+
+@pytest.fixture
+def ugrid_polyhedra() -> UnstructuredGrid:
+    """Return an unstructured grid that contains polyhedra (VTK>=9.4 only)."""
+    if not VTK_HAS_POLYHEDRA_API:
+        pytest.skip("Polyhedron round-trip requires VTK >= 9.4")
     return pv.read(THIS_PATH / "test_data/ugrid-poly.vtk")
 
 
@@ -97,7 +136,7 @@ def multi_block(
     polydata: PolyData,
     imagedata: ImageData,
 ) -> MultiBlock:
-    """Return a MultiBlock."""
+    """Return a MultiBlock (polyhedron-free, works on all VTK versions)."""
     mblock = MultiBlock()
     mblock["RectilinearGrid"] = rgrid
     mblock["PointSet"] = pointset
@@ -109,5 +148,5 @@ def multi_block(
 
 @pytest.fixture
 def multi_block_nested(multi_block, ugrid) -> MultiBlock:
-    """Return a nested MultiBlock."""
+    """Return a nested MultiBlock (polyhedron-free)."""
     return MultiBlock([ugrid, multi_block.copy(), multi_block.copy(), multi_block.copy()])

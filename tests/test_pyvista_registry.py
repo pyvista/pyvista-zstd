@@ -18,14 +18,12 @@ if TYPE_CHECKING:
 
 pytest.importorskip("pyvista.core.utilities.reader_registry")
 
-from pyvista.core.utilities.reader_registry import _custom_ext_readers
-from pyvista.core.utilities.reader_registry import _ensure_entry_points as _ensure_reader_eps
+from pyvista.core.utilities.reader_registry import _list_custom_exts as _list_reader_exts
 from pyvista.core.utilities.reader_registry import _restore_registry_state as _restore_reader_state
 from pyvista.core.utilities.reader_registry import _save_registry_state as _save_reader_state
 
 _HAS_WRITER_REGISTRY = True
 try:
-    from pyvista.core.utilities.writer_registry import _ensure_entry_points as _ensure_writer_eps
     from pyvista.core.utilities.writer_registry import _list_custom_exts as _list_writer_exts
     from pyvista.core.utilities.writer_registry import _restore_registry_state as _restore_writer_state
     from pyvista.core.utilities.writer_registry import _save_registry_state as _save_writer_state
@@ -46,8 +44,7 @@ def _clean_registry() -> Iterator[None]:
 
 def test_pyvista_zstd_registered() -> None:
     """pyvista-zstd registers .pv on import."""
-    _ensure_reader_eps()
-    assert ".pv" in _custom_ext_readers
+    assert ".pv" in _list_reader_exts()
 
 
 def test_pv_read_pyvista_zstd_roundtrip(tmp_path: Path) -> None:
@@ -85,7 +82,6 @@ def test_entry_point_registered() -> None:
 @pytest.mark.skipif(not _HAS_WRITER_REGISTRY, reason="pyvista writer registry not available")
 def test_pyvista_zstd_writer_registered() -> None:
     """pyvista-zstd registers a .pv writer via entry point."""
-    _ensure_writer_eps()
     assert ".pv" in _list_writer_exts()
 
 
@@ -119,7 +115,7 @@ def test_save_dispatches_to_pyvista_zstd(tmp_path: Path) -> None:
     mesh = pv.Sphere()
     path = tmp_path / "mesh.pv"
 
-    def fake_writer(dataset, filename, **_kwargs) -> None:  # noqa: ANN001, ANN003
+    def fake_writer(_dataset, filename, **_kwargs) -> None:  # noqa: ANN003
         _Path(filename).write_bytes(b"")
 
     mock = MagicMock(side_effect=fake_writer)

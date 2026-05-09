@@ -36,14 +36,13 @@ from vtkmodules.util.numpy_support import vtk_to_numpy
 from vtkmodules.vtkCommonCore import vtkTypeInt32Array
 from vtkmodules.vtkCommonCore import vtkTypeInt64Array
 from vtkmodules.vtkCommonDataModel import vtkCellArray
+from vtkmodules.vtkCommonDataModel import vtkPointSet
 import zstandard as zstd
 from zstandard import BufferSegment
 from zstandard import BufferWithSegments
 from zstandard import BufferWithSegmentsCollection
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
-
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
@@ -201,15 +200,21 @@ class DataSetMetadata:
         # Many pyvista calls require intermediate object assembly, side step or
         # do once when possible.
 
-        # Get points
-        vtk_dtype = ds.GetPoints().GetDataType()
-        if vtk_dtype == VTK_FLOAT:
-            points_dtype = np.float32
-        elif vtk_dtype == VTK_DOUBLE:
-            points_dtype = np.float64
-        else:  # pragma: no cover
-            msg = "Invalid points datatype. Should be float or double"
-            raise RuntimeError(msg)
+        # Get points dtype only for datasets that store explicit points.
+        # ``vtkImageData`` has no ``GetPoints`` in older VTK and
+        # ``vtkRectilinearGrid.GetPoints()`` requires an out-arg in older VTK,
+        # so probe via ``vtkPointSet`` membership instead.
+        if isinstance(ds, vtkPointSet) and ds.GetPoints() is not None:
+            vtk_dtype = ds.GetPoints().GetDataType()
+            if vtk_dtype == VTK_FLOAT:
+                points_dtype: type[np.floating] | None = np.float32
+            elif vtk_dtype == VTK_DOUBLE:
+                points_dtype = np.float64
+            else:  # pragma: no cover
+                msg = "Invalid points datatype. Should be float or double"
+                raise RuntimeError(msg)
+        else:
+            points_dtype = None
 
         pd = ds.point_data
         cd = ds.cell_data
@@ -217,7 +222,7 @@ class DataSetMetadata:
             "ds_type": type(ds).__name__,
             "uid": _make_ds_id(ds),
             "n_points": ds.n_points,
-            "points_dtype": str(points_dtype),
+            "points_dtype": str(points_dtype) if points_dtype is not None else None,
             "n_cells": ds.n_cells,
             "celltypes_dtype": str(ds.celltypes.dtype) if hasattr(ds, "celltypes") else None,
             "point_data_keys": point_info,
@@ -359,20 +364,30 @@ def _add_arrays_ugrid(
     arrays[f"{ds_id}{CELL_TYPES_KEY}"] = ds.celltypes
 
     _add_cell_array(ds_id, arrays, CELLS, ds.GetCells(), force_int32=force_int32)
-    _add_cell_array(
-        ds_id,
-        arrays,
-        POLYHEDRON,
-        ds.GetPolyhedronFaces(),
-        force_int32=force_int32,
-    )
-    _add_cell_array(
-        ds_id,
-        arrays,
-        POLYHEDRON_LOCATION,
-        ds.GetPolyhedronFaceLocations(),
-        force_int32=force_int32,
-    )
+
+    has_polyhedra = bool(np.any(ds.celltypes == pv.CellType.POLYHEDRON))
+    if has_polyhedra:
+        if pv.vtk_version_info < (9, 4):
+            msg = (
+                "Polyhedron round-trip requires VTK >= 9.4. "
+                f"Detected polyhedra in dataset but VTK {pv.vtk_version_info} is installed. "
+                "Upgrade VTK to encode polyhedra."
+            )
+            raise NotImplementedError(msg)
+        _add_cell_array(
+            ds_id,
+            arrays,
+            POLYHEDRON,
+            ds.GetPolyhedronFaces(),
+            force_int32=force_int32,
+        )
+        _add_cell_array(
+            ds_id,
+            arrays,
+            POLYHEDRON_LOCATION,
+            ds.GetPolyhedronFaceLocations(),
+            force_int32=force_int32,
+        )
 
 
 def _add_arrays_esgrid(
@@ -687,6 +702,13 @@ def _segments_to_ugrid(ds_id: str, segments: dict[str, Any]) -> UnstructuredGrid
     poly_loc = _extract_cell_array(ds_id, POLYHEDRON_LOCATION, segments)
 
     if poly and poly_loc:
+        if pv.vtk_version_info < (9, 4):
+            msg = (
+                "Polyhedron decode requires VTK >= 9.4. "
+                f"File contains polyhedra but VTK {pv.vtk_version_info} is installed. "
+                "Upgrade VTK to load this file."
+            )
+            raise NotImplementedError(msg)
         ugrid.SetPolyhedralCells(
             celltypes_vtk,
             cells,
@@ -713,7 +735,9 @@ def _numpy_to_vtk_cells(
     offset: NDArray[np.int32] | NDArray[np.int64],
     connectivity: NDArray[np.int32] | NDArray[np.int64],
 ) -> vtkCellArray:
-    # convert to vtk arrays without copying
+    # Build directly via VTK to preserve int32/int64 dtype on the connectivity
+    # array. ``pv.CellArray.from_arrays`` always casts to ``pv.ID_TYPE``
+    # (typically int64) which would defeat ``force_int32``.
     dtype = connectivity.dtype
     if dtype == np.int32:
         vtk_dtype = vtkTypeInt32Array().GetDataType()
@@ -723,7 +747,6 @@ def _numpy_to_vtk_cells(
         msg = f"Invalid faces dtype {dtype}. Expected `np.int32` or `np.int64`."
         raise ValueError(msg)
     connectivity_vtk = numpy_to_vtk(connectivity, deep=False, array_type=vtk_dtype)
-
     offset_vtk = numpy_to_vtk(offset, deep=False, array_type=vtk_dtype)
     carr = vtkCellArray()
     carr.SetData(offset_vtk, connectivity_vtk)

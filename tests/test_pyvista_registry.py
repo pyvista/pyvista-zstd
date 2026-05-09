@@ -119,7 +119,7 @@ def test_save_dispatches_to_pyvista_zstd(tmp_path: Path) -> None:
     mesh = pv.Sphere()
     path = tmp_path / "mesh.pv"
 
-    def fake_writer(dataset, filename, **_kwargs) -> None:  # noqa: ANN001, ANN003
+    def fake_writer(_dataset, filename, **_kwargs) -> None:  # noqa: ANN003
         _Path(filename).write_bytes(b"")
 
     mock = MagicMock(side_effect=fake_writer)

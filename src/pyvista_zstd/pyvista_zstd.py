@@ -118,13 +118,36 @@ VTK_DOUBLE = 11
 _FILTER_NONE = 0
 _FILTER_SHUFFLE = 1
 
-# ``shuffle="auto"`` (the default) shuffles only multibyte floating-point
-# arrays -- the payloads that benefit -- and leaves integer / single-byte
-# arrays untouched (shuffling sorted ints can slightly hurt at low levels).
+# ``shuffle="auto"`` (the default) considers only multibyte floating-point
+# arrays -- the payloads that can benefit -- and then keeps the shuffle only
+# when a trial compression confirms it actually shrinks the data, so ``auto``
+# never inflates a file (shuffling already-regular data, e.g. small coordinate
+# ramps, can otherwise hurt).
 ShuffleSpec = Literal["auto", True, False]
 
+# Sample budget for the ``auto`` probe.  Arrays at or below this many bytes are
+# evaluated exactly (the whole array is trial-compressed both ways); larger
+# arrays are decided from a representative contiguous middle sample, keeping the
+# probe cheap on big payloads where shuffle reliably wins.
+_SHUFFLE_PROBE_BYTES = 1 << 20  # 1 MiB
 
-def _resolve_shuffle(arr: np.ndarray, shuffle: ShuffleSpec) -> bool:
+
+def _auto_shuffle_beneficial(arr: np.ndarray, level: int) -> bool:
+    """Trial-compress a sample raw vs shuffled; keep shuffle only if it's smaller."""
+    itemsize = arr.dtype.itemsize
+    flat = np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
+    n_elem = flat.size // itemsize
+    if n_elem == 0:
+        return False
+    n_sample = min(n_elem, max(1, _SHUFFLE_PROBE_BYTES // itemsize))
+    start = (n_elem - n_sample) // 2  # centered, representative of bulk data
+    sample = flat[start * itemsize : (start + n_sample) * itemsize]
+    shuffled = sample.reshape(n_sample, itemsize).T.reshape(-1)
+    cctx = zstd.ZstdCompressor(level=level)
+    return len(cctx.compress(shuffled.tobytes())) < len(cctx.compress(sample.tobytes()))
+
+
+def _resolve_shuffle(arr: np.ndarray, shuffle: ShuffleSpec, level: int | None = None) -> bool:
     """Return whether ``arr`` should be byte-shuffled under ``shuffle``."""
     if shuffle is False:
         return False
@@ -132,8 +155,14 @@ def _resolve_shuffle(arr: np.ndarray, shuffle: ShuffleSpec) -> bool:
         return False  # nothing to interleave
     if shuffle is True:
         return True
-    # "auto": floating-point (real or complex) multibyte arrays only.
-    return arr.dtype.kind in ("f", "c")
+    # "auto": multibyte floating-point (real or complex) only ...
+    if arr.dtype.kind not in ("f", "c"):
+        return False
+    # ... and only when the probe shows it pays off.  Without a level to probe
+    # with, fall back to the dtype gate.
+    if level is None:
+        return True
+    return _auto_shuffle_beneficial(arr, level)
 
 
 def _shuffle_bytes(arr: np.ndarray) -> np.ndarray:
@@ -672,7 +701,7 @@ class Writer:
         # record whether any filter was used (an unfiltered file stays at
         # FILE_VERSION_UNFILTERED and remains readable by older releases).
         filters = {
-            name: (_FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle) else _FILTER_NONE)
+            name: (_FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE)
             for name, arr in self._arrays.items()
         }
         any_filtered = any(f != _FILTER_NONE for f in filters.values())

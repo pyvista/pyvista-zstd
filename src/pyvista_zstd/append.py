@@ -326,7 +326,7 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
     for name, raw in arrays.items():
         arr = np.ascontiguousarray(raw)
         frame_name = f"{ds_id}{name}{FIELD_DATA_SUFFIX}"
-        filter_id = _FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle) else _FILTER_NONE
+        filter_id = _FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE
         any_shuffled = any_shuffled or filter_id != _FILTER_NONE
         meta_payload = _pack_array_metadata(frame_name, arr, filter_id)
         if filter_id == _FILTER_SHUFFLE:

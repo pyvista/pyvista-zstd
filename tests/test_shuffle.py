@@ -116,3 +116,28 @@ def test_append_shuffle_false_keeps_version(tmp_path: Path) -> None:
     append_arrays(path, {"extra": np.arange(500, dtype=np.float64)}, shuffle=False)
     assert pz.Reader(path)._metadata.file_version == FILE_VERSION_UNFILTERED  # noqa: SLF001
     assert np.array_equal(read_array(path, "extra"), np.arange(500, dtype=np.float64))
+
+
+def test_auto_probe_keeps_helpful_shuffle_and_drops_harmful() -> None:
+    """The ``auto`` probe shuffles data it shrinks and skips data it would inflate."""
+    x = np.linspace(0, 60 * np.pi, 50000)
+    helps = np.sin(x) * np.exp(-x / 200.0)
+    # A regular coordinate ramp already compresses well raw; byte-shuffle breaks
+    # the constant inter-element byte deltas and would enlarge it.
+    hurts = np.mgrid[0:20, 0:20, 0:20].reshape(3, -1).T.astype(np.float64).reshape(-1)
+    assert _resolve_shuffle(helps, "auto", level=3) is True
+    assert _resolve_shuffle(hurts, "auto", level=3) is False
+
+
+def test_auto_never_inflates_low_entropy_floats(tmp_path: Path) -> None:
+    """``auto`` leaves a file no larger than unfiltered when shuffle would not help."""
+    grid = pv.ImageData(dimensions=(20, 20, 20))
+    grid.point_data["coords"] = np.mgrid[0:20, 0:20, 0:20].reshape(3, -1).T.astype(np.float64)
+    auto = tmp_path / "auto.pv"
+    raw = tmp_path / "raw.pv"
+    pz.write(grid, auto)
+    pz.write(grid, raw, shuffle=False)
+    assert auto.stat().st_size <= raw.stat().st_size
+    # nothing was filtered, so the file stays at the backward-compatible version
+    assert pz.Reader(auto)._metadata.file_version == FILE_VERSION_UNFILTERED  # noqa: SLF001
+    assert np.array_equal(pz.read(auto).point_data["coords"], grid.point_data["coords"])

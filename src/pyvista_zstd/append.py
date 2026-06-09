@@ -74,6 +74,7 @@ from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import FIELD_DATA_SUFFIX
 from pyvista_zstd.pyvista_zstd import FILE_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import FILE_VERSION
+from pyvista_zstd.pyvista_zstd import MULTIBLOCK_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import UID_N_CHAR
 from pyvista_zstd.pyvista_zstd import ArrayInfo
@@ -172,8 +173,15 @@ def _load_file_meta_and_root_ds(
     _, arr = _decompress_two_blobs(meta_blob, data_blob, (frame_meta[-2][1], frame_meta[-1][1]))
     file_meta = ZstdFileMetadata.from_json(arr.tobytes().decode("utf-8"))
 
-    # Find the root dataset metadata frame by name.
+    # ``MULTIBLOCK_METADATA_KEY`` also ends with ``DS_METADATA_KEY``; a
+    # MultiBlock file has no single root dataset to append to, so reject it
+    # cleanly instead of misparsing its multiblock metadata as a dataset.
     frame_names = file_meta.frame_names
+    if any(fname.endswith(MULTIBLOCK_METADATA_KEY) for fname in frame_names):
+        msg = "appending to MultiBlock .pv files is not supported."
+        raise NotImplementedError(msg)
+
+    # Find the root dataset metadata frame by name.
     root_idx = None
     for i, fname in enumerate(frame_names):
         if fname.endswith(DS_METADATA_KEY):

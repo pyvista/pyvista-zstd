@@ -284,6 +284,23 @@ def test_append_bad_suffix_rejected(tmp_path) -> None:
         append_arrays(tmp_path / "x.txt", {"a": np.arange(3)})
 
 
+def test_append_to_multiblock_rejected(tmp_path) -> None:
+    """
+    Appending to a MultiBlock .pv file is rejected with a clear error.
+
+    A MultiBlock has no single root dataset to attach field arrays to; without
+    this guard the over-greedy ``__ds_metadata`` suffix match picked up the
+    ``__multiblock__ds_metadata`` frame and crashed with an opaque TypeError.
+    """
+    multi = pv.MultiBlock()
+    multi["a"] = pv.Sphere()
+    multi["b"] = pv.Cube()
+    path = tmp_path / "multi.pv"
+    pz.write(multi, str(path))
+    with pytest.raises(NotImplementedError, match="MultiBlock"):
+        append_arrays(path, {"extra": np.arange(5, dtype=np.float64)})
+
+
 def test_read_missing_array_raises(tmp_path, base_grid) -> None:
     """Reading a missing array raises KeyError."""
     path = _write_base(tmp_path / "f.pv", base_grid)

@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import io
 import pathlib
 import struct
 from typing import TYPE_CHECKING
@@ -24,6 +25,7 @@ import pyvista as pv
 
 import pyvista_zstd as pz
 from pyvista_zstd.append import AppendReader
+from pyvista_zstd.append import _load_file_meta_and_root_ds
 from pyvista_zstd.append import append_arrays
 from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
@@ -189,14 +191,16 @@ def test_kept_frames_are_byte_identical_after_append(tmp_path, base_grid) -> Non
     path = _write_base(tmp_path / "b.pv", base_grid)
     orig = path.read_bytes()
 
-    reader = pz.Reader(str(path))
-    frame_names = reader._metadata.frame_names  # noqa: SLF001
-    ds_meta_idx = next(i for i, n in enumerate(frame_names) if n.endswith(DS_METADATA_KEY))
+    # Decode the frame layout straight from the in-memory bytes (no open
+    # file handle — a live reader's mmap would block the atomic replace on
+    # Windows).
     nf = struct.unpack("<Q", orig[-8:])[0]
     meta = orig[-(8 + nf * 16) : -8]
     fm = [struct.unpack("<QQ", meta[i * 16 : (i + 1) * 16]) for i in range(nf)]
     ends = [e for e, _ in fm]
     starts = [0, *ends[:-1]]
+    file_meta, _ds_id, _ds_meta = _load_file_meta_and_root_ds(io.BytesIO(orig), fm)
+    ds_meta_idx = next(i for i, n in enumerate(file_meta.frame_names) if n.endswith(DS_METADATA_KEY))
     kept_prefix_len = starts[ds_meta_idx * 2]
 
     append_arrays(path, {"z": np.arange(100, dtype=np.float64)})

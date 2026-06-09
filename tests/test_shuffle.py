@@ -9,6 +9,7 @@ import pytest
 import pyvista as pv
 
 import pyvista_zstd as pz
+from pyvista_zstd import pyvista_zstd as _pz_mod
 from pyvista_zstd.append import append_arrays
 from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import _FILTER_NONE
@@ -151,3 +152,39 @@ def test_auto_never_inflates_low_entropy_floats(tmp_path: Path) -> None:
     # nothing was filtered, so the file stays at the backward-compatible version
     assert pz.Reader(auto)._metadata.file_version == FILE_VERSION_UNFILTERED  # noqa: SLF001
     assert np.array_equal(pz.read(auto).point_data["coords"], grid.point_data["coords"])
+
+
+def test_unsupported_file_version_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    A file stamped with a newer ``file_version`` is a hard read error, not a warning.
+
+    A future build may rely on a byte-filter this release cannot invert, so
+    reading it would corrupt array values; refuse it instead.
+    """
+    grid = _float_grid()
+    path = tmp_path / "future.pv"
+    # Stamp a version this build does not understand by writing under a bumped
+    # FILE_VERSION; the reader still uses the real (lower) FILE_VERSION.
+    monkeypatch.setattr(_pz_mod, "FILE_VERSION", FILE_VERSION + 99)
+    pz.write(grid, path, shuffle=True)
+    monkeypatch.undo()
+    with pytest.raises(ValueError, match="newer than the version supported"):
+        pz.read(path)
+
+
+def test_unknown_array_filter_id_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    An array tagged with an unknown filter id is a hard read error.
+
+    Treating it as unfiltered (the old behaviour) would read the transformed
+    bytes verbatim and silently corrupt the array.
+    """
+    grid = _float_grid()
+    path = tmp_path / "badfilter.pv"
+    # Write a shuffled array but stamp it with an unknown filter id; the reader
+    # cannot reverse it and must refuse rather than return corrupted data.
+    monkeypatch.setattr(_pz_mod, "_FILTER_SHUFFLE", 99)
+    pz.write(grid, path, shuffle=True)
+    monkeypatch.undo()
+    with pytest.raises(ValueError, match="Unsupported per-array filter id 99"):
+        pz.read(path)

@@ -467,8 +467,13 @@ def test_use_int64(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     assert ugrid_out.cell_connectivity.dtype == np.int32
 
 
-def test_future_version_warning(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
-    """Check that a warning is issued when reading a future version."""
+def test_future_version_is_rejected(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """
+    Reading a file newer than this build supports is a hard error, not a warning.
+
+    A future format may use a byte-filter this reader cannot invert, which would
+    silently corrupt array values; refuse the file instead of warning-and-reading.
+    """
     filename = tmp_path / "future.pv"
 
     orig_version = pyvista_zstd.FILE_VERSION
@@ -476,10 +481,8 @@ def test_future_version_warning(ugrid: UnstructuredGrid, tmp_path: Path) -> None
 
     pyvista_zstd.pyvista_zstd.FILE_VERSION = -1
     try:
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="newer than the version supported"):
             pyvista_zstd.read(filename)
-            assert any("newer than the version" in str(wi.message) for wi in w)
     finally:
         pyvista_zstd.pyvista_zstd.FILE_VERSION = orig_version
 

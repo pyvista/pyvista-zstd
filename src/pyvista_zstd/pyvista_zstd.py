@@ -782,11 +782,16 @@ def _reconstruct_array(
 
     dtype = np.dtype(dtype_str)
     data_buf = memoryview(arr_segment)
-    if filter_id == _FILTER_SHUFFLE:
+    if filter_id == _FILTER_NONE:
+        data = np.frombuffer(data_buf, dtype=dtype).reshape(shape)
+    elif filter_id == _FILTER_SHUFFLE:
         # Invert the byte-plane split, then view as the original dtype.
         data = _unshuffle_bytes(data_buf, dtype.itemsize).view(dtype).reshape(shape)
     else:
-        data = np.frombuffer(data_buf, dtype=dtype).reshape(shape)
+        # An unknown filter id means this build cannot reverse the on-disk
+        # transform; reading the bytes as-is would corrupt the array, so fail.
+        msg = f"Unsupported per-array filter id {filter_id} for array '{name}'. Upgrade `pyvista-zstd` to read it."
+        raise ValueError(msg)
     return name, data
 
 
@@ -1263,12 +1268,15 @@ class Reader:
         metadata = ZstdFileMetadata.from_json(arr.tobytes().decode("utf-8"))
 
         if metadata.file_version > FILE_VERSION:
-            warnings.warn(
+            # Refuse rather than warn-and-continue: a newer file may use a
+            # byte-filter this build cannot invert, which would silently
+            # corrupt array values instead of failing cleanly.
+            msg = (
                 f"The file version {metadata.file_version} of this pyvista-zstd file is "
                 f"newer than the version supported by this library {FILE_VERSION}. "
-                "This file may fail to read. Consider upgrading `pyvista-zstd`.",
-                stacklevel=0,
+                "Upgrade `pyvista-zstd` to read it."
             )
+            raise ValueError(msg)
 
         return metadata
 

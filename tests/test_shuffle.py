@@ -53,11 +53,21 @@ def _float_grid() -> pv.ImageData:
     return grid
 
 
+def test_default_is_unfiltered(tmp_path: Path) -> None:
+    """The byte-shuffle filter is opt-in; the default write stays at version 0."""
+    grid = _float_grid()
+    path = tmp_path / "default.pv"
+    pz.write(grid, path)  # no shuffle argument
+    back = pz.read(path)
+    assert np.array_equal(back.point_data["disp"], grid.point_data["disp"])
+    assert pz.Reader(path)._metadata.file_version == FILE_VERSION_UNFILTERED  # noqa: SLF001
+
+
 def test_write_read_shuffle_bit_exact(tmp_path: Path) -> None:
-    """An auto-shuffled file round-trips bit-exactly and is stamped version 1."""
+    """An opt-in auto-shuffled file round-trips bit-exactly and is stamped version 1."""
     grid = _float_grid()
     path = tmp_path / "shuf.pv"
-    pz.write(grid, path)
+    pz.write(grid, path, shuffle="auto")
     back = pz.read(path)
     assert np.array_equal(back.point_data["disp"], grid.point_data["disp"])
     assert pz.Reader(path)._metadata.file_version == FILE_VERSION  # noqa: SLF001
@@ -78,31 +88,31 @@ def test_auto_leaves_integer_only_files_legacy(tmp_path: Path) -> None:
     grid = pv.ImageData(dimensions=(8, 8, 8))
     grid.point_data["labels"] = np.arange(grid.n_points, dtype=np.int32)
     path = tmp_path / "ints.pv"
-    pz.write(grid, path)
+    pz.write(grid, path, shuffle="auto")
     assert pz.Reader(path)._metadata.file_version == FILE_VERSION_UNFILTERED  # noqa: SLF001
     back = pz.read(path)
     assert np.array_equal(back.point_data["labels"], grid.point_data["labels"])
 
 
 def test_shuffled_file_is_smaller(tmp_path: Path) -> None:
-    """The shuffle filter reduces on-disk size for smooth float data."""
+    """The opt-in shuffle filter reduces on-disk size for smooth float data."""
     grid = pv.ImageData(dimensions=(40, 40, 40))
     x = np.linspace(0, 30, grid.n_points)
     grid.point_data["disp"] = np.sin(x) * np.exp(-x / 50.0)
     shuf = tmp_path / "s.pv"
     raw = tmp_path / "r.pv"
-    pz.write(grid, shuf)
+    pz.write(grid, shuf, shuffle="auto")
     pz.write(grid, raw, shuffle=False)
     assert shuf.stat().st_size < raw.stat().st_size
 
 
 def test_append_shuffle_partial_read_bit_exact(tmp_path: Path) -> None:
-    """Appended float columns are shuffled, promote the file, and read back exactly."""
+    """Opt-in append shuffle promotes the file and reads each column back exactly."""
     grid = _float_grid()
     path = tmp_path / "carrier.pv"
     pz.write(grid, path, shuffle=False)  # start at version 0
     cols = {f"col_{j:04d}": np.cos(np.arange(2000, dtype=np.float64) * (j + 1) / 17.0) for j in range(6)}
-    append_arrays(path, cols)
+    append_arrays(path, cols, shuffle="auto")
     assert pz.Reader(path)._metadata.file_version == FILE_VERSION  # noqa: SLF001
     for name, arr in cols.items():
         assert np.array_equal(read_array(path, name), arr)
@@ -135,7 +145,7 @@ def test_auto_never_inflates_low_entropy_floats(tmp_path: Path) -> None:
     grid.point_data["coords"] = np.mgrid[0:20, 0:20, 0:20].reshape(3, -1).T.astype(np.float64)
     auto = tmp_path / "auto.pv"
     raw = tmp_path / "raw.pv"
-    pz.write(grid, auto)
+    pz.write(grid, auto, shuffle="auto")
     pz.write(grid, raw, shuffle=False)
     assert auto.stat().st_size <= raw.stat().st_size
     # nothing was filtered, so the file stays at the backward-compatible version

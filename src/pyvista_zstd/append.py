@@ -203,7 +203,7 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
     arrays: dict[str, NDArray],
     *,
     level: int | None = None,
-    shuffle: ShuffleSpec = "auto",
+    shuffle: ShuffleSpec = False,
 ) -> None:
     """
     Append named arrays to an existing ``.pv`` file in place.
@@ -227,12 +227,14 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
         zstd compression level for the new blocks.  Defaults to the
         file's recorded ``compression_level`` so appended blocks match
         the original.
-    shuffle : {"auto", True, False}, default: "auto"
-        Apply the reversible byte-shuffle pre-filter to the appended
-        blocks (see :func:`pyvista_zstd.write`).  ``"auto"`` shuffles only
-        multibyte floating-point arrays.  When any appended block is
-        shuffled the file is promoted to format version 1; already-written
-        frames are untouched and keep their own per-block encoding.
+    shuffle : {"auto", True, False}, default: False
+        Optionally apply the reversible byte-shuffle pre-filter to the
+        appended blocks (see :func:`pyvista_zstd.write`).  Disabled by
+        default; ``"auto"`` shuffles a multibyte floating-point array only
+        when a quick trial compression shows it shrinks the data.  When any
+        appended block is shuffled the file is promoted to format version 1;
+        already-written frames are untouched and keep their own per-block
+        encoding.
 
     Notes
     -----

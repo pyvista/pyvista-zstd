@@ -118,11 +118,11 @@ VTK_DOUBLE = 11
 _FILTER_NONE = 0
 _FILTER_SHUFFLE = 1
 
-# ``shuffle="auto"`` (the default) considers only multibyte floating-point
-# arrays -- the payloads that can benefit -- and then keeps the shuffle only
-# when a trial compression confirms it actually shrinks the data, so ``auto``
-# never inflates a file (shuffling already-regular data, e.g. small coordinate
-# ramps, can otherwise hurt).
+# The byte-shuffle pre-filter is opt-in (disabled by default).  ``shuffle="auto"``
+# considers only multibyte floating-point arrays -- the payloads that can
+# benefit -- and then keeps the shuffle only when a trial compression confirms
+# it actually shrinks the data, so ``auto`` never inflates a file (shuffling
+# already-regular data, e.g. small coordinate ramps, can otherwise hurt).
 ShuffleSpec = Literal["auto", True, False]
 
 # Sample budget for the ``auto`` probe.  Arrays at or below this many bytes are
@@ -498,7 +498,7 @@ def write(  # noqa: PLR0913
     force_int32: bool = True,
     level: int = 3,
     n_threads: int | None = None,
-    shuffle: ShuffleSpec = "auto",
+    shuffle: ShuffleSpec = False,
 ) -> None:
     """
     Compress a PyVista or VTK dataset.
@@ -538,14 +538,16 @@ def write(  # noqa: PLR0913
     n_threads : int, optional
         Number of threads to use when compressing. A value of ``-1`` uses all
         available cores and ``0`` disables multi-threading.
-    shuffle : {"auto", True, False}, default: "auto"
-        Apply a reversible byte-shuffle pre-filter before compression. The
-        filter splits each array into byte planes, which lets zstd compress
-        numeric data (especially floating-point) substantially better. With
-        ``"auto"`` only multibyte floating-point arrays are shuffled; ``True``
-        shuffles every multibyte array and ``False`` disables it. Files that
+    shuffle : {"auto", True, False}, default: False
+        Optionally apply a reversible byte-shuffle pre-filter before
+        compression. The filter splits each array into byte planes, which can
+        let zstd compress smooth floating-point data somewhat better. Disabled
+        by default. ``"auto"`` shuffles a multibyte floating-point array only
+        when a quick trial compression shows it shrinks the data (so it never
+        enlarges a file); ``True`` shuffles every multibyte array. Files that
         use the filter are written at format version 1 and can only be read by
-        this release or newer; unfiltered files stay backward compatible.
+        this release or newer; unfiltered files (the default) stay backward
+        compatible.
 
     """
     writer = Writer(ds, filename)
@@ -676,7 +678,7 @@ class Writer:
         force_int32: bool = True,
         level: int = 3,
         n_threads: int | None = None,
-        shuffle: ShuffleSpec = "auto",
+        shuffle: ShuffleSpec = False,
     ) -> None:
         """Write the dataset."""
         if self._filename.suffix == LEGACY_FILE_SUFFIX:

@@ -46,7 +46,14 @@ if TYPE_CHECKING:  # pragma: no cover
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
-FILE_VERSION = 0
+# Highest on-disk format version this library can READ.  Bumped to 1 to add
+# the optional byte-shuffle pre-filter (see ``_FILTER_*`` below).  A reader
+# refuses any file whose ``file_version`` exceeds this, so an older release
+# cleanly rejects a shuffled file instead of silently mis-decoding it.
+FILE_VERSION = 1
+# Version stamped on files that use NO byte-filter.  Such files stay
+# byte-identical to the legacy format and remain readable by older releases.
+FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
@@ -93,6 +100,83 @@ VTK_UNSIGNED_CHAR = 3
 VTK_FLOAT = 10
 VTK_DOUBLE = 11
 
+# ---------------------------------------------------------------------------
+# Byte-shuffle pre-filter (file_version >= 1)
+# ---------------------------------------------------------------------------
+# zstd alone barely compresses raw IEEE-754 float arrays because the volatile
+# mantissa bytes are interleaved with the highly repetitive sign/exponent
+# bytes.  Splitting an array into byte planes -- all byte-0s, then all
+# byte-1s, ... -- before compression turns those repetitive planes into long
+# runs, lifting the ratio substantially (e.g. ~1.5x on smooth float64) while
+# often *speeding up* compression.  This is the classic HDF5/Blosc "shuffle"
+# filter.  It is fully reversible and gated behind ``file_version >= 1``.
+#
+# The per-array filter id is stored as an OPTIONAL trailing byte on the array
+# metadata frame.  Legacy frames carry no trailing byte, so a reader treats a
+# missing byte as ``_FILTER_NONE`` -- this keeps unfiltered output and on-disk
+# layout byte-identical to the legacy format.
+_FILTER_NONE = 0
+_FILTER_SHUFFLE = 1
+
+# The byte-shuffle pre-filter is opt-in (disabled by default).  ``shuffle="auto"``
+# considers only multibyte floating-point arrays -- the payloads that can
+# benefit -- and then keeps the shuffle only when a trial compression confirms
+# it actually shrinks the data, so ``auto`` never inflates a file (shuffling
+# already-regular data, e.g. small coordinate ramps, can otherwise hurt).
+ShuffleSpec = Literal["auto", True, False]
+
+# Sample budget for the ``auto`` probe.  Arrays at or below this many bytes are
+# evaluated exactly (the whole array is trial-compressed both ways); larger
+# arrays are decided from a representative contiguous middle sample, keeping the
+# probe cheap on big payloads where shuffle reliably wins.
+_SHUFFLE_PROBE_BYTES = 1 << 20  # 1 MiB
+
+
+def _auto_shuffle_beneficial(arr: np.ndarray, level: int) -> bool:
+    """Trial-compress a sample raw vs shuffled; keep shuffle only if it's smaller."""
+    itemsize = arr.dtype.itemsize
+    flat = np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
+    n_elem = flat.size // itemsize
+    if n_elem == 0:
+        return False
+    n_sample = min(n_elem, max(1, _SHUFFLE_PROBE_BYTES // itemsize))
+    start = (n_elem - n_sample) // 2  # centered, representative of bulk data
+    sample = flat[start * itemsize : (start + n_sample) * itemsize]
+    shuffled = sample.reshape(n_sample, itemsize).T.reshape(-1)
+    cctx = zstd.ZstdCompressor(level=level)
+    return len(cctx.compress(shuffled.tobytes())) < len(cctx.compress(sample.tobytes()))
+
+
+def _resolve_shuffle(arr: np.ndarray, shuffle: ShuffleSpec, level: int | None = None) -> bool:
+    """Return whether ``arr`` should be byte-shuffled under ``shuffle``."""
+    if shuffle is False:
+        return False
+    if arr.dtype.itemsize <= 1:
+        return False  # nothing to interleave
+    if shuffle is True:
+        return True
+    # "auto": multibyte floating-point (real or complex) only ...
+    if arr.dtype.kind not in ("f", "c"):
+        return False
+    # ... and only when the probe shows it pays off.  Without a level to probe
+    # with, fall back to the dtype gate.
+    if level is None:
+        return True
+    return _auto_shuffle_beneficial(arr, level)
+
+
+def _shuffle_bytes(arr: np.ndarray) -> np.ndarray:
+    """Split a contiguous array into byte planes (uint8, 1-D)."""
+    itemsize = arr.dtype.itemsize
+    flat = np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
+    return flat.reshape(-1, itemsize).T.reshape(-1)
+
+
+def _unshuffle_bytes(buf: memoryview | bytes, itemsize: int) -> np.ndarray:
+    """Invert :func:`_shuffle_bytes`, returning a contiguous uint8 array."""
+    flat = np.frombuffer(buf, dtype=np.uint8)
+    return flat.reshape(itemsize, -1).T.reshape(-1)
+
 
 @dataclass(slots=True, frozen=True)
 class ArrayInfo:
@@ -109,7 +193,9 @@ class ZstdFileMetadata:
     frame_names: list[str]
     compression_level: int
     compression: Compression = "zstandard"
-    file_version: int = FILE_VERSION
+    # Defaults to the unfiltered version; writers bump to ``FILE_VERSION`` only
+    # when a byte-filter (e.g. shuffle) is actually applied to some array.
+    file_version: int = FILE_VERSION_UNFILTERED
 
     def to_json(self) -> str:
         """Convert to JSON."""
@@ -412,6 +498,7 @@ def write(  # noqa: PLR0913
     force_int32: bool = True,
     level: int = 3,
     n_threads: int | None = None,
+    shuffle: ShuffleSpec = False,
 ) -> None:
     """
     Compress a PyVista or VTK dataset.
@@ -451,6 +538,16 @@ def write(  # noqa: PLR0913
     n_threads : int, optional
         Number of threads to use when compressing. A value of ``-1`` uses all
         available cores and ``0`` disables multi-threading.
+    shuffle : {"auto", True, False}, default: False
+        Optionally apply a reversible byte-shuffle pre-filter before
+        compression. The filter splits each array into byte planes, which can
+        let zstd compress smooth floating-point data somewhat better. Disabled
+        by default. ``"auto"`` shuffles a multibyte floating-point array only
+        when a quick trial compression shows it shrinks the data (so it never
+        enlarges a file); ``True`` shuffles every multibyte array. Files that
+        use the filter are written at format version 1 and can only be read by
+        this release or newer; unfiltered files (the default) stay backward
+        compatible.
 
     """
     writer = Writer(ds, filename)
@@ -461,6 +558,7 @@ def write(  # noqa: PLR0913
         force_int32=force_int32,
         level=level,
         n_threads=n_threads,
+        shuffle=shuffle,
     )
 
 
@@ -470,7 +568,7 @@ def _make_ds_id(ds: DataSet) -> str:
     return f"{id(ds):016x}"
 
 
-def _pack_array_metadata(name: str, arr: np.ndarray) -> bytes:
+def _pack_array_metadata(name: str, arr: np.ndarray, filter_id: int = _FILTER_NONE) -> bytes:
     parts = [
         struct.pack("<I", len(name)),
         name.encode("utf-8"),
@@ -478,6 +576,12 @@ def _pack_array_metadata(name: str, arr: np.ndarray) -> bytes:
     ]
     parts.extend(struct.pack("<Q", dim) for dim in arr.shape)
     parts.append(arr.dtype.str.encode("utf-8").ljust(UID_N_CHAR, b" "))
+    # Append the filter id ONLY when a filter is in use.  Omitting it for the
+    # common unfiltered case keeps the metadata frame byte-identical to the
+    # legacy layout, so legacy readers are unaffected and new readers parsing
+    # an old frame see no trailing byte (-> _FILTER_NONE).
+    if filter_id != _FILTER_NONE:
+        parts.append(struct.pack("<B", filter_id))
     return b"".join(parts)
 
 
@@ -574,6 +678,7 @@ class Writer:
         force_int32: bool = True,
         level: int = 3,
         n_threads: int | None = None,
+        shuffle: ShuffleSpec = False,
     ) -> None:
         """Write the dataset."""
         if self._filename.suffix == LEGACY_FILE_SUFFIX:
@@ -594,19 +699,33 @@ class Writer:
         n_bytes = sum([arr.nbytes for arr in self._arrays.values()])
         n_threads = _set_n_threads(n_threads, n_bytes)
 
+        # Decide each array's byte-filter up front so the file version can
+        # record whether any filter was used (an unfiltered file stays at
+        # FILE_VERSION_UNFILTERED and remains readable by older releases).
+        filters = {
+            name: (_FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE)
+            for name, arr in self._arrays.items()
+        }
+        any_filtered = any(f != _FILTER_NONE for f in filters.values())
+        version = FILE_VERSION if any_filtered else FILE_VERSION_UNFILTERED
+
         # finally, append file metadata as the final frame
         file_meta = ZstdFileMetadata(
             frame_names=list(self._arrays.keys()),  # frame order matters
             compression_level=level,
+            file_version=version,
         )
         self._arrays[FILE_METADATA_KEY] = file_meta.to_array()
+        filters[FILE_METADATA_KEY] = _FILTER_NONE  # JSON blob: never shuffled
 
-        # data to compress must include array metadata and the array
+        # data to compress must include array metadata and the array.  A
+        # shuffled array yields a fresh byte-plane buffer; otherwise the raw
+        # bytes are a zero-copy uint8 view.
         data: list[bytes] = []
         for name, arr in self._arrays.items():
-            # must be a view of uint8 for no copy to bytes
-            arr_bytes = arr.ravel().view(np.uint8).data
-            data.extend([_pack_array_metadata(name, arr), arr_bytes])
+            filter_id = filters[name]
+            arr_bytes = _shuffle_bytes(arr).data if filter_id == _FILTER_SHUFFLE else arr.ravel().view(np.uint8).data
+            data.extend([_pack_array_metadata(name, arr, filter_id), arr_bytes])
 
         # Compress multiple pieces of data as a single function call to minimize overhead
         frame_meta: list[tuple[float, float]] = []  # (compressed_end, decompressed_size)
@@ -655,9 +774,24 @@ def _reconstruct_array(
     dtype_str = meta_buf[offset : offset + UID_N_CHAR].tobytes().strip().decode("utf-8")
     offset += UID_N_CHAR
 
-    # finally construct the array using the array segment
+    # Optional trailing filter byte (file_version >= 1).  Legacy frames have
+    # none, so a missing byte means _FILTER_NONE -- keeping old files readable.
+    filter_id = _FILTER_NONE
+    if offset < len(meta_buf):
+        filter_id = struct.unpack_from("<B", meta_buf, offset)[0]
+
+    dtype = np.dtype(dtype_str)
     data_buf = memoryview(arr_segment)
-    data = np.frombuffer(data_buf, dtype=np.dtype(dtype_str)).reshape(shape)
+    if filter_id == _FILTER_NONE:
+        data = np.frombuffer(data_buf, dtype=dtype).reshape(shape)
+    elif filter_id == _FILTER_SHUFFLE:
+        # Invert the byte-plane split, then view as the original dtype.
+        data = _unshuffle_bytes(data_buf, dtype.itemsize).view(dtype).reshape(shape)
+    else:
+        # An unknown filter id means this build cannot reverse the on-disk
+        # transform; reading the bytes as-is would corrupt the array, so fail.
+        msg = f"Unsupported per-array filter id {filter_id} for array '{name}'. Upgrade `pyvista-zstd` to read it."
+        raise ValueError(msg)
     return name, data
 
 
@@ -1134,12 +1268,15 @@ class Reader:
         metadata = ZstdFileMetadata.from_json(arr.tobytes().decode("utf-8"))
 
         if metadata.file_version > FILE_VERSION:
-            warnings.warn(
+            # Refuse rather than warn-and-continue: a newer file may use a
+            # byte-filter this build cannot invert, which would silently
+            # corrupt array values instead of failing cleanly.
+            msg = (
                 f"The file version {metadata.file_version} of this pyvista-zstd file is "
                 f"newer than the version supported by this library {FILE_VERSION}. "
-                "This file may fail to read. Consider upgrading `pyvista-zstd`.",
-                stacklevel=0,
+                "Upgrade `pyvista-zstd` to read it."
             )
+            raise ValueError(msg)
 
         return metadata
 

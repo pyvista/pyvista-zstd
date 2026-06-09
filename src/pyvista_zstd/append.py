@@ -68,9 +68,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 import zstandard as zstd
 
+from pyvista_zstd.pyvista_zstd import _FILTER_NONE
+from pyvista_zstd.pyvista_zstd import _FILTER_SHUFFLE
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import FIELD_DATA_SUFFIX
 from pyvista_zstd.pyvista_zstd import FILE_METADATA_KEY
+from pyvista_zstd.pyvista_zstd import FILE_VERSION
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import UID_N_CHAR
 from pyvista_zstd.pyvista_zstd import ArrayInfo
@@ -78,11 +81,15 @@ from pyvista_zstd.pyvista_zstd import DataSetMetadata
 from pyvista_zstd.pyvista_zstd import ZstdFileMetadata
 from pyvista_zstd.pyvista_zstd import _pack_array_metadata
 from pyvista_zstd.pyvista_zstd import _reconstruct_array
+from pyvista_zstd.pyvista_zstd import _resolve_shuffle
+from pyvista_zstd.pyvista_zstd import _shuffle_bytes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
 
     from numpy.typing import NDArray
+
+    from pyvista_zstd.pyvista_zstd import ShuffleSpec
 
 __all__ = [
     "AppendReader",
@@ -196,6 +203,7 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
     arrays: dict[str, NDArray],
     *,
     level: int | None = None,
+    shuffle: ShuffleSpec = "auto",
 ) -> None:
     """
     Append named arrays to an existing ``.pv`` file in place.
@@ -219,6 +227,12 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
         zstd compression level for the new blocks.  Defaults to the
         file's recorded ``compression_level`` so appended blocks match
         the original.
+    shuffle : {"auto", True, False}, default: "auto"
+        Apply the reversible byte-shuffle pre-filter to the appended
+        blocks (see :func:`pyvista_zstd.write`).  ``"auto"`` shuffles only
+        multibyte floating-point arrays.  When any appended block is
+        shuffled the file is promoted to format version 1; already-written
+        frames are untouched and keep their own per-block encoding.
 
     Notes
     -----
@@ -308,11 +322,17 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
     new_payloads: list[bytes] = []
     new_payload_decomp: list[int] = []
     new_payload_names: list[str] = []
+    any_shuffled = False
     for name, raw in arrays.items():
         arr = np.ascontiguousarray(raw)
         frame_name = f"{ds_id}{name}{FIELD_DATA_SUFFIX}"
-        meta_payload = _pack_array_metadata(frame_name, arr)
-        data_payload = arr.ravel().view(np.uint8).tobytes()
+        filter_id = _FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle) else _FILTER_NONE
+        any_shuffled = any_shuffled or filter_id != _FILTER_NONE
+        meta_payload = _pack_array_metadata(frame_name, arr, filter_id)
+        if filter_id == _FILTER_SHUFFLE:
+            data_payload = _shuffle_bytes(arr).tobytes()
+        else:
+            data_payload = arr.ravel().view(np.uint8).tobytes()
         new_payloads.append(meta_payload)
         new_payloads.append(data_payload)
         new_payload_decomp.append(len(meta_payload))
@@ -340,11 +360,16 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
         *new_payload_names,
         ds_meta_frame_name,
     ]
+    # Promote the file version if any appended block uses a byte-filter, so an
+    # older reader cleanly refuses it.  Kept frames retain their own per-block
+    # encoding (recorded in their metadata frames), so a previously-unfiltered
+    # file gaining a shuffled block stays internally consistent.
+    new_version = max(file_meta.file_version, FILE_VERSION) if any_shuffled else file_meta.file_version
     file_meta_new = ZstdFileMetadata(
         frame_names=final_frame_names,
         compression_level=file_meta.compression_level,
         compression=file_meta.compression,
-        file_version=file_meta.file_version,
+        file_version=new_version,
     )
     file_meta_arr = file_meta_new.to_array()
     file_meta_payloads = [

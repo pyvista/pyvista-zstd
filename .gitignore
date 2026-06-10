@@ -19,6 +19,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+src/pyvista_zstd/_version.py
 
 # MISC
 .mypy_cache

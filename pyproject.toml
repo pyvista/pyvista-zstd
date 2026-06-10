@@ -1,6 +1,6 @@
 [build-system]
-build-backend = "flit_core.buildapi"
-requires = ["flit_core >=3.2,<4"]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64", "setuptools-scm>=8"]
 
 [project]
 authors = [{ name = "The PyVista developers", email = "info@pyvista.org" }]
@@ -14,13 +14,13 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = ["pyvista>=0.45.0", "tqdm>=4.0.0", "zstandard>=0.24.0"]
-dynamic = ["description"]
+description = "VTK zstandard compression library."
+dynamic = ["version"]
 license = "MIT"
 license-files = ["LICENSE"]
 name = "pyvista-zstd"
-python_requires = ">=3.10"
 readme = "README.rst"
-version = '0.3.dev0'
+requires-python = ">=3.10"
 
 [project.entry-points."pyvista.readers"]
 ".pv" = "pyvista_zstd:read"
@@ -44,6 +44,15 @@ docs = [
   "sphinx==9.1.0",
 ]
 tests = ["pytest-cov==7.1.0", "pytest>=6.2.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0.dev0"
+git_describe_command = "git describe --dirty --tags --long --match v*"
+tag_regex = "^v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:[abrc][0-9]+)?(?:\\.post[0-9]+)?(?:\\.dev[0-9]+)?)$"
+version_file = "src/pyvista_zstd/_version.py"
 
 [tool.mypy]
 ignore_missing_imports = true

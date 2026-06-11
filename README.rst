@@ -10,7 +10,6 @@ pyvista-zstd
 .. |mit| image:: https://img.shields.io/badge/License-MIT-yellow.svg
    :target: https://opensource.org/license/mit/
 
-
 Seamlessly compress VTK datasets using `Zstandard <https://github.com/facebook/zstd>`_.
 
 **Read in VTK datasets 37x faster, write 14x faster, all while using 28% less

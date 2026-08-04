@@ -35,3 +35,31 @@ Reads spend 1.00 to 12.93 ms in the corresponding decoders. Automatic writes
 add another 4.86 to 11.28 ms to decide whether the filters are worthwhile. The
 fixed probe cost dominates the two smallest examples; forcing the transforms
 is therefore faster when the caller already knows that storage is the priority.
+
+### Relative CPU cost
+
+These percentages normalize the direct costs against the corresponding
+format-version-2 end-to-end operation. They come from an 11-repeat run pinned
+to one CPU core; the three synthetic datasets use five timed repeats under the
+benchmark's large-mesh policy.
+
+| Dataset              | Encoders / v2 write | Auto probes / v2 write | Decoders / v2 read |
+| -------------------- | ------------------: | ---------------------: | -----------------: |
+| Synthetic ordered    |                5.6% |                   4.7% |              22.3% |
+| Synthetic scrambled  |                5.4% |                   4.3% |              36.3% |
+| Synthetic random     |                7.1% |                   3.5% |              57.4% |
+| PyVista bunny        |                6.6% |                  51.6% |              29.8% |
+| PyVista horse        |                6.5% |                  74.7% |              27.8% |
+| PyVista woman        |                7.7% |                  24.6% |              29.1% |
+| PyVista Louis Louvre |                5.9% |                   9.9% |              32.5% |
+
+The encoders add 5.4 to 7.7 percent of the previous total write time. The
+decoders add 22.3 to 57.4 percent of the previous total read time; the real
+example meshes cluster between 27.8 and 32.5 percent. Automatic selection adds
+3.5 to 74.7 percent of the previous write time. That range is size-dependent:
+the fixed probe is 3.5 to 4.7 percent on the million-triangle synthetic meshes
+but 51.6 to 74.7 percent on bunny and horse.
+
+These are gross CPU costs before accounting for the reduced zstd workload. The
+end-to-end results can still be faster because the transformed representation
+compresses more quickly and produces fewer bytes.

@@ -47,17 +47,17 @@ if TYPE_CHECKING:  # pragma: no cover
     from pyvista.core.dataset import DataSet
 
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter (see ``_FILTER_*`` below), and version 2
-# adds fixed-width cell arrays that store their cell size in dataset metadata
-# instead of writing a redundant offsets frame. A reader refuses any file
-# whose ``file_version`` exceeds this value.
-FILE_VERSION = 2
+# optional byte-shuffle pre-filter (see ``_FILTER_*`` below), version 2 added
+# fixed-width cell arrays, and version 3 adds lossless mesh-specific filters.
+# A reader refuses any file whose ``file_version`` exceeds this value.
+FILE_VERSION = 3
 # Version stamped on files that use neither byte filters nor fixed-width cell
 # arrays. Such files stay byte-identical to the legacy format and remain
 # readable by older releases.
 FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
+FILE_VERSION_MESH_FILTERS = 3
 FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
@@ -121,6 +121,11 @@ VTK_DOUBLE = 11
 # layout byte-identical to the legacy format.
 _FILTER_NONE = 0
 _FILTER_SHUFFLE = 1
+_FILTER_COMPONENT_SHUFFLE = 2
+_FILTER_TRIANGLE_DELTA_SHUFFLE = 3
+_TUPLE_NDIM = 2
+_MIN_COMPONENTS = 2
+_TRIANGLE_SIZE = 3
 
 # The byte-shuffle pre-filter is opt-in (disabled by default).  ``shuffle="auto"``
 # considers only multibyte floating-point arrays -- the payloads that can
@@ -128,6 +133,7 @@ _FILTER_SHUFFLE = 1
 # it actually shrinks the data, so ``auto`` never inflates a file (shuffling
 # already-regular data, e.g. small coordinate ramps, can otherwise hurt).
 ShuffleSpec = Literal["auto", True, False]
+MeshFilterSpec = Literal["auto", True, False]
 
 # Sample budget for the ``auto`` probe.  Arrays at or below this many bytes are
 # evaluated exactly (the whole array is trial-compressed both ways); larger
@@ -180,6 +186,94 @@ def _unshuffle_bytes(buf: memoryview | bytes, itemsize: int) -> np.ndarray:
     """Invert :func:`_shuffle_bytes`, returning a contiguous uint8 array."""
     flat = np.frombuffer(buf, dtype=np.uint8)
     return flat.reshape(itemsize, -1).T.reshape(-1)
+
+
+def _component_shuffle_bytes(arr: np.ndarray) -> np.ndarray:
+    """Store tuple components in separate byte-shuffled planes."""
+    if arr.ndim != _TUPLE_NDIM or arr.shape[1] < _MIN_COMPONENTS:
+        msg = "Component shuffle requires a two-dimensional tuple array."
+        raise ValueError(msg)
+    return _shuffle_bytes(np.ascontiguousarray(arr.T))
+
+
+def _uncomponent_shuffle_bytes(
+    buf: memoryview | bytes,
+    dtype: np.dtype[Any],
+    shape: tuple[int, ...],
+) -> np.ndarray:
+    """Invert :func:`_component_shuffle_bytes`."""
+    if len(shape) != _TUPLE_NDIM or shape[1] < _MIN_COMPONENTS:
+        msg = f"Invalid component-shuffle shape {shape}."
+        raise ValueError(msg)
+    planar = _unshuffle_bytes(buf, dtype.itemsize).view(dtype).reshape(shape[1], shape[0])
+    return np.ascontiguousarray(planar.T)
+
+
+def _triangle_delta_shuffle_bytes(arr: np.ndarray) -> np.ndarray:
+    """Delta consecutive triangle tuples, then byte-shuffle the result."""
+    if arr.dtype.kind not in ("i", "u") or arr.size == 0 or arr.size % _TRIANGLE_SIZE:
+        msg = "Triangle delta shuffle requires a nonempty integer array whose length is divisible by 3."
+        raise ValueError(msg)
+    triangles = np.ascontiguousarray(arr).reshape(-1, _TRIANGLE_SIZE)
+    deltas = np.empty_like(triangles)
+    deltas[0] = triangles[0]
+    np.subtract(triangles[1:], triangles[:-1], out=deltas[1:])
+    return _shuffle_bytes(deltas)
+
+
+def _untriangle_delta_shuffle_bytes(
+    buf: memoryview | bytes,
+    dtype: np.dtype[Any],
+    shape: tuple[int, ...],
+) -> np.ndarray:
+    """Invert :func:`_triangle_delta_shuffle_bytes`."""
+    size = int(np.prod(shape, dtype=np.int64))
+    if dtype.kind not in ("i", "u") or size == 0 or size % _TRIANGLE_SIZE:
+        msg = f"Invalid triangle-delta array with dtype {dtype} and shape {shape}."
+        raise ValueError(msg)
+    deltas = _unshuffle_bytes(buf, dtype.itemsize).view(dtype).reshape(-1, _TRIANGLE_SIZE)
+    np.cumsum(deltas, axis=0, dtype=dtype, out=deltas)
+    return deltas.reshape(shape)
+
+
+def _filtered_bytes(arr: np.ndarray, filter_id: int) -> np.ndarray:
+    """Return the bytes represented by a per-array filter."""
+    if filter_id == _FILTER_NONE:
+        return np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
+    if filter_id == _FILTER_SHUFFLE:
+        return _shuffle_bytes(arr)
+    if filter_id == _FILTER_COMPONENT_SHUFFLE:
+        return _component_shuffle_bytes(arr)
+    if filter_id == _FILTER_TRIANGLE_DELTA_SHUFFLE:
+        return _triangle_delta_shuffle_bytes(arr)
+    msg = f"Unsupported per-array filter id {filter_id}."
+    raise ValueError(msg)
+
+
+def _sample_rows(arr: np.ndarray, row_width: int) -> np.ndarray:
+    """Return a centered sample containing complete fixed-width rows."""
+    rows = np.ascontiguousarray(arr).reshape(-1, row_width)
+    bytes_per_row = row_width * arr.dtype.itemsize
+    n_sample = min(len(rows), max(1, _SHUFFLE_PROBE_BYTES // bytes_per_row))
+    start = (len(rows) - n_sample) // 2
+    return rows[start : start + n_sample]
+
+
+def _special_filter_beneficial(
+    arr: np.ndarray,
+    specialized_filter: int,
+    baseline_filter: int,
+    level: int,
+) -> bool:
+    """Compare a mesh-specific filter with the selected baseline on one sample."""
+    row_width = _TRIANGLE_SIZE if specialized_filter == _FILTER_TRIANGLE_DELTA_SHUFFLE else arr.shape[1]
+    sample = _sample_rows(arr, row_width)
+    if specialized_filter == _FILTER_TRIANGLE_DELTA_SHUFFLE:
+        sample = sample.reshape(-1)
+    cctx = zstd.ZstdCompressor(level=level)
+    specialized_size = len(cctx.compress(_filtered_bytes(sample, specialized_filter)))
+    baseline_size = len(cctx.compress(_filtered_bytes(sample, baseline_filter)))
+    return specialized_size < baseline_size
 
 
 @dataclass(slots=True, frozen=True)
@@ -540,6 +634,7 @@ def write(  # noqa: PLR0913
     level: int = 3,
     n_threads: int | None = None,
     shuffle: ShuffleSpec = False,
+    mesh_filters: MeshFilterSpec = "auto",
 ) -> None:
     """
     Compress a PyVista or VTK dataset.
@@ -589,6 +684,14 @@ def write(  # noqa: PLR0913
         use the filter are written at format version 1 and can only be read by
         this release or newer; unfiltered files (the default) stay backward
         compatible unless they use fixed-width cell arrays.
+    mesh_filters : {"auto", True, False}, default: "auto"
+        Apply lossless mesh-specific transforms to explicit point coordinates
+        and homogeneous triangle connectivity. Point tuples are stored in
+        component-major byte planes. Triangle connectivity is differenced
+        between consecutive cells and then byte-shuffled. ``"auto"`` uses a
+        trial compression and keeps each transform only when it beats the
+        selected generic representation. ``True`` forces the transforms on
+        eligible arrays, and ``False`` disables them.
 
     Notes
     -----
@@ -596,6 +699,7 @@ def write(  # noqa: PLR0913
     without their redundant offsets array. Their common width is recorded in
     dataset metadata and VTK reconstructs the offsets when the file is read.
     Files using this encoding are written at format version 2.
+    Files using a mesh-specific transform are written at format version 3.
 
     """
     writer = Writer(ds, filename)
@@ -607,6 +711,7 @@ def write(  # noqa: PLR0913
         level=level,
         n_threads=n_threads,
         shuffle=shuffle,
+        mesh_filters=mesh_filters,
     )
 
 
@@ -647,11 +752,33 @@ class Writer:
         self._arrays: dict[str, NDArray[Any]] = {}
         self._ds = pv.wrap(ds)
         self._uses_fixed_width_cells = False
+        self._point_names: set[str] = set()
+        self._triangle_connectivity_names: set[str] = set()
 
         # used to hold a reference to the dataset. This is necessary for
         # multiblocks to avoid having them collected and getting duplicate
         # memory addresses
         self._refs: list[DataSet | MultiBlock] = []
+
+    def _register_mesh_filter_candidates(
+        self,
+        ds: DataSet,
+        ds_id: str,
+        fixed_cell_sizes: dict[str, int],
+    ) -> None:
+        """Record topology arrays eligible for mesh-specific filters."""
+        point_name = f"{ds_id}{POINTS_KEY}"
+        if point_name in self._arrays:
+            self._point_names.add(point_name)
+        if isinstance(ds, PolyData) and fixed_cell_sizes.get(POLYS) == _TRIANGLE_SIZE:
+            self._triangle_connectivity_names.add(f"{ds_id}{POLYS}{CONNECTIVITY_SUFFIX}")
+        elif (
+            isinstance(ds, UnstructuredGrid)
+            and fixed_cell_sizes.get(CELLS) == _TRIANGLE_SIZE
+            and ds.n_cells > 0
+            and np.all(ds.celltypes == pv.CellType.TRIANGLE)
+        ):
+            self._triangle_connectivity_names.add(f"{ds_id}{CELLS}{CONNECTIVITY_SUFFIX}")
 
     def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901, PLR0912
         """Extract dataset data as arrays."""
@@ -721,8 +848,39 @@ class Writer:
         ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes)
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
         self._uses_fixed_width_cells = self._uses_fixed_width_cells or bool(fixed_cell_sizes)
+        self._register_mesh_filter_candidates(ds, ds_id, fixed_cell_sizes)
 
-    def write(
+    def _resolve_filter(
+        self,
+        name: str,
+        arr: np.ndarray,
+        *,
+        shuffle: ShuffleSpec,
+        mesh_filters: MeshFilterSpec,
+        level: int,
+    ) -> int:
+        """Choose the smallest requested lossless representation for an array."""
+        baseline = _FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE
+        specialized = _FILTER_NONE
+        if (
+            name in self._point_names
+            and arr.ndim == _TUPLE_NDIM
+            and arr.shape[1] >= _MIN_COMPONENTS
+            and arr.dtype.itemsize > 1
+        ):
+            specialized = _FILTER_COMPONENT_SHUFFLE
+        elif name in self._triangle_connectivity_names:
+            specialized = _FILTER_TRIANGLE_DELTA_SHUFFLE
+
+        if specialized == _FILTER_NONE or mesh_filters is False:
+            return baseline
+        if mesh_filters is True:
+            return specialized
+        if _special_filter_beneficial(arr, specialized, baseline, level):
+            return specialized
+        return baseline
+
+    def write(  # noqa: PLR0913
         self,
         *,
         progress_bar: bool = False,
@@ -730,6 +888,7 @@ class Writer:
         level: int = 3,
         n_threads: int | None = None,
         shuffle: ShuffleSpec = False,
+        mesh_filters: MeshFilterSpec = "auto",
     ) -> None:
         """Write the dataset."""
         if self._filename.suffix == LEGACY_FILE_SUFFIX:
@@ -755,13 +914,20 @@ class Writer:
         # stays at FILE_VERSION_UNFILTERED and remains readable by older
         # releases.
         filters = {
-            name: (_FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE)
+            name: self._resolve_filter(
+                name,
+                arr,
+                shuffle=shuffle,
+                mesh_filters=mesh_filters,
+                level=level,
+            )
             for name, arr in self._arrays.items()
         }
-        any_filtered = any(f != _FILTER_NONE for f in filters.values())
-        if self._uses_fixed_width_cells:
+        if any(f in (_FILTER_COMPONENT_SHUFFLE, _FILTER_TRIANGLE_DELTA_SHUFFLE) for f in filters.values()):
+            version = FILE_VERSION_MESH_FILTERS
+        elif self._uses_fixed_width_cells:
             version = FILE_VERSION_FIXED_WIDTH_CELLS
-        elif any_filtered:
+        elif any(f != _FILTER_NONE for f in filters.values()):
             version = FILE_VERSION_SHUFFLE
         else:
             version = FILE_VERSION_UNFILTERED
@@ -776,12 +942,12 @@ class Writer:
         filters[FILE_METADATA_KEY] = _FILTER_NONE  # JSON blob: never shuffled
 
         # data to compress must include array metadata and the array.  A
-        # shuffled array yields a fresh byte-plane buffer; otherwise the raw
-        # bytes are a zero-copy uint8 view.
-        data: list[bytes] = []
+        # Filtered arrays yield fresh buffers; otherwise the raw bytes are a
+        # zero-copy uint8 view.
+        data: list[Any] = []
         for name, arr in self._arrays.items():
             filter_id = filters[name]
-            arr_bytes = _shuffle_bytes(arr).data if filter_id == _FILTER_SHUFFLE else arr.ravel().view(np.uint8).data
+            arr_bytes = _filtered_bytes(arr, filter_id).data
             data.extend([_pack_array_metadata(name, arr, filter_id), arr_bytes])
 
         # Compress multiple pieces of data as a single function call to minimize overhead
@@ -844,6 +1010,10 @@ def _reconstruct_array(
     elif filter_id == _FILTER_SHUFFLE:
         # Invert the byte-plane split, then view as the original dtype.
         data = _unshuffle_bytes(data_buf, dtype.itemsize).view(dtype).reshape(shape)
+    elif filter_id == _FILTER_COMPONENT_SHUFFLE:
+        data = _uncomponent_shuffle_bytes(data_buf, dtype, shape)
+    elif filter_id == _FILTER_TRIANGLE_DELTA_SHUFFLE:
+        data = _untriangle_delta_shuffle_bytes(data_buf, dtype, shape)
     else:
         # An unknown filter id means this build cannot reverse the on-disk
         # transform; reading the bytes as-is would corrupt the array, so fail.
@@ -1183,7 +1353,7 @@ class Reader:
     >>> reader
     pyvista_zstd.Reader (0x7f1ed1496c00)
       File:               sphere.pv
-      File Version:       0
+      File Version:       3
       Compression:        zstandard
       Compression Level:  3
       Dataset Type:       PolyData

@@ -140,6 +140,12 @@ MeshFilterSpec = Literal["auto", True, False]
 # arrays are decided from a representative contiguous middle sample, keeping the
 # probe cheap on big payloads where shuffle reliably wins.
 _SHUFFLE_PROBE_BYTES = 1 << 20  # 1 MiB
+# Mesh-filter probes compare layout rather than final compression ratio. A fast
+# zstd level preserves that signal while avoiding a second level-3 compression
+# pass over as much as 2 MiB per mesh.
+_MESH_FILTER_PROBE_LEVEL = -5
+_MESH_FILTER_MIN_BYTES = 4 << 10
+_FILTER_TRANSFORM_CHUNK_BYTES = 1 << 20
 
 
 def _auto_shuffle_beneficial(arr: np.ndarray, level: int) -> bool:
@@ -185,7 +191,14 @@ def _shuffle_bytes(arr: np.ndarray) -> np.ndarray:
 def _unshuffle_bytes(buf: memoryview | bytes, itemsize: int) -> np.ndarray:
     """Invert :func:`_shuffle_bytes`, returning a contiguous uint8 array."""
     flat = np.frombuffer(buf, dtype=np.uint8)
-    return flat.reshape(itemsize, -1).T.reshape(-1)
+    planes = flat.reshape(itemsize, -1)
+    output = np.empty(flat.size, dtype=np.uint8).reshape(-1, itemsize)
+    rows_per_chunk = max(1, _FILTER_TRANSFORM_CHUNK_BYTES // itemsize)
+    for start in range(0, len(output), rows_per_chunk):
+        end = min(start + rows_per_chunk, len(output))
+        for index in range(itemsize):
+            output[start:end, index] = planes[index, start:end]
+    return output.reshape(-1)
 
 
 def _component_shuffle_bytes(arr: np.ndarray) -> np.ndarray:
@@ -193,7 +206,16 @@ def _component_shuffle_bytes(arr: np.ndarray) -> np.ndarray:
     if arr.ndim != _TUPLE_NDIM or arr.shape[1] < _MIN_COMPONENTS:
         msg = "Component shuffle requires a two-dimensional tuple array."
         raise ValueError(msg)
-    return _shuffle_bytes(np.ascontiguousarray(arr.T))
+    raw = np.ascontiguousarray(arr).view(np.uint8).reshape(arr.shape[0], arr.shape[1], arr.dtype.itemsize)
+    output = np.empty(raw.size, dtype=np.uint8).reshape(arr.dtype.itemsize, arr.shape[1], arr.shape[0])
+    bytes_per_row = arr.shape[1] * arr.dtype.itemsize
+    rows_per_chunk = max(1, _FILTER_TRANSFORM_CHUNK_BYTES // bytes_per_row)
+    for start in range(0, arr.shape[0], rows_per_chunk):
+        end = min(start + rows_per_chunk, arr.shape[0])
+        for byte_index in range(arr.dtype.itemsize):
+            for component_index in range(arr.shape[1]):
+                output[byte_index, component_index, start:end] = raw[start:end, component_index, byte_index]
+    return output.reshape(-1)
 
 
 def _uncomponent_shuffle_bytes(
@@ -205,8 +227,17 @@ def _uncomponent_shuffle_bytes(
     if len(shape) != _TUPLE_NDIM or shape[1] < _MIN_COMPONENTS:
         msg = f"Invalid component-shuffle shape {shape}."
         raise ValueError(msg)
-    planar = _unshuffle_bytes(buf, dtype.itemsize).view(dtype).reshape(shape[1], shape[0])
-    return np.ascontiguousarray(planar.T)
+    flat = np.frombuffer(buf, dtype=np.uint8)
+    planes = flat.reshape(dtype.itemsize, shape[1], shape[0])
+    output = np.empty((shape[0], shape[1], dtype.itemsize), dtype=np.uint8)
+    bytes_per_row = shape[1] * dtype.itemsize
+    rows_per_chunk = max(1, _FILTER_TRANSFORM_CHUNK_BYTES // bytes_per_row)
+    for start in range(0, shape[0], rows_per_chunk):
+        end = min(start + rows_per_chunk, shape[0])
+        for byte_index in range(dtype.itemsize):
+            for component_index in range(shape[1]):
+                output[start:end, component_index, byte_index] = planes[byte_index, component_index, start:end]
+    return output.view(dtype).reshape(shape)
 
 
 def _triangle_delta_shuffle_bytes(arr: np.ndarray) -> np.ndarray:
@@ -215,10 +246,23 @@ def _triangle_delta_shuffle_bytes(arr: np.ndarray) -> np.ndarray:
         msg = "Triangle delta shuffle requires a nonempty integer array whose length is divisible by 3."
         raise ValueError(msg)
     triangles = np.ascontiguousarray(arr).reshape(-1, _TRIANGLE_SIZE)
-    deltas = np.empty_like(triangles)
-    deltas[0] = triangles[0]
-    np.subtract(triangles[1:], triangles[:-1], out=deltas[1:])
-    return _shuffle_bytes(deltas)
+    output = np.empty(arr.nbytes, dtype=np.uint8).reshape(arr.dtype.itemsize, arr.size)
+    rows_per_chunk = max(1, _FILTER_TRANSFORM_CHUNK_BYTES // (_TRIANGLE_SIZE * arr.dtype.itemsize))
+    for start in range(0, len(triangles), rows_per_chunk):
+        end = min(start + rows_per_chunk, len(triangles))
+        deltas = np.empty_like(triangles[start:end])
+        if start == 0:
+            deltas[0] = triangles[0]
+            if end > 1:
+                np.subtract(triangles[1:end], triangles[: end - 1], out=deltas[1:])
+        else:
+            np.subtract(triangles[start:end], triangles[start - 1 : end - 1], out=deltas)
+        raw = deltas.reshape(-1).view(np.uint8).reshape(-1, arr.dtype.itemsize)
+        element_start = start * _TRIANGLE_SIZE
+        element_end = end * _TRIANGLE_SIZE
+        for byte_index in range(arr.dtype.itemsize):
+            output[byte_index, element_start:element_end] = raw[:, byte_index]
+    return output.reshape(-1)
 
 
 def _untriangle_delta_shuffle_bytes(
@@ -232,7 +276,7 @@ def _untriangle_delta_shuffle_bytes(
         msg = f"Invalid triangle-delta array with dtype {dtype} and shape {shape}."
         raise ValueError(msg)
     deltas = _unshuffle_bytes(buf, dtype.itemsize).view(dtype).reshape(-1, _TRIANGLE_SIZE)
-    np.cumsum(deltas, axis=0, dtype=dtype, out=deltas)
+    np.add.accumulate(deltas, axis=0, dtype=dtype, out=deltas)
     return deltas.reshape(shape)
 
 
@@ -270,7 +314,7 @@ def _special_filter_beneficial(
     sample = _sample_rows(arr, row_width)
     if specialized_filter == _FILTER_TRIANGLE_DELTA_SHUFFLE:
         sample = sample.reshape(-1)
-    cctx = zstd.ZstdCompressor(level=level)
+    cctx = zstd.ZstdCompressor(level=min(level, _MESH_FILTER_PROBE_LEVEL))
     specialized_size = len(cctx.compress(_filtered_bytes(sample, specialized_filter)))
     baseline_size = len(cctx.compress(_filtered_bytes(sample, baseline_filter)))
     return specialized_size < baseline_size
@@ -876,6 +920,8 @@ class Writer:
             return baseline
         if mesh_filters is True:
             return specialized
+        if arr.nbytes < _MESH_FILTER_MIN_BYTES:
+            return baseline
         if _special_filter_beneficial(arr, specialized, baseline, level):
             return specialized
         return baseline

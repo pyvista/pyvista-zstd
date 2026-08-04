@@ -23,6 +23,7 @@ from pyvista_zstd.pyvista_zstd import POINTS_KEY
 from pyvista_zstd.pyvista_zstd import POLYS
 from pyvista_zstd.pyvista_zstd import Writer
 from pyvista_zstd.pyvista_zstd import _component_shuffle_bytes
+from pyvista_zstd.pyvista_zstd import _shuffle_bytes
 from pyvista_zstd.pyvista_zstd import _special_filter_beneficial
 from pyvista_zstd.pyvista_zstd import _triangle_delta_shuffle_bytes
 from pyvista_zstd.pyvista_zstd import _uncomponent_shuffle_bytes
@@ -33,18 +34,28 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def test_component_shuffle_roundtrip_is_bit_exact(dtype: type[np.floating]) -> None:
+def test_component_shuffle_roundtrip_is_bit_exact(
+    dtype: type[np.floating],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Component-planar byte shuffle preserves every floating-point bit."""
+    monkeypatch.setattr(_pz_mod, "_FILTER_TRANSFORM_CHUNK_BYTES", 2 * 3 * np.dtype(dtype).itemsize)
     bits = np.arange(3072 * np.dtype(dtype).itemsize, dtype=np.uint8)
     points = bits.view(dtype).reshape(-1, 3)
     encoded = _component_shuffle_bytes(points)
+    expected_layout = _shuffle_bytes(np.ascontiguousarray(points.T))
     recovered = _uncomponent_shuffle_bytes(encoded, points.dtype, points.shape)
+    assert encoded.tobytes() == expected_layout.tobytes()
     assert recovered.tobytes() == points.tobytes()
 
 
 @pytest.mark.parametrize("dtype", [np.int32, np.int64, np.uint32, np.uint64])
-def test_triangle_delta_shuffle_roundtrip_is_bit_exact(dtype: type[np.integer]) -> None:
+def test_triangle_delta_shuffle_roundtrip_is_bit_exact(
+    dtype: type[np.integer],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Same-dtype modular deltas preserve signed and unsigned connectivity."""
+    monkeypatch.setattr(_pz_mod, "_FILTER_TRANSFORM_CHUNK_BYTES", 2 * 3 * np.dtype(dtype).itemsize)
     info = np.iinfo(dtype)
     triangles = np.array(
         [[0, 1, 2], [9, 4, 7], [info.max, 0, info.min], [3, 2, 1]],
@@ -103,6 +114,18 @@ def test_mesh_filters_false_preserves_version_2(polydata: pv.PolyData, tmp_path:
     pz.write(polydata, path, mesh_filters=False)
     assert pz.Reader(path)._metadata.file_version == FILE_VERSION_FIXED_WIDTH_CELLS  # noqa: SLF001
     assert pz.read(path) == polydata
+
+
+def test_auto_skips_tiny_mesh_frames_but_true_forces_them(tmp_path: Path) -> None:
+    """Automatic filtering avoids format promotion when the payload is negligible."""
+    pointset = pv.PointSet(np.arange(30, dtype=np.float32).reshape(-1, 3))
+    automatic = tmp_path / "automatic.pv"
+    forced = tmp_path / "forced.pv"
+    pz.write(pointset, automatic)
+    pz.write(pointset, forced, mesh_filters=True)
+    assert pz.Reader(automatic)._metadata.file_version == FILE_VERSION_UNFILTERED  # noqa: SLF001
+    assert pz.Reader(forced)._metadata.file_version == FILE_VERSION_MESH_FILTERS  # noqa: SLF001
+    assert pz.read(forced).points.tobytes() == pointset.points.tobytes()
 
 
 def test_auto_skips_mesh_filters_for_incompressible_samples(tmp_path: Path) -> None:

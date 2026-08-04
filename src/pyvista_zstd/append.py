@@ -52,7 +52,7 @@ it can never leave a half-written footer that destroys committed blocks.
 Partial / columnar read
 -----------------------
 :func:`read_array` (and :class:`AppendReader`) decompress exactly the
-two frames of one named block — never the rest of the file — so a single
+two frames of one named block - never the rest of the file - so a single
 array can be loaded back without touching any other block.
 """
 
@@ -73,7 +73,7 @@ from pyvista_zstd.pyvista_zstd import _FILTER_SHUFFLE
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import FIELD_DATA_SUFFIX
 from pyvista_zstd.pyvista_zstd import FILE_METADATA_KEY
-from pyvista_zstd.pyvista_zstd import FILE_VERSION
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_SHUFFLE
 from pyvista_zstd.pyvista_zstd import MULTIBLOCK_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import UID_N_CHAR
@@ -160,7 +160,7 @@ def _load_file_meta_and_root_ds(
     Decode the file-metadata frame and the root ``__ds_metadata`` frame.
 
     ``f`` is an open seekable ``"rb"`` handle.  Only the two small
-    metadata frame-pairs are read — never the array bodies — so this is
+    metadata frame-pairs are read - never the array bodies - so this is
     cheap even on multi-gigabyte files.
 
     Returns ``(file_meta, root_ds_id, root_ds_meta)``.
@@ -293,7 +293,7 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
 
     # Upstream invariant: there are ``n_arrays = num_frames // 2`` arrays
     # (2 frames each), but ``frame_names`` records only the first
-    # ``n_arrays - 1`` of them — the trailing file-metadata array's name
+    # ``n_arrays - 1`` of them - the trailing file-metadata array's name
     # is deliberately *omitted* (``Writer.write`` snapshots ``frame_names``
     # before appending the file-metadata array).  The reader recovers the
     # file-metadata frame positionally (last two frames), so we MUST keep
@@ -364,7 +364,7 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
     # Regenerate file metadata.  Final on-disk array order is:
     #   [kept arrays ...][new field arrays ...][ds-meta][file-meta]
     # ``frame_names`` records every array EXCEPT the trailing file-meta
-    # (upstream invariant — see above), so it ends at ds-meta.
+    # (upstream invariant - see above), so it ends at ds-meta.
     final_frame_names = [
         *new_frame_names,
         *new_payload_names,
@@ -374,7 +374,7 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
     # older reader cleanly refuses it.  Kept frames retain their own per-block
     # encoding (recorded in their metadata frames), so a previously-unfiltered
     # file gaining a shuffled block stays internally consistent.
-    new_version = max(file_meta.file_version, FILE_VERSION) if any_shuffled else file_meta.file_version
+    new_version = max(file_meta.file_version, FILE_VERSION_SHUFFLE) if any_shuffled else file_meta.file_version
     file_meta_new = ZstdFileMetadata(
         frame_names=final_frame_names,
         compression_level=file_meta.compression_level,
@@ -409,7 +409,7 @@ def append_arrays(  # noqa: C901, PLR0912, PLR0915
             offset = 0
             footer_entries: list[tuple[int, int]] = []
 
-            # 1) kept frames — verbatim offset copy, no decompression.
+            # 1) kept frames - verbatim offset copy, no decompression.
             for start, end, dsz in kept_frame_specs:
                 src.seek(start)
                 remaining = end - start
@@ -460,7 +460,7 @@ def read_array(filename: Path | str, name: str) -> NDArray:
     """
     Read a single appended (field) array back without full decompression.
 
-    Decompresses exactly the two frames of the named block — the rest of
+    Decompresses exactly the two frames of the named block - the rest of
     the file is never decompressed, so this stays cheap even on a
     multi-gigabyte container.
 

@@ -15,6 +15,7 @@ from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import _FILTER_NONE
 from pyvista_zstd.pyvista_zstd import _FILTER_SHUFFLE
 from pyvista_zstd.pyvista_zstd import FILE_VERSION
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_SHUFFLE
 from pyvista_zstd.pyvista_zstd import FILE_VERSION_UNFILTERED
 from pyvista_zstd.pyvista_zstd import _resolve_shuffle
 from pyvista_zstd.pyvista_zstd import _shuffle_bytes
@@ -71,7 +72,7 @@ def test_write_read_shuffle_bit_exact(tmp_path: Path) -> None:
     pz.write(grid, path, shuffle="auto")
     back = pz.read(path)
     assert np.array_equal(back.point_data["disp"], grid.point_data["disp"])
-    assert pz.Reader(path)._metadata.file_version == FILE_VERSION  # noqa: SLF001
+    assert pz.Reader(path)._metadata.file_version == FILE_VERSION_SHUFFLE  # noqa: SLF001
 
 
 def test_unfiltered_stays_legacy_version(tmp_path: Path) -> None:
@@ -114,7 +115,7 @@ def test_append_shuffle_partial_read_bit_exact(tmp_path: Path) -> None:
     pz.write(grid, path, shuffle=False)  # start at version 0
     cols = {f"col_{j:04d}": np.cos(np.arange(2000, dtype=np.float64) * (j + 1) / 17.0) for j in range(6)}
     append_arrays(path, cols, shuffle="auto")
-    assert pz.Reader(path)._metadata.file_version == FILE_VERSION  # noqa: SLF001
+    assert pz.Reader(path)._metadata.file_version == FILE_VERSION_SHUFFLE  # noqa: SLF001
     for name, arr in cols.items():
         assert np.array_equal(read_array(path, name), arr)
 
@@ -164,8 +165,8 @@ def test_unsupported_file_version_is_rejected(tmp_path: Path, monkeypatch: pytes
     grid = _float_grid()
     path = tmp_path / "future.pv"
     # Stamp a version this build does not understand by writing under a bumped
-    # FILE_VERSION; the reader still uses the real (lower) FILE_VERSION.
-    monkeypatch.setattr(_pz_mod, "FILE_VERSION", FILE_VERSION + 99)
+    # shuffle format version; the reader still uses the real FILE_VERSION.
+    monkeypatch.setattr(_pz_mod, "FILE_VERSION_SHUFFLE", FILE_VERSION + 99)
     pz.write(grid, path, shuffle=True)
     monkeypatch.undo()
     with pytest.raises(ValueError, match="newer than the version supported"):

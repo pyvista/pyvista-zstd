@@ -46,14 +46,18 @@ if TYPE_CHECKING:  # pragma: no cover
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
-# Highest on-disk format version this library can READ.  Bumped to 1 to add
-# the optional byte-shuffle pre-filter (see ``_FILTER_*`` below).  A reader
-# refuses any file whose ``file_version`` exceeds this, so an older release
-# cleanly rejects a shuffled file instead of silently mis-decoding it.
-FILE_VERSION = 1
-# Version stamped on files that use NO byte-filter.  Such files stay
-# byte-identical to the legacy format and remain readable by older releases.
+# Highest on-disk format version this library can READ. Version 1 added the
+# optional byte-shuffle pre-filter (see ``_FILTER_*`` below), and version 2
+# adds fixed-width cell arrays that store their cell size in dataset metadata
+# instead of writing a redundant offsets frame. A reader refuses any file
+# whose ``file_version`` exceeds this value.
+FILE_VERSION = 2
+# Version stamped on files that use neither byte filters nor fixed-width cell
+# arrays. Such files stay byte-identical to the legacy format and remain
+# readable by older releases.
 FILE_VERSION_UNFILTERED = 0
+FILE_VERSION_SHUFFLE = 1
+FILE_VERSION_FIXED_WIDTH_CELLS = 2
 FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
@@ -193,8 +197,8 @@ class ZstdFileMetadata:
     frame_names: list[str]
     compression_level: int
     compression: Compression = "zstandard"
-    # Defaults to the unfiltered version; writers bump to ``FILE_VERSION`` only
-    # when a byte-filter (e.g. shuffle) is actually applied to some array.
+    # Defaults to the legacy version; writers promote this when they use an
+    # optional encoding such as byte shuffle or fixed-width cell topology.
     file_version: int = FILE_VERSION_UNFILTERED
 
     def to_json(self) -> str:
@@ -258,6 +262,7 @@ class DataSetMetadata:
     point_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
     cell_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
     field_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
+    fixed_cell_sizes: dict[str, int] = field(default_factory=dict)
     point_data_active_scalars_name: str | None = None
     point_data_active_vectors_name: str | None = None
     point_data_active_texture_coordinates_name: str | None = None
@@ -281,6 +286,7 @@ class DataSetMetadata:
         point_info: dict[str, ArrayInfo],
         cell_info: dict[str, ArrayInfo],
         field_info: dict[str, ArrayInfo],
+        fixed_cell_sizes: dict[str, int],
     ) -> DataSetMetadata:
         """Create metadata from a dataset."""
         # Many pyvista calls require intermediate object assembly, side step or
@@ -314,6 +320,7 @@ class DataSetMetadata:
             "point_data_keys": point_info,
             "cell_data_keys": cell_info,
             "field_data_keys": field_info,
+            "fixed_cell_sizes": fixed_cell_sizes,
             "point_data_active_scalars_name": pd.active_scalars_name,
             "point_data_active_vectors_name": pd.active_vectors_name,
             "point_data_active_texture_coordinates_name": pd.active_texture_coordinates_name,
@@ -358,6 +365,7 @@ class DataSetMetadata:
         raw["point_data_keys"] = decode_mapping(raw.get("point_data_keys", {}))
         raw["cell_data_keys"] = decode_mapping(raw.get("cell_data_keys", {}))
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
+        raw["fixed_cell_sizes"] = raw.get("fixed_cell_sizes", {})
         return cls(**raw)
 
     def to_array(self) -> NDArray[np.uint8]:
@@ -388,35 +396,51 @@ def _set_n_threads(n_threads: int | None, n_bytes: int, max_manual_threads: int 
     return n_threads
 
 
-def _add_cell_array(
+def _add_cell_array(  # noqa: PLR0913
     ds_id: str,
     arrays: dict[str, np.ndarray],
     name: str,
     cell_array: vtkCellArray,
+    fixed_cell_sizes: dict[str, int],
     *,
     force_int32: bool = False,
 ) -> None:
     if not cell_array:
         return
 
-    offsets = vtk_to_numpy(cell_array.GetOffsetsArray())
     connectivity = vtk_to_numpy(cell_array.GetConnectivityArray())
+    cell_size = cell_array.IsHomogeneous()
 
     # compress to int32 whenever possible
     if force_int32 and connectivity.size <= np.iinfo(np.int32).max:
-        offsets = offsets.astype(np.int32, copy=False)
         connectivity = connectivity.astype(np.int32, copy=False)
 
-    arrays[f"{ds_id}{name}{OFFSET_SUFFIX}"] = offsets
+    if cell_size > 0:
+        fixed_cell_sizes[name] = cell_size
+    else:
+        offsets = vtk_to_numpy(cell_array.GetOffsetsArray())
+        if force_int32 and connectivity.size <= np.iinfo(np.int32).max:
+            offsets = offsets.astype(np.int32, copy=False)
+        arrays[f"{ds_id}{name}{OFFSET_SUFFIX}"] = offsets
     arrays[f"{ds_id}{name}{CONNECTIVITY_SUFFIX}"] = connectivity
 
 
-def _extract_cell_array(ds_id: str, name: str, segments: dict[str, Any]) -> vtkCellArray | None:
+def _extract_cell_array(
+    ds_id: str,
+    name: str,
+    segments: dict[str, Any],
+    fixed_cell_sizes: dict[str, int],
+) -> vtkCellArray | None:
     conn_key = f"{ds_id}{name}{CONNECTIVITY_SUFFIX}"
     if conn_key not in segments:
         return None
 
     offset_key = f"{ds_id}{name}{OFFSET_SUFFIX}"
+    if name in fixed_cell_sizes:
+        return _numpy_to_vtk_cells(None, segments[conn_key], cell_size=fixed_cell_sizes[name])
+    if offset_key not in segments:
+        msg = f"Cell array '{name}' has neither offsets nor a fixed cell size."
+        raise ValueError(msg)
     return _numpy_to_vtk_cells(segments[offset_key], segments[conn_key])
 
 
@@ -432,24 +456,35 @@ def _add_arrays_rgrid(ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> N
         arrays[f"{ds_id}{RGRID_Z_SUFFIX}"] = ds.z
 
 
-def _add_arrays_polydata(ds: PolyData, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True) -> None:
+def _add_arrays_polydata(
+    ds: PolyData,
+    arrays: dict[str, NDArray[Any]],
+    fixed_cell_sizes: dict[str, int],
+    *,
+    force_int32: bool = True,
+) -> None:
     ds_id = _make_ds_id(ds)
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
-    _add_cell_array(ds_id, arrays, POLYS, ds.GetPolys(), force_int32=force_int32)
-    _add_cell_array(ds_id, arrays, LINES, ds.GetLines(), force_int32=force_int32)
-    _add_cell_array(ds_id, arrays, STRIPS, ds.GetStrips(), force_int32=force_int32)
-    _add_cell_array(ds_id, arrays, VERTS, ds.GetVerts(), force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, POLYS, ds.GetPolys(), fixed_cell_sizes, force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, LINES, ds.GetLines(), fixed_cell_sizes, force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, STRIPS, ds.GetStrips(), fixed_cell_sizes, force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, VERTS, ds.GetVerts(), fixed_cell_sizes, force_int32=force_int32)
 
 
 def _add_arrays_ugrid(
-    ds: UnstructuredGrid, arrays: dict[str, NDArray[Any]], ds_id: str | None = None, *, force_int32: bool = True
+    ds: UnstructuredGrid,
+    arrays: dict[str, NDArray[Any]],
+    fixed_cell_sizes: dict[str, int],
+    ds_id: str | None = None,
+    *,
+    force_int32: bool = True,
 ) -> None:
     if ds_id is None:
         ds_id = _make_ds_id(ds)
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
     arrays[f"{ds_id}{CELL_TYPES_KEY}"] = ds.celltypes
 
-    _add_cell_array(ds_id, arrays, CELLS, ds.GetCells(), force_int32=force_int32)
+    _add_cell_array(ds_id, arrays, CELLS, ds.GetCells(), fixed_cell_sizes, force_int32=force_int32)
 
     has_polyhedra = bool(np.any(ds.celltypes == pv.CellType.POLYHEDRON))
     if has_polyhedra:
@@ -465,6 +500,7 @@ def _add_arrays_ugrid(
             arrays,
             POLYHEDRON,
             ds.GetPolyhedronFaces(),
+            fixed_cell_sizes,
             force_int32=force_int32,
         )
         _add_cell_array(
@@ -472,16 +508,21 @@ def _add_arrays_ugrid(
             arrays,
             POLYHEDRON_LOCATION,
             ds.GetPolyhedronFaceLocations(),
+            fixed_cell_sizes,
             force_int32=force_int32,
         )
 
 
 def _add_arrays_esgrid(
-    ds: ExplicitStructuredGrid, arrays: dict[str, NDArray[Any]], *, force_int32: bool = True
+    ds: ExplicitStructuredGrid,
+    arrays: dict[str, NDArray[Any]],
+    fixed_cell_sizes: dict[str, int],
+    *,
+    force_int32: bool = True,
 ) -> None:
     ds_id = _make_ds_id(ds)
     ugrid = ds.cast_to_unstructured_grid()
-    _add_arrays_ugrid(ugrid, arrays, ds_id, force_int32=force_int32)
+    _add_arrays_ugrid(ugrid, arrays, fixed_cell_sizes, ds_id, force_int32=force_int32)
 
 
 def _add_arrays_sgrid(ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -525,8 +566,8 @@ def write(  # noqa: PLR0913
     filename : pathlib.Path | str
         Path to the file.
     force_int32 : bool, default: True
-        Write offset and connectivity arrays as int32 whenever possible. Only
-        applies to :class:`pyvista.PolyData` and
+        Write cell topology as int32 whenever possible. Only applies to
+        :class:`pyvista.PolyData` and
         :class:`pyvista.UnstructuredGrid`.
     progress_bar : bool, default: False
         Show a progress bar while writing to disk.
@@ -547,7 +588,14 @@ def write(  # noqa: PLR0913
         enlarges a file); ``True`` shuffles every multibyte array. Files that
         use the filter are written at format version 1 and can only be read by
         this release or newer; unfiltered files (the default) stay backward
-        compatible.
+        compatible unless they use fixed-width cell arrays.
+
+    Notes
+    -----
+    Cell arrays whose cells all contain the same number of points are stored
+    without their redundant offsets array. Their common width is recorded in
+    dataset metadata and VTK reconstructs the offsets when the file is read.
+    Files using this encoding are written at format version 2.
 
     """
     writer = Writer(ds, filename)
@@ -598,6 +646,7 @@ class Writer:
 
         self._arrays: dict[str, NDArray[Any]] = {}
         self._ds = pv.wrap(ds)
+        self._uses_fixed_width_cells = False
 
         # used to hold a reference to the dataset. This is necessary for
         # multiblocks to avoid having them collected and getting duplicate
@@ -610,13 +659,14 @@ class Writer:
         # while we generate all memory IDs
         self._refs.append(ds)
         ds_id = _make_ds_id(ds)
+        fixed_cell_sizes: dict[str, int] = {}
 
         if isinstance(ds, PolyData):
-            _add_arrays_polydata(ds, self._arrays, force_int32=force_int32)
+            _add_arrays_polydata(ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
         elif isinstance(ds, UnstructuredGrid):
-            _add_arrays_ugrid(ds, self._arrays, force_int32=force_int32)
+            _add_arrays_ugrid(ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
         elif isinstance(ds, ExplicitStructuredGrid):
-            _add_arrays_esgrid(ds, self._arrays, force_int32=force_int32)
+            _add_arrays_esgrid(ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
         elif isinstance(ds, ImageData):
             pass
         elif isinstance(ds, StructuredGrid):
@@ -668,8 +718,9 @@ class Writer:
             field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
         # supply dataset metadata
-        ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info)
+        ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes)
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
+        self._uses_fixed_width_cells = self._uses_fixed_width_cells or bool(fixed_cell_sizes)
 
     def write(
         self,
@@ -700,14 +751,20 @@ class Writer:
         n_threads = _set_n_threads(n_threads, n_bytes)
 
         # Decide each array's byte-filter up front so the file version can
-        # record whether any filter was used (an unfiltered file stays at
-        # FILE_VERSION_UNFILTERED and remains readable by older releases).
+        # record which optional encodings were used. A file using neither
+        # stays at FILE_VERSION_UNFILTERED and remains readable by older
+        # releases.
         filters = {
             name: (_FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE)
             for name, arr in self._arrays.items()
         }
         any_filtered = any(f != _FILTER_NONE for f in filters.values())
-        version = FILE_VERSION if any_filtered else FILE_VERSION_UNFILTERED
+        if self._uses_fixed_width_cells:
+            version = FILE_VERSION_FIXED_WIDTH_CELLS
+        elif any_filtered:
+            version = FILE_VERSION_SHUFFLE
+        else:
+            version = FILE_VERSION_UNFILTERED
 
         # finally, append file metadata as the final frame
         file_meta = ZstdFileMetadata(
@@ -823,8 +880,12 @@ def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
             field_data.set_array(array, key[UID_N_CHAR : -len(FIELD_DATA_SUFFIX)])
 
 
-def _segments_to_ugrid(ds_id: str, segments: dict[str, Any]) -> UnstructuredGrid:
-    cells = _extract_cell_array(ds_id, CELLS, segments)
+def _segments_to_ugrid(
+    ds_id: str,
+    segments: dict[str, Any],
+    metadata: DataSetMetadata,
+) -> UnstructuredGrid:
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
 
     celltypes = segments[f"{ds_id}{CELL_TYPES_KEY}"]
     celltypes_vtk = numpy_to_vtk(celltypes, deep=False, array_type=VTK_UNSIGNED_CHAR)
@@ -832,8 +893,8 @@ def _segments_to_ugrid(ds_id: str, segments: dict[str, Any]) -> UnstructuredGrid
     ugrid = UnstructuredGrid()
     ugrid.points = segments[f"{ds_id}{POINTS_KEY}"]
 
-    poly = _extract_cell_array(ds_id, POLYHEDRON, segments)
-    poly_loc = _extract_cell_array(ds_id, POLYHEDRON_LOCATION, segments)
+    poly = _extract_cell_array(ds_id, POLYHEDRON, segments, metadata.fixed_cell_sizes)
+    poly_loc = _extract_cell_array(ds_id, POLYHEDRON_LOCATION, segments, metadata.fixed_cell_sizes)
 
     if poly and poly_loc:
         if pv.vtk_version_info < (9, 4):
@@ -855,8 +916,12 @@ def _segments_to_ugrid(ds_id: str, segments: dict[str, Any]) -> UnstructuredGrid
     return ugrid
 
 
-def _segments_to_esgrid(ds_id: str, segments: dict[str, Any]) -> ExplicitStructuredGrid:
-    return _segments_to_ugrid(ds_id, segments).cast_to_explicit_structured_grid()
+def _segments_to_esgrid(
+    ds_id: str,
+    segments: dict[str, Any],
+    metadata: DataSetMetadata,
+) -> ExplicitStructuredGrid:
+    return _segments_to_ugrid(ds_id, segments, metadata).cast_to_explicit_structured_grid()
 
 
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:
@@ -866,8 +931,10 @@ def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMe
 
 
 def _numpy_to_vtk_cells(
-    offset: NDArray[np.int32] | NDArray[np.int64],
+    offset: NDArray[np.int32] | NDArray[np.int64] | None,
     connectivity: NDArray[np.int32] | NDArray[np.int64],
+    *,
+    cell_size: int | None = None,
 ) -> vtkCellArray:
     # Build directly via VTK to preserve int32/int64 dtype on the connectivity
     # array. ``pv.CellArray.from_arrays`` always casts to ``pv.ID_TYPE``
@@ -881,20 +948,40 @@ def _numpy_to_vtk_cells(
         msg = f"Invalid faces dtype {dtype}. Expected `np.int32` or `np.int64`."
         raise ValueError(msg)
     connectivity_vtk = numpy_to_vtk(connectivity, deep=False, array_type=vtk_dtype)
-    offset_vtk = numpy_to_vtk(offset, deep=False, array_type=vtk_dtype)
     carr = vtkCellArray()
-    carr.SetData(offset_vtk, connectivity_vtk)
+    vtk_arrays = [connectivity_vtk]
+    if cell_size is not None:
+        if cell_size <= 0 or connectivity.size % cell_size:
+            msg = f"Invalid fixed cell size {cell_size} for connectivity length {connectivity.size}."
+            raise ValueError(msg)
+        carr.SetData(cell_size, connectivity_vtk)
+    else:
+        if offset is None:  # pragma: no cover
+            msg = "Offsets are required when no fixed cell size is provided."
+            raise ValueError(msg)
+        offset_vtk = numpy_to_vtk(offset, deep=False, array_type=vtk_dtype)
+        carr.SetData(offset_vtk, connectivity_vtk)
+        vtk_arrays.append(offset_vtk)
+    # ``numpy_to_vtk(deep=False)`` stores its NumPy owner on the Python VTK
+    # array wrapper. Keep those wrappers with the cell array so shuffled
+    # topology buffers remain alive after the temporary segment mapping is
+    # released. VTK preserves the cell-array wrapper while a dataset owns it.
+    carr.pyvista_zstd_array_references = vtk_arrays
     return carr
 
 
-def _segments_to_polydata(ds_id: str, segments: dict[str, Any]) -> PolyData:
+def _segments_to_polydata(
+    ds_id: str,
+    segments: dict[str, Any],
+    metadata: DataSetMetadata,
+) -> PolyData:
     pdata = PolyData()
     pdata.points = segments[f"{ds_id}{POINTS_KEY}"]
 
-    pdata.SetPolys(_extract_cell_array(ds_id, POLYS, segments))
-    pdata.SetLines(_extract_cell_array(ds_id, LINES, segments))
-    pdata.SetStrips(_extract_cell_array(ds_id, STRIPS, segments))
-    pdata.SetVerts(_extract_cell_array(ds_id, VERTS, segments))
+    pdata.SetPolys(_extract_cell_array(ds_id, POLYS, segments, metadata.fixed_cell_sizes))
+    pdata.SetLines(_extract_cell_array(ds_id, LINES, segments, metadata.fixed_cell_sizes))
+    pdata.SetStrips(_extract_cell_array(ds_id, STRIPS, segments, metadata.fixed_cell_sizes))
+    pdata.SetVerts(_extract_cell_array(ds_id, VERTS, segments, metadata.fixed_cell_sizes))
 
     return pdata
 
@@ -1486,9 +1573,9 @@ class Reader:
         # convert this to match when Python 3.9 goes EOL
         ds_type = ds_metadata.ds_type
         if ds_type == "UnstructuredGrid":
-            ds = _segments_to_ugrid(ds_id, segments)
+            ds = _segments_to_ugrid(ds_id, segments, ds_metadata)
         elif ds_type == "PolyData":
-            ds = _segments_to_polydata(ds_id, segments)
+            ds = _segments_to_polydata(ds_id, segments, ds_metadata)
         elif ds_type == "ImageData":
             ds = _metadata_to_imagedata(ds_metadata)
         elif ds_type == "PointSet":
@@ -1498,7 +1585,7 @@ class Reader:
         elif ds_type == "StructuredGrid":
             ds = _segments_to_sgrid(ds_id, segments, ds_metadata)
         elif ds_type == "ExplicitStructuredGrid":
-            ds = _segments_to_esgrid(ds_id, segments)
+            ds = _segments_to_esgrid(ds_id, segments, ds_metadata)
         else:  # pragma: no cover
             msg = f"pyvista-zstd does not support DataSet type `{ds_type}` for decompression"
             raise RuntimeError(msg)

@@ -71,6 +71,12 @@ Compatible with all VTK dataset types. Uses
    ds_in = pyvista_zstd.read("dataset.pv")
    assert ds == ds_in
 
+For cell arrays where every cell contains the same number of points,
+``pyvista-zstd`` stores the common cell width in the dataset metadata and omits
+the redundant offsets array. This applies to triangles, quads, tetrahedra, and
+any other fixed-width cell topology. Mixed-width cell arrays retain their
+explicit offsets.
+
 **Alternative VTK example**
 
 .. code:: py

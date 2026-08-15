@@ -32,13 +32,22 @@ import pyvista as pv
 # ``TypeError: SetPolys argument 1:`` and every ``.pv`` file becomes unreadable.
 #
 # ``pyvista._vtk`` resolves to whichever binding is in use, so this is a no-op
-# on a stock install and correct on the others.
-from pyvista._vtk import numpy_to_vtk
-from pyvista._vtk import vtk_to_numpy
-from pyvista._vtk import vtkCellArray
-from pyvista._vtk import vtkPointSet
-from pyvista._vtk import vtkTypeInt32Array
-from pyvista._vtk import vtkTypeInt64Array
+# on a stock install and correct on the others.  That module was added in
+# pyvista 0.48; before then the same names lived in ``pyvista.core._vtk_core``.
+try:  # pyvista >= 0.48
+    from pyvista._vtk import numpy_to_vtk
+    from pyvista._vtk import vtk_to_numpy
+    from pyvista._vtk import vtkCellArray
+    from pyvista._vtk import vtkPointSet
+    from pyvista._vtk import vtkTypeInt32Array
+    from pyvista._vtk import vtkTypeInt64Array
+except ModuleNotFoundError:  # pyvista < 0.48
+    from pyvista.core._vtk_core import numpy_to_vtk
+    from pyvista.core._vtk_core import vtk_to_numpy
+    from pyvista.core._vtk_core import vtkCellArray
+    from pyvista.core._vtk_core import vtkPointSet
+    from pyvista.core._vtk_core import vtkTypeInt32Array
+    from pyvista.core._vtk_core import vtkTypeInt64Array
 from pyvista.core.composite import MultiBlock
 from pyvista.core.grid import ImageData
 from pyvista.core.grid import RectilinearGrid

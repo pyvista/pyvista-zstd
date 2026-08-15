@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from typing import TYPE_CHECKING
 import warnings
@@ -9,7 +10,6 @@ import warnings
 import numpy as np
 import pytest
 import pyvista as pv
-from pyvista import _vtk
 from pyvista.core.composite import MultiBlock
 from pyvista.core.grid import ImageData
 from pyvista.core.grid import RectilinearGrid
@@ -20,7 +20,7 @@ from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
 import pyvista_zstd
-from pyvista_zstd import pyvista_zstd as module
+from pyvista_zstd import pyvista_zstd as impl
 
 if TYPE_CHECKING:
     from pyvista.core.dataset import DataSet
@@ -708,32 +708,35 @@ def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
     assert "Field arrays" not in repr_no_data_str
 
 
-def test_vtk_classes_come_from_pyvistas_binding() -> None:
+def test_vtk_imports_route_through_pyvista() -> None:
     """
-    The VTK classes used internally must match PyVista's own binding.
+    VTK must be imported through PyVista, never from ``vtkmodules`` or ``vtk``.
 
     PyVista is not always built against the stock ``vtkmodules`` wheel. When it
     is built on another binding, a ``vtkmodules`` cell array is a different C++
     type from the one a PyVista ``PolyData`` accepts, and handing one to the
     other fails with a bare ``TypeError: SetPolys argument 1:``. That breaks
-    reading of every ``.pv`` file, so assert the classes are the same objects
-    PyVista would use.
+    reading of every ``.pv`` file. An identity check cannot catch this on a
+    single-binding install, so assert on the import statements themselves.
     """
-    assert module.vtkCellArray is _vtk.vtkCellArray
-    assert module.vtkPointSet is _vtk.vtkPointSet
-    assert module.vtkTypeInt32Array is _vtk.vtkTypeInt32Array
-    assert module.vtkTypeInt64Array is _vtk.vtkTypeInt64Array
+    tree = ast.parse(Path(impl.__file__).read_text(encoding="utf-8"))
+    roots = {(node.module or "").split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {
+        alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    }
+    assert "vtkmodules" not in roots
+    assert "vtk" not in roots
 
 
 def test_cell_array_binds_to_pyvista_polydata() -> None:
     """
-    Reproduce the failure directly: the reader's cell array must bind.
+    Smoke-test the pairing the reader relies on: the cell array must bind.
 
     ``_segments_to_polydata`` builds a PyVista ``PolyData`` and calls
     ``SetPolys`` on it with a cell array constructed from the imports under
-    test. This exercises that exact pairing, so a binding mismatch fails here
-    with a clear message rather than as an unreadable file.
+    test. This exercises that exact pairing. On a stock single-binding install
+    it passes either way, so it only has teeth where PyVista is built against a
+    binding other than the ``vtkmodules`` wheel.
     """
     polydata = PolyData()
     polydata.points = np.zeros((3, 3))
-    polydata.SetPolys(module.vtkCellArray())
+    polydata.SetPolys(impl.vtkCellArray())

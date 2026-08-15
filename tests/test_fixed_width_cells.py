@@ -49,14 +49,22 @@ def test_homogeneous_polydata_omits_offsets(polydata: pv.PolyData, tmp_path: Pat
 def test_homogeneous_ugrid_omits_offsets(ugrid: pv.UnstructuredGrid, tmp_path: Path) -> None:
     """The fixed-width encoding applies to homogeneous non-triangle cells too."""
     path = tmp_path / "hexahedra.pv"
+    source_dtype = ugrid.cell_connectivity.dtype
+    source_connectivity = ugrid.cell_connectivity.copy()
     pz.write(ugrid, path, force_int32=False)
 
     reader = pz.Reader(path)
     frame_names = reader._metadata.frame_names  # noqa: SLF001
     assert _frame_name(reader, CELLS, OFFSET_SUFFIX) not in frame_names
     assert reader._ds_metadata.fixed_cell_sizes[CELLS] == HEXAHEDRON_SIZE  # noqa: SLF001
-    assert reader.read() == ugrid
-    assert reader.read().cell_connectivity.dtype == np.int64
+    result = reader.read()
+    assert result == ugrid
+    # The connectivity width is a property of the VTK build, not something this
+    # library chooses, so compare against what the source was given rather than
+    # asserting int64 outright. Values are compared too, so a correctly typed
+    # but corrupted array still fails.
+    assert result.cell_connectivity.dtype == source_dtype
+    assert np.array_equal(result.cell_connectivity, source_connectivity)
 
 
 def test_equal_width_different_cell_types_use_fixed_width(tmp_path: Path) -> None:

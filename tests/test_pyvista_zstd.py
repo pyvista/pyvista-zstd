@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from typing import TYPE_CHECKING
 import warnings
@@ -19,6 +20,7 @@ from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
 import pyvista_zstd
+from pyvista_zstd import pyvista_zstd as impl
 
 if TYPE_CHECKING:
     from pyvista.core.dataset import DataSet
@@ -452,19 +454,35 @@ def test_read_sphere_v2_pv_fixture() -> None:
     assert np.array_equal(out.cell_data["ids"], expected.cell_data["ids"])
 
 
-def test_use_int64(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
-    """Test Reader class with array sub-selection."""
+def test_roundtrip_preserves_connectivity_dtype(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """
+    A round trip returns the connectivity dtype it was given.
+
+    The width of VTK's cell-array storage is a property of the build, not
+    something this library chooses: a binding may use 32-bit storage whenever
+    the values fit, so ``GetCells()`` can hand over int32 before this library is
+    involved at all. Asserting int64 outright therefore tests the binding's
+    storage policy rather than anything here.
+
+    What this library does control is narrower and is what gets asserted:
+    ``force_int32=False`` must not change the dtype, and ``force_int32=True``
+    must narrow it to int32. Values are compared as well as dtypes, so an array
+    that comes back correctly typed but corrupted still fails.
+    """
     populate_data(ugrid)
 
     tmp_filename = tmp_path / "ugrid.pv"
+    source_dtype = ugrid.cell_connectivity.dtype
 
     pyvista_zstd.write(ugrid, tmp_filename, force_int32=False)
     ugrid_out = pyvista_zstd.read(tmp_filename)
-    assert ugrid_out.cell_connectivity.dtype == np.int64
+    assert ugrid_out.cell_connectivity.dtype == source_dtype
+    assert np.array_equal(ugrid_out.cell_connectivity, ugrid.cell_connectivity)
 
     pyvista_zstd.write(ugrid, tmp_filename, force_int32=True)
     ugrid_out = pyvista_zstd.read(tmp_filename)
     assert ugrid_out.cell_connectivity.dtype == np.int32
+    assert np.array_equal(ugrid_out.cell_connectivity, ugrid.cell_connectivity)
 
 
 def test_future_version_is_rejected(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
@@ -688,3 +706,37 @@ def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
     assert "Point arrays" not in repr_no_data_str
     assert "Cell arrays" not in repr_no_data_str
     assert "Field arrays" not in repr_no_data_str
+
+
+def test_vtk_imports_route_through_pyvista() -> None:
+    """
+    VTK must be imported through PyVista, never from ``vtkmodules`` or ``vtk``.
+
+    PyVista is not always built against the stock ``vtkmodules`` wheel. When it
+    is built on another binding, a ``vtkmodules`` cell array is a different C++
+    type from the one a PyVista ``PolyData`` accepts, and handing one to the
+    other fails with a bare ``TypeError: SetPolys argument 1:``. That breaks
+    reading of every ``.pv`` file. An identity check cannot catch this on a
+    single-binding install, so assert on the import statements themselves.
+    """
+    tree = ast.parse(Path(impl.__file__).read_text(encoding="utf-8"))
+    roots = {(node.module or "").split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {
+        alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    }
+    assert "vtkmodules" not in roots
+    assert "vtk" not in roots
+
+
+def test_cell_array_binds_to_pyvista_polydata() -> None:
+    """
+    Smoke-test the pairing the reader relies on: the cell array must bind.
+
+    ``_segments_to_polydata`` builds a PyVista ``PolyData`` and calls
+    ``SetPolys`` on it with a cell array constructed from the imports under
+    test. This exercises that exact pairing. On a stock single-binding install
+    it passes either way, so it only has teeth where PyVista is built against a
+    binding other than the ``vtkmodules`` wheel.
+    """
+    polydata = PolyData()
+    polydata.points = np.zeros((3, 3))
+    polydata.SetPolys(impl.vtkCellArray())

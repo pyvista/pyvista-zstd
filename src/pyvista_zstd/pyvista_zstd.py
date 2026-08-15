@@ -22,6 +22,32 @@ import warnings
 
 import numpy as np
 import pyvista as pv
+
+# Import VTK through PyVista rather than from ``vtkmodules`` directly, so the
+# classes constructed here always come from the same VTK binding PyVista itself
+# is built on. PyVista can be built against a binding other than the stock
+# ``vtkmodules`` wheel -- ``cvista``, for instance -- and in that case a
+# ``vtkmodules`` cell array is a different C++ type from the one a PyVista
+# ``PolyData`` expects. ``SetPolys`` then rejects it with a bare
+# ``TypeError: SetPolys argument 1:`` and every ``.pv`` file becomes unreadable.
+#
+# ``pyvista._vtk`` resolves to whichever binding is in use, so this is a no-op
+# on a stock install and correct on the others.  That module was added in
+# pyvista 0.48; before then the same names lived in ``pyvista.core._vtk_core``.
+try:  # pyvista >= 0.48
+    from pyvista._vtk import numpy_to_vtk
+    from pyvista._vtk import vtk_to_numpy
+    from pyvista._vtk import vtkCellArray
+    from pyvista._vtk import vtkPointSet
+    from pyvista._vtk import vtkTypeInt32Array
+    from pyvista._vtk import vtkTypeInt64Array
+except ModuleNotFoundError:  # pyvista < 0.48
+    from pyvista.core._vtk_core import numpy_to_vtk
+    from pyvista.core._vtk_core import vtk_to_numpy
+    from pyvista.core._vtk_core import vtkCellArray
+    from pyvista.core._vtk_core import vtkPointSet
+    from pyvista.core._vtk_core import vtkTypeInt32Array
+    from pyvista.core._vtk_core import vtkTypeInt64Array
 from pyvista.core.composite import MultiBlock
 from pyvista.core.grid import ImageData
 from pyvista.core.grid import RectilinearGrid
@@ -31,12 +57,6 @@ from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 from tqdm import tqdm
-from vtkmodules.util.numpy_support import numpy_to_vtk
-from vtkmodules.util.numpy_support import vtk_to_numpy
-from vtkmodules.vtkCommonCore import vtkTypeInt32Array
-from vtkmodules.vtkCommonCore import vtkTypeInt64Array
-from vtkmodules.vtkCommonDataModel import vtkCellArray
-from vtkmodules.vtkCommonDataModel import vtkPointSet
 import zstandard as zstd
 from zstandard import BufferSegment
 from zstandard import BufferWithSegments

@@ -454,19 +454,35 @@ def test_read_sphere_v2_pv_fixture() -> None:
     assert np.array_equal(out.cell_data["ids"], expected.cell_data["ids"])
 
 
-def test_use_int64(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
-    """Test Reader class with array sub-selection."""
+def test_roundtrip_preserves_connectivity_dtype(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """
+    A round trip returns the connectivity dtype it was given.
+
+    The width of VTK's cell-array storage is a property of the build, not
+    something this library chooses: a binding may use 32-bit storage whenever
+    the values fit, so ``GetCells()`` can hand over int32 before this library is
+    involved at all. Asserting int64 outright therefore tests the binding's
+    storage policy rather than anything here.
+
+    What this library does control is narrower and is what gets asserted:
+    ``force_int32=False`` must not change the dtype, and ``force_int32=True``
+    must narrow it to int32. Values are compared as well as dtypes, so an array
+    that comes back correctly typed but corrupted still fails.
+    """
     populate_data(ugrid)
 
     tmp_filename = tmp_path / "ugrid.pv"
+    source_dtype = ugrid.cell_connectivity.dtype
 
     pyvista_zstd.write(ugrid, tmp_filename, force_int32=False)
     ugrid_out = pyvista_zstd.read(tmp_filename)
-    assert ugrid_out.cell_connectivity.dtype == np.int64
+    assert ugrid_out.cell_connectivity.dtype == source_dtype
+    assert np.array_equal(ugrid_out.cell_connectivity, ugrid.cell_connectivity)
 
     pyvista_zstd.write(ugrid, tmp_filename, force_int32=True)
     ugrid_out = pyvista_zstd.read(tmp_filename)
     assert ugrid_out.cell_connectivity.dtype == np.int32
+    assert np.array_equal(ugrid_out.cell_connectivity, ugrid.cell_connectivity)
 
 
 def test_future_version_is_rejected(ugrid: UnstructuredGrid, tmp_path: Path) -> None:

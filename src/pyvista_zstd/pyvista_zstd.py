@@ -1264,6 +1264,7 @@ class Reader:
         self._selected_point_arrays: set[str] | None = None
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
+        self._one_dataset: bool | None = None
 
         if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
@@ -1453,8 +1454,28 @@ class Reader:
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
         with _capi_module().NativeReader(self._filename) as reader:
             segments = reader.read_arrays(keep=keep - {meta_key})
-        _, segments[meta_key] = self._decompress_pair(meta_key)
+            # The native core has already decompressed this frame and parked it
+            # as JSON, so when it is the right one it can be taken from there
+            # instead of being pulled through zstd a second time. The core
+            # keeps a single slot, so that only holds for a file carrying one
+            # dataset -- a MultiBlock has one such frame per dataset and the
+            # slot cannot say which of them it is.
+            raw = reader.ds_metadata_json if self._holds_one_dataset() else None
+
+        if raw is None:
+            _, segments[meta_key] = self._decompress_pair(meta_key)
+        else:
+            segments[meta_key] = np.frombuffer(raw.encode("utf-8"), dtype=np.uint8)
         return segments
+
+    def _holds_one_dataset(self) -> bool:
+        """Whether the file carries exactly one dataset-metadata frame."""
+        cached = self._one_dataset
+        if cached is None:
+            names = self._metadata.frame_names or ()
+            cached = sum(1 for name in names if name.endswith(DS_METADATA_KEY)) == 1
+            self._one_dataset = cached
+        return cached
 
     def _selected_frame_names(self, ds_id: str) -> set[str]:
         """

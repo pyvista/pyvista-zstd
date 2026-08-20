@@ -518,8 +518,10 @@ class NativeReader:
         wanted: list[tuple[int, str, NDArray[Any]]] = []
         for index in range(int(self._lib.pvz_array_count(handle))):
             # One struct, refilled in place: allocating an _ArrayInfo per array
-            # was measurable on its own.
-            status = info_at(handle, c_uint64(index), ref)
+            # was measurable on its own. The index goes in as a plain int --
+            # argtypes declares the c_uint64, so ctypes converts it in C and
+            # wrapping it here only built a Python object to throw away.
+            status = info_at(handle, index, ref)
             if status != _STATUS_OK:
                 _check(status, f"index {index}")
             name = info.name.decode("utf-8")
@@ -530,7 +532,10 @@ class NativeReader:
             if dtype is None:
                 dtype = np.dtype(raw_dtype.decode("utf-8"))
                 dtypes[raw_dtype] = dtype
-            shape = tuple(info.shape[i] for i in range(info.ndim))
+            # Slicing the ctypes array converts the dimensions in one C-level
+            # step. Indexing it per dimension inside a generator unboxed them
+            # one at a time and built a generator per array to do it.
+            shape = tuple(info.shape[: info.ndim])
             wanted.append((index, name, empty(shape, dtype=dtype)))
 
         payloads = [(i, n, a) for i, n, a in wanted if a.nbytes]

@@ -94,6 +94,7 @@ jobs:
             echo "PVZSTD_LIBRARY=$(pwd)/$(find_one "$libname")"
             echo "PVZ_DUMP=$(pwd)/$(find_one "pvz_dump$suffix")"
             echo "PVZ_REWRITE=$(pwd)/$(find_one "pvz_rewrite$suffix")"
+            echo "PVZ_APPEND=$(pwd)/$(find_one "pvz_append$suffix")"
           } >> "$GITHUB_ENV"
 
       - name: Install the package as pure Python

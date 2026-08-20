@@ -503,25 +503,51 @@ class NativeReader:
         dict[str, numpy.ndarray]
 
         """
+        # Everything below is hoisted out of the loop on purpose. This loop runs
+        # once per array on every single read, and profiling it on an idle
+        # machine put more time in this Python body than in the native
+        # decompression it wraps -- the per-array property lookups, attribute
+        # resolutions and np.dtype construction dominated a small file entirely.
+        handle = self._live
+        info_at = self._lib.pvz_array_info_at
+        dtypes: dict[bytes, np.dtype[Any]] = {}
+        empty = np.empty
+        info = _ArrayInfo()
+        ref = byref(info)
+
         wanted: list[tuple[int, str, NDArray[Any]]] = []
-        for index in range(len(self)):
-            info = self._info(index)
+        for index in range(int(self._lib.pvz_array_count(handle))):
+            # One struct, refilled in place: allocating an _ArrayInfo per array
+            # was measurable on its own.
+            status = info_at(handle, c_uint64(index), ref)
+            if status != _STATUS_OK:
+                _check(status, f"index {index}")
             name = info.name.decode("utf-8")
             if keep is not None and name not in keep:
                 continue
-            dtype = np.dtype(info.dtype.decode("utf-8"))
+            raw_dtype = info.dtype
+            dtype = dtypes.get(raw_dtype)
+            if dtype is None:
+                dtype = np.dtype(raw_dtype.decode("utf-8"))
+                dtypes[raw_dtype] = dtype
             shape = tuple(info.shape[i] for i in range(info.ndim))
-            wanted.append((index, name, np.empty(shape, dtype=dtype)))
+            wanted.append((index, name, empty(shape, dtype=dtype)))
 
         payloads = [(i, n, a) for i, n, a in wanted if a.nbytes]
         if payloads:
             count = len(payloads)
-            indices = (c_uint64 * count)(*(i for i, _, _ in payloads))
-            # np.empty is C-contiguous, so .ctypes.data addresses the whole
-            # payload and the core writes straight into the final array.
-            dsts = (c_void_p * count)(*(a.ctypes.data for _, _, a in payloads))
-            sizes = (c_uint64 * count)(*(a.nbytes for _, _, a in payloads))
-            status = self._lib.pvz_read_arrays(self._live, indices, c_uint64(count), dsts, sizes, c_int(n_threads))
+            # Built in a single pass: three generator expressions over the same
+            # list walked it three times for no gain.
+            indices = (c_uint64 * count)()
+            dsts = (c_void_p * count)()
+            sizes = (c_uint64 * count)()
+            for slot, (i, _, arr) in enumerate(payloads):
+                indices[slot] = i
+                # np.empty is C-contiguous, so .ctypes.data addresses the whole
+                # payload and the core writes straight into the final array.
+                dsts[slot] = arr.ctypes.data
+                sizes[slot] = arr.nbytes
+            status = self._lib.pvz_read_arrays(handle, indices, c_uint64(count), dsts, sizes, c_int(n_threads))
             if status == _STATUS_FILTER:
                 self._raise_filter_error(payloads)
             _check(status)

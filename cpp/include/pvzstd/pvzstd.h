@@ -197,6 +197,53 @@ PVZSTD_API pvz_status pvz_writer_set_ds_metadata(pvz_writer *writer, const char 
  * was actually written. */
 PVZSTD_API pvz_status pvz_writer_write(pvz_writer *writer, const char *path);
 
+/* ------------------------------------------------------------------ *
+ * Append
+ *
+ * Add field arrays to a container that already exists, without rewriting
+ * it. Frames already on disk are copied byte-for-byte by offset -- never
+ * decompressed, never recompressed -- so the cost is the size of what is
+ * being added, not the size of the file. Only the dataset-metadata frame
+ * and the trailing file-metadata frame are regenerated, because both grow.
+ *
+ * This is what makes a container writable incrementally: seed it once with
+ * the mesh, then commit each result (a load step, a mode, a frequency) as
+ * its own append. Peak memory is one array rather than the whole result
+ * set, and each append is committed by rename, so an interrupted one cannot
+ * damage what was already there.
+ * ------------------------------------------------------------------ */
+
+/* One array to append. Note the two dtype spellings: the format records a
+ * numpy dtype *string* ("<f8") in the frame header and a dtype *name*
+ * ("float64") in the dataset metadata, for the same array. Both are taken
+ * from the caller rather than derived here -- deriving one from the other
+ * would mean embedding a copy of numpy's dtype-name table in this library,
+ * and a copy is a thing that drifts. */
+typedef struct pvz_append_array {
+  const char *name;       /* bare name; the UID prefix and suffix are added */
+  const char *dtype;      /* header spelling, e.g. "<f8" */
+  const char *dtype_name; /* metadata spelling, e.g. "float64" */
+  const uint64_t *shape;
+  uint32_t ndim;
+  const void *data;
+  uint64_t nbytes;
+} pvz_append_array;
+
+/* Pass as `level` to reuse the level recorded in the file, so appended
+ * blocks are compressed the same way the original ones were. */
+#define PVZ_LEVEL_FROM_FILE (-1000)
+
+/* Append `count` arrays to the container at `path`.
+ *
+ * Names must not collide with a field array already in the file; this
+ * returns PVZ_E_INVALID rather than overwriting one. MultiBlock containers
+ * are refused (PVZ_E_FORMAT): they have no single root dataset to append
+ * to, and misreading their metadata as a dataset's would corrupt the file.
+ *
+ * Appending nothing is a no-op, not an error. */
+PVZSTD_API pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays,
+                                        uint64_t count, int level, pvz_shuffle_mode shuffle);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

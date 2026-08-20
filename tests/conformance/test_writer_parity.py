@@ -89,11 +89,31 @@ def _mixed() -> pv.DataSet:
     return pv.UnstructuredGrid(cells, ctypes, pts)
 
 
+def _bulk() -> pv.DataSet:
+    """
+    Big enough that the worker-count rule actually resolves to a worker.
+
+    Every other fixture here is well under a megabyte, so ``_set_n_threads``
+    returns 0 for all of them and both sides compress single-threaded. That
+    made the whole worker-count reproduction -- the thing the module docstring
+    calls load-bearing -- untested: breaking it deliberately left the suite
+    green. Two thresholds have to be cleared at once, and this dataset clears
+    both: 2 MiB, above which the reference asks for a worker at all, and 1 MiB
+    per frame, above which zstd's threaded and unthreaded output stop being
+    byte-identical.
+    """
+    rng = np.random.default_rng(21)
+    ds = pv.ImageData(dimensions=(64, 64, 64))
+    ds.point_data["bulk_f64"] = rng.random(ds.n_points)
+    return ds
+
+
 DATASETS = {
     "polydata": _sphere,
     "unstructured": _unstructured,
     "image": _image,
     "mixed": _mixed,
+    "bulk": _bulk,
 }
 
 

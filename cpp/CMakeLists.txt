@@ -98,10 +98,10 @@ endif()
 message(STATUS "pvzstd: linking zstd via ${PVZSTD_ZSTD_TARGET}")
 
 if(PVZSTD_BUILD_SHARED)
-  add_library(pvzstd SHARED src/reader.cpp src/writer.cpp)
+  add_library(pvzstd SHARED src/reader.cpp src/writer.cpp src/append.cpp)
   target_compile_definitions(pvzstd PRIVATE PVZSTD_BUILDING PUBLIC PVZSTD_SHARED)
 else()
-  add_library(pvzstd STATIC src/reader.cpp src/writer.cpp)
+  add_library(pvzstd STATIC src/reader.cpp src/writer.cpp src/append.cpp)
 endif()
 
 target_include_directories(pvzstd PUBLIC
@@ -125,6 +125,8 @@ if(PVZSTD_BUILD_TOOLS)
   target_link_libraries(pvz_dump PRIVATE pvzstd)
   add_executable(pvz_rewrite tools/pvz_rewrite.cpp)
   target_link_libraries(pvz_rewrite PRIVATE pvzstd)
+  add_executable(pvz_append tools/pvz_append.cpp)
+  target_link_libraries(pvz_append PRIVATE pvzstd)
 endif()
 
 include(GNUInstallDirs)

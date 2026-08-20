@@ -1388,10 +1388,20 @@ class Reader:
         self._frames = BufferWithSegments(self._mm, segments_bytes)
 
         # Both metadata frames are decompressed by the core the moment it opens
-        # the file, so on the native backend reading them here as well is the
-        # same zstd work done twice -- measured at 23.2us of a 48.6us open.
-        # Taking them from the core costs the 10.0us of opening it, which this
-        # reader would otherwise pay on its first read anyway.
+        # the file, so on the native backend reading them here as well would be
+        # the same zstd work done twice. Taking them from the core instead costs
+        # only opening it, which this reader would otherwise pay on its first
+        # read anyway.
+        #
+        # Measured cold -- one open per process, because a warm loop cannot see
+        # a cost paid once per process and this one is mostly that. Opening is
+        # 172us on the pure-Python path and 354us here, and the whole 182us
+        # difference is arriving at the library rather than using it: ~220us of
+        # it is the deferred `import _capi` below and ~175us is dlopen plus
+        # binding the prototypes, both once per process, while the extra work
+        # this __init__ actually does -- parsing the trailer that the core also
+        # parses -- measures +6us. So the duplicate parse is not worth removing
+        # and the open is not where the native reader loses.
         core = self._native_reader() if self._use_native else None
 
         from_core = None if core is None else self._file_metadata_from_core(core)

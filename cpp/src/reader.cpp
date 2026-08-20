@@ -584,14 +584,13 @@ pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, ui
     // an explicit n_threads is still honoured verbatim.
     uint64_t total = 0;
     for (uint64_t i = 0; i < count; ++i) total += dst_sizes[i];
-    if (total < kParallelDecompressFloor) {
-      workers = 1;
-    } else {
-      const unsigned hw = std::thread::hardware_concurrency();
-      workers = hw == 0 ? 1 : static_cast<int>(hw);
-    }
+    workers = total < kParallelDecompressFloor ? 1 : pvzstd::detail::HardwareWorkers();
   }
   if (workers > static_cast<int>(count)) workers = static_cast<int>(count);
+  // A build with no thread runtime has no pool to spread over. Doing the work
+  // inline is the same work in the same order, so this is a speed difference
+  // and not a behavioural one -- which is why it is a clamp and not an error.
+  if (!pvzstd::detail::kHasThreads) workers = 1;
 
   if (workers <= 1) {
     for (uint64_t i = 0; i < count; ++i) {

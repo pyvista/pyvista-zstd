@@ -43,6 +43,7 @@
 #include <vector>
 
 #include "detail.h"
+#include "fileio.h"
 #include "json_read.h"
 #include "pvzstd/pvzstd.h"
 
@@ -124,7 +125,7 @@ pvz_status ReadFrame(pvz_stream *s, const std::vector<uint64_t> &ends,
   } catch (const std::bad_alloc &) {
     return PVZ_E_NOMEM;
   }
-  if (std::fseek(s->fp, static_cast<long>(start), SEEK_SET) != 0) return PVZ_E_IO;
+  if (SeekTo(s->fp, static_cast<int64_t>(start), SEEK_SET) != 0) return PVZ_E_IO;
   if (n > 0 && std::fread(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZ_E_IO;
   if (sizes[index] == 0) return PVZ_OK;
   const size_t got = ZSTD_decompress(&(*out)[0], out->size(), comp.data(), comp.size());
@@ -160,7 +161,7 @@ pvz_status WriteTail(pvz_stream *s) {
     return PVZ_E_NOMEM;
   }
 
-  if (std::fseek(s->fp, static_cast<long>(s->body_end), SEEK_SET) != 0) return PVZ_E_IO;
+  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZ_E_IO;
   uint64_t offset = s->body_end;
   for (std::vector<uint8_t> &payload : plain) {
     std::vector<uint8_t> comp;
@@ -223,7 +224,7 @@ pvz_status pvz_stream_open(const char *path, pvz_stream **out) {
     } catch (const std::bad_alloc &) {
       return fail(PVZ_E_NOMEM);
     }
-    if (std::fseek(s->fp, -static_cast<long>(table.size() + 8), SEEK_END) != 0) {
+    if (SeekTo(s->fp, -static_cast<int64_t>(table.size() + 8), SEEK_END) != 0) {
       return fail(PVZ_E_IO);
     }
     if (std::fread(table.data(), 1, table.size(), s->fp) != table.size()) return fail(PVZ_E_IO);
@@ -320,7 +321,7 @@ pvz_status pvz_stream_append(pvz_stream *s, const pvz_append_array *arrays, uint
   if (s->frames.size() < kTailFrames) return PVZ_E_FORMAT;
   s->frames.resize(s->frames.size() - kTailFrames);
 
-  if (std::fseek(s->fp, static_cast<long>(s->body_end), SEEK_SET) != 0) return PVZ_E_IO;
+  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZ_E_IO;
   uint64_t offset = s->body_end;
   std::string fdk_addition;
 

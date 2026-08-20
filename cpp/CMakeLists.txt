@@ -113,6 +113,10 @@ target_link_libraries(pvzstd PRIVATE ${PVZSTD_ZSTD_TARGET})
 if(MSVC)
   target_compile_options(pvzstd PRIVATE /W4)
 else()
+  # A container can be larger than 2 GiB, and the append and stream paths seek
+  # around it. Without this a 32-bit libc gives off_t 32 bits and fseeko is no
+  # wider than fseek. See cpp/src/fileio.h.
+  target_compile_definitions(pvzstd PRIVATE _FILE_OFFSET_BITS=64)
   target_compile_options(pvzstd PRIVATE -Wall -Wextra)
 endif()
 

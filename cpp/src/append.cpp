@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "detail.h"
+#include "fileio.h"
 #include "json_read.h"
 #include "pvzstd/pvzstd.h"
 
@@ -72,7 +73,7 @@ struct FrameEntry {
 };
 
 bool ReadAt(std::FILE *fp, uint64_t offset, uint64_t len, std::vector<uint8_t> *out) {
-  if (std::fseek(fp, static_cast<long>(offset), SEEK_SET) != 0) return false;
+  if (SeekTo(fp, static_cast<int64_t>(offset), SEEK_SET) != 0) return false;
   try {
     out->resize(static_cast<size_t>(len));
   } catch (const std::bad_alloc &) {
@@ -84,8 +85,8 @@ bool ReadAt(std::FILE *fp, uint64_t offset, uint64_t len, std::vector<uint8_t> *
 // The trailer: per frame [cumulative_end:u64][decompressed_size:u64], then the
 // frame count as the final 8 bytes.
 pvz_status ReadFooter(std::FILE *fp, std::vector<FrameEntry> *frames, uint64_t *body_end) {
-  if (std::fseek(fp, 0, SEEK_END) != 0) return PVZ_E_IO;
-  const long end = std::ftell(fp);
+  if (SeekTo(fp, 0, SEEK_END) != 0) return PVZ_E_IO;
+  const int64_t end = TellAt(fp);
   if (end < 8) return PVZ_E_FORMAT;
   const uint64_t size = static_cast<uint64_t>(end);
 
@@ -349,7 +350,7 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   for (const StagedFrame &frame : staged) {
     if (frame.copy) {
       uint64_t remaining = frame.src_end - frame.src_start;
-      if (std::fseek(src.get(), static_cast<long>(frame.src_start), SEEK_SET) != 0) {
+      if (SeekTo(src.get(), static_cast<int64_t>(frame.src_start), SEEK_SET) != 0) {
         ok = false;
         break;
       }

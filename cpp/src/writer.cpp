@@ -188,7 +188,13 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
   } catch (const std::bad_alloc &) {
     return PVZ_E_NOMEM;
   }
-  writer->arrays.push_back(std::move(meta_entry));
+  // Appended to a local list rather than to the writer's own, so writing the
+  // same writer to a second path emits one metadata frame and not two. The
+  // frame is generated per write because it names every frame in the file.
+  std::vector<const PendingArray *> emit;
+  emit.reserve(writer->arrays.size() + 1);
+  for (const PendingArray &a : writer->arrays) emit.push_back(&a);
+  emit.push_back(&meta_entry);
   filters.push_back(PVZ_FILTER_NONE);  // the JSON blob is never shuffled
 
   // 4. Worker count, from the total computed above.
@@ -206,8 +212,8 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
   std::vector<uint8_t> payload;
   std::vector<uint8_t> frame;
 
-  for (size_t i = 0; i < writer->arrays.size() && st == PVZ_OK; ++i) {
-    const PendingArray &a = writer->arrays[i];
+  for (size_t i = 0; i < emit.size() && st == PVZ_OK; ++i) {
+    const PendingArray &a = *emit[i];
     const Dtype d = ParseDtype(a.dtype.c_str());
 
     header.clear();

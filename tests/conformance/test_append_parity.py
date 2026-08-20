@@ -107,9 +107,7 @@ def _write_spec(tmp_path: Path, arrays: dict[str, np.ndarray], *, dtype_names=No
         raw.write_bytes(contiguous.tobytes())
         dtype_name = str(contiguous.dtype) if dtype_names is None else dtype_names[name]
         shape_csv = ",".join(str(d) for d in contiguous.shape)
-        spec_lines.append(
-            "\t".join([name, contiguous.dtype.str, dtype_name, shape_csv, str(raw)])
-        )
+        spec_lines.append("\t".join([name, contiguous.dtype.str, dtype_name, shape_csv, str(raw)]))
     spec = tmp_path / "spec.tsv"
     spec.write_text("\n".join(spec_lines) + "\n")
     return spec
@@ -152,8 +150,7 @@ def test_cpp_append_is_byte_identical(tmp_path, label, shuffle) -> None:
             min(len(expected), len(actual)),
         )
         pytest.fail(
-            f"{label} shuffle={shuffle}: {len(expected)} vs {len(actual)} bytes, "
-            f"first difference at byte {first}"
+            f"{label} shuffle={shuffle}: {len(expected)} vs {len(actual)} bytes, first difference at byte {first}"
         )
 
 
@@ -183,8 +180,7 @@ def test_the_parity_gate_can_fail(tmp_path) -> None:
     _cpp_append(native, wrong, shuffle=False)
 
     assert _digest(reference) != _digest(native), (
-        "the wrong dtype name produced an identical file; the parity gate is not "
-        "comparing the dataset metadata"
+        "the wrong dtype name produced an identical file; the parity gate is not comparing the dataset metadata"
     )
 
 
@@ -210,13 +206,10 @@ def test_auto_shuffle_actually_probes(tmp_path) -> None:
     }
     _cpp_append(native, _write_spec(tmp_path, arrays), shuffle="auto")
 
-    filters = {
-        h.name: h.filter_id for h in ref_reader.read(native).headers if "__field_data" in h.name
-    }
+    filters = {h.name: h.filter_id for h in ref_reader.read(native).headers if "__field_data" in h.name}
     assert len(filters) == len(arrays)
     assert len(set(filters.values())) == DISTINCT_FILTER_DECISIONS, (
-        f"both appended floats got the same filter decision ({filters}); "
-        "'auto' is not running the trial compression"
+        f"both appended floats got the same filter decision ({filters}); 'auto' is not running the trial compression"
     )
 
 
@@ -247,8 +240,7 @@ def test_kept_frames_are_copied_not_recompressed(tmp_path) -> None:
     # before the file-metadata frame, so a large majority of the body has to be
     # a verbatim prefix. Half is a floor, not a target.
     assert shared > len(before) // 2, (
-        f"only {shared} of {len(before)} bytes survived unchanged; kept frames are "
-        "being rewritten rather than copied"
+        f"only {shared} of {len(before)} bytes survived unchanged; kept frames are being rewritten rather than copied"
     )
 
 

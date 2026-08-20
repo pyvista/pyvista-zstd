@@ -68,6 +68,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import zstandard as zstd
 
+from pyvista_zstd.pyvista_zstd import _BACKENDS
 from pyvista_zstd.pyvista_zstd import _FILTER_NONE
 from pyvista_zstd.pyvista_zstd import _FILTER_SHUFFLE
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
@@ -80,6 +81,7 @@ from pyvista_zstd.pyvista_zstd import UID_N_CHAR
 from pyvista_zstd.pyvista_zstd import ArrayInfo
 from pyvista_zstd.pyvista_zstd import DataSetMetadata
 from pyvista_zstd.pyvista_zstd import ZstdFileMetadata
+from pyvista_zstd.pyvista_zstd import _capi_module
 from pyvista_zstd.pyvista_zstd import _pack_array_metadata
 from pyvista_zstd.pyvista_zstd import _reconstruct_array
 from pyvista_zstd.pyvista_zstd import _resolve_shuffle
@@ -90,6 +92,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     from numpy.typing import NDArray
 
+    from pyvista_zstd._capi import NativeReader
     from pyvista_zstd.pyvista_zstd import ShuffleSpec
 
 __all__ = [
@@ -456,7 +459,7 @@ def _with_field_keys(meta: DataSetMetadata, field_keys: dict[str, ArrayInfo]) ->
     return DataSetMetadata.from_json(json.dumps(raw, separators=(",", ":")))
 
 
-def read_array(filename: Path | str, name: str) -> NDArray:
+def read_array(filename: Path | str, name: str, *, backend: str = "auto") -> NDArray:
     """
     Read a single appended (field) array back without full decompression.
 
@@ -471,6 +474,10 @@ def read_array(filename: Path | str, name: str) -> NDArray:
     name : str
         Field-array name (the key passed to :func:`append_arrays`, or any
         field-data key present in the file).
+    backend : str, optional
+        ``"auto"`` (the default) uses the native C-ABI core when this
+        install has it and the pure-Python path otherwise; ``"native"``
+        demands it; ``"python"`` refuses it.
 
     Returns
     -------
@@ -478,7 +485,7 @@ def read_array(filename: Path | str, name: str) -> NDArray:
         The stored array, bit-exact.
 
     """
-    return AppendReader(filename).read_array(name)
+    return AppendReader(filename, backend=backend).read_array(name)
 
 
 class AppendReader:
@@ -494,6 +501,10 @@ class AppendReader:
     ----------
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
+    backend : str, optional
+        ``"auto"`` (the default) uses the native C-ABI core when this
+        install has it and the pure-Python path otherwise; ``"native"``
+        demands it; ``"python"`` refuses it.
 
     Examples
     --------
@@ -505,8 +516,13 @@ class AppendReader:
 
     """
 
-    def __init__(self, filename: Path | str) -> None:
+    def __init__(self, filename: Path | str, *, backend: str = "auto") -> None:
         """Open ``filename`` and read its footer + metadata frames."""
+        if backend not in _BACKENDS:
+            msg = f"backend must be one of {sorted(_BACKENDS)}, not {backend!r}"
+            raise ValueError(msg)
+        self._backend = backend
+        self._native: NativeReader | None = None
         self._path = Path(filename)
         if self._path.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._path.suffix}'"
@@ -532,11 +548,44 @@ class AppendReader:
         """Return whether field array ``name`` is present."""
         return name in self._ds_meta.field_data_keys
 
+    @property
+    def _native_reader(self) -> NativeReader | None:
+        """
+        The native reader to serve reads from, or None to stay in Python.
+
+        Opened once and kept, because the mapping it holds is what makes a
+        second single-block read cheap. Resolved lazily so constructing a
+        reader and never reading from it costs nothing.
+        """
+        if self._backend == "python":
+            return None
+        if self._native is None:
+            capi = _capi_module()
+            if self._backend != "native" and not capi.available():
+                return None
+            # "native" falls through without the availability check so the
+            # load failure itself is what gets raised, with its diagnostics.
+            self._native = capi.NativeReader(self._path)
+        return self._native
+
     def read_array(self, name: str) -> NDArray:
         """Decompress and return the single field array ``name``."""
         if name not in self._ds_meta.field_data_keys:
             msg = f"field array {name!r} not found; available: {sorted(self._ds_meta.field_data_keys)}"
             raise KeyError(msg)
+
+        native = self._native_reader
+        if native is not None:
+            index = native.find_field(name)
+            if index is not None:
+                return native.read_at(index)
+            # The native core looked and did not find it. Falling back to the
+            # Python path here would paper over a disagreement between the two
+            # about what the file contains, which is exactly what the parity
+            # gate exists to catch.
+            msg = f"frame for field array {name!r} not found in frame index."
+            raise KeyError(msg)
+
         frame_name = f"{self._ds_id}{name}{FIELD_DATA_SUFFIX}"
         ai = self._name_to_idx.get(frame_name)
         if ai is None:  # pragma: no cover - metadata/name desync

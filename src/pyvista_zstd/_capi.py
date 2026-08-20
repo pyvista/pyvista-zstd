@@ -198,6 +198,15 @@ def _bind(lib: ctypes.CDLL) -> None:
         c_int,
     ]
 
+    lib.pvz_field_array_count.restype = c_uint64
+    lib.pvz_field_array_count.argtypes = [c_void_p]
+
+    lib.pvz_field_array_name_at.restype = c_char_p
+    lib.pvz_field_array_name_at.argtypes = [c_void_p, c_uint64]
+
+    lib.pvz_find_field_array.restype = c_int64
+    lib.pvz_find_field_array.argtypes = [c_void_p, c_char_p]
+
     lib.pvz_ds_metadata_json.restype = c_char_p
     lib.pvz_ds_metadata_json.argtypes = [c_void_p]
 
@@ -429,6 +438,45 @@ class NativeReader:
 
         """
         found = int(self._lib.pvz_find_array(self._live, name.encode("utf-8")))
+        return None if found < 0 else found
+
+    def field_array_names(self) -> list[str]:
+        """
+        Return the root dataset's field-array names, in metadata order.
+
+        These are bare names -- the UID prefix and the ``__field_data`` suffix
+        the frame carries are not part of them, so they are what a caller
+        passed to :func:`~pyvista_zstd.append_arrays`.
+
+        Returns
+        -------
+        list[str]
+            Empty for a MultiBlock container, which has no single root dataset.
+
+        """
+        count = int(self._lib.pvz_field_array_count(self._live))
+        names = []
+        for i in range(count):
+            raw = self._lib.pvz_field_array_name_at(self._live, c_uint64(i))
+            names.append(raw.decode("utf-8"))
+        return names
+
+    def find_field(self, name: str) -> int | None:
+        """
+        Return the array index of field array *name*, or None.
+
+        Parameters
+        ----------
+        name : str
+            Bare field-array name, without the UID prefix or suffix.
+
+        Returns
+        -------
+        int | None
+            An index usable with :meth:`read_at`.
+
+        """
+        found = int(self._lib.pvz_find_field_array(self._live, name.encode("utf-8")))
         return None if found < 0 else found
 
     def read_arrays(self, keep: set[str] | None = None, n_threads: int = THREADS_AUTO) -> dict[str, NDArray[Any]]:

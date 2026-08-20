@@ -2,7 +2,7 @@
 
 Status: **DRAFT, derived by reading `src/pyvista_zstd/pyvista_zstd.py` at
 `6f1d021`.** Every claim below carries the line range it was read from.
-Claims that were *not* verified against the source are marked **UNVERIFIED**
+Claims that were _not_ verified against the source are marked **UNVERIFIED**
 and must be closed before the C++ core is written against them.
 
 This document exists because the Python implementation is currently the only
@@ -37,7 +37,7 @@ parsing its trailer.
 
 **The first index field is the frame's END offset, not its start.** The writer
 comment is explicit — `frame_meta` is `(compressed_end, decompressed_size)`
-(`:808`) — and `offset` is incremented *after* the write (`:814-815`). The
+(`:808`) — and `offset` is incremented _after_ the write (`:814-815`). The
 reader reconstructs starts by shifting (`:1256`):
 
 ```
@@ -52,7 +52,7 @@ Reading is therefore a backwards walk from EOF (`:1243-1258`):
 3. Each entry is `(end, decompressed_size)`; derive starts as above.
 
 Misreading field 1 as a start offset does **not** fail loudly: every frame
-still decompresses, but each one yields the *previous* frame's payload, so
+still decompresses, but each one yields the _previous_ frame's payload, so
 the array data silently pairs with the wrong header. This was caught here only
 because the declared `decompressed_size` disagreed with the produced length —
 which is why a conforming reader should assert that equality.
@@ -108,13 +108,13 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 `FILE_VERSION = 2` is what writers emit today (`:74`). Three versions exist
 (`:78-80`) and a 1:1 reader must accept all three:
 
-| Value | Name                        | Meaning                                  |
-|-------|-----------------------------|------------------------------------------|
-| 0     | `FILE_VERSION_UNFILTERED`   | Neither optional encoding used.          |
-| 1     | `FILE_VERSION_SHUFFLE`      | At least one array carries the byte-shuffle filter. |
-| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array. |
+| Value | Name                             | Meaning                                             |
+| ----- | -------------------------------- | --------------------------------------------------- |
+| 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                     |
+| 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter. |
+| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
 
-The version is promoted by the *writer* only when it actually uses an optional
+The version is promoted by the _writer_ only when it actually uses an optional
 encoding — the `ZstdFileMetadata` default is the legacy
 `FILE_VERSION_UNFILTERED` (`:220-222`). **A file's version therefore describes
 the features it uses, not the version of the library that wrote it.**
@@ -122,12 +122,12 @@ the features it uses, not the version of the library that wrote it.**
 **It is a maximum-feature tier, not a generation counter, and the tiers are not
 cumulative.** Measured on this build:
 
-| Dataset             | `shuffle=` | version | `fixed_cell_sizes` | filters present |
-|---------------------|-----------|---------|--------------------|-----------------|
-| mixed hex + tet     | `False`   | 0       | `{}`               | no              |
-| mixed hex + tet     | `True`    | 1       | `{}`               | yes             |
-| homogeneous hex     | `False`   | 2       | `{"cells": 8}`     | no              |
-| homogeneous hex     | `True`    | **2**   | `{"cells": 8}`     | **yes**         |
+| Dataset         | `shuffle=` | version | `fixed_cell_sizes` | filters present |
+| --------------- | ---------- | ------- | ------------------ | --------------- |
+| mixed hex + tet | `False`    | 0       | `{}`               | no              |
+| mixed hex + tet | `True`     | 1       | `{}`               | yes             |
+| homogeneous hex | `False`    | 2       | `{"cells": 8}`     | no              |
+| homogeneous hex | `True`     | **2**   | `{"cells": 8}`     | **yes**         |
 
 The last row is the hazard: a **version-2 file may or may not carry shuffled
 arrays**, because 2 outranks 1 and overwrites it. Any reader that decides
@@ -152,7 +152,7 @@ u8    filter_id           OPTIONAL -- present only when != 0
 UTF-8-encoded and `ljust`-padded with spaces to `UID_N_CHAR` (16) bytes
 (`:645`), read back with `.strip()` (`:855`). Values are numpy type strings
 carrying their own byte order: `<f4`, `<f8`, `<i8`, `<i4`, `|u1`. The JSON
-`DataSetMetadata.points_dtype` / `celltypes_dtype` fields are *not* the
+`DataSetMetadata.points_dtype` / `celltypes_dtype` fields are _not_ the
 authority for per-array dtype — this field is.
 
 This resolves the dtype question the previous revision of this document left
@@ -160,7 +160,7 @@ open. Note how it would have gone wrong: the byte immediately after `shape`
 is the first character of the dtype string, and `<` is `0x3C` while `|` is
 `0x7C` — both are plausible-looking small integers. A parser that assumed
 `filter_id` sat there would read filter ids of 60 and 124, fail the
-`0 | 1` check, and *appear* to detect a corrupt file rather than a wrong
+`0 | 1` check, and _appear_ to detect a corrupt file rather than a wrong
 parser.
 
 `filter_id` is `_FILTER_NONE = 0` or `_FILTER_SHUFFLE = 1` (`:142-143`).
@@ -230,11 +230,11 @@ The filter is **opt-in and off by default**: `shuffle: ShuffleSpec = False` on
 both `write` (`:562`) and `Writer.write` (`:752`), and the comment at `:145`
 says so outright. Three settings exist, and only one of them is adaptive:
 
-| `shuffle=` | Behaviour                                                     |
-|------------|---------------------------------------------------------------|
-| `False`    | Never shuffle. Default. Every `filter_id` is 0.               |
-| `True`     | Always shuffle, unconditionally, every array.                 |
-| `"auto"`   | Run the trial-compression heuristic below, **per array**.     |
+| `shuffle=` | Behaviour                                                 |
+| ---------- | --------------------------------------------------------- |
+| `False`    | Never shuffle. Default. Every `filter_id` is 0.           |
+| `True`     | Always shuffle, unconditionally, every array.             |
+| `"auto"`   | Run the trial-compression heuristic below, **per array**. |
 
 Measured on a 40x40x40 grid: `False` -> 1,081,004 B, `True` -> 319,494 B,
 `"auto"` -> 732,299 B, with `"auto"` selecting shuffle for the two float

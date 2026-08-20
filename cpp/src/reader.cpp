@@ -15,6 +15,8 @@
 
 #include "pvzstd/pvzstd.h"
 
+#include "json_read.h"
+
 #include <zstd.h>
 
 #include <cstdio>
@@ -39,6 +41,9 @@ constexpr uint64_t kTrailerCountBytes = 8;
 constexpr uint64_t kIndexEntryBytes = 16;
 constexpr char kDsMetadataSuffix[] = "__ds_metadata";
 constexpr char kFileMetadataSuffix[] = "__pyvista_zstd_metadata";
+constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
+constexpr char kFieldDataSuffix[] = "__field_data";
+constexpr size_t kUidNChar = 16;
 
 uint64_t LoadU64(const uint8_t *p) {
   uint64_t v = 0;
@@ -184,6 +189,10 @@ struct pvz_reader {
   std::string file_metadata;
   bool has_ds_metadata = false;
   bool has_file_metadata = false;
+  // Field-data blocks of the root dataset, in the order the dataset metadata
+  // lists them. Empty for a MultiBlock container, which has no single root.
+  std::vector<std::string> field_names;
+  std::vector<int64_t> field_indices;  // into `arrays`; -1 if the frame is gone
   // Filled in by pvz_array_info_at so the caller sees stable pointers.
   mutable std::vector<uint64_t> scratch_shape;
 };
@@ -286,6 +295,13 @@ pvz_status pvz_open(const char *path, pvz_reader **out) {
     sizes[static_cast<size_t>(i)] = LoadU64(p + 8);
   }
 
+  // The root dataset's UID and metadata, recorded as the frames go past. A
+  // MultiBlock container has no single root, so seeing its metadata frame
+  // abandons the field-array index rather than guessing which block owns it.
+  std::string ds_id;
+  std::string root_ds_json;
+  bool multiblock = false;
+
   std::vector<uint8_t> frame;
   for (uint64_t i = 0; i + 1 < n_frames; i += 2) {
     const uint64_t hdr_start = (i == 0) ? 0 : ends[static_cast<size_t>(i - 1)];
@@ -327,6 +343,12 @@ pvz_status pvz_open(const char *path, pvz_reader **out) {
       if (is_ds) {
         reader->ds_metadata = json;
         reader->has_ds_metadata = true;
+        if (EndsWith(entry.name, kMultiblockSuffix)) {
+          multiblock = true;
+        } else if (ds_id.empty() && entry.name.size() >= kUidNChar) {
+          ds_id = entry.name.substr(0, kUidNChar);
+          root_ds_json = json;
+        }
       } else {
         reader->file_metadata = json;
         reader->has_file_metadata = true;
@@ -334,6 +356,34 @@ pvz_status pvz_open(const char *path, pvz_reader **out) {
       continue;
     }
     reader->arrays.push_back(entry);
+  }
+
+  // The field-array index. Its names come from the dataset metadata rather
+  // than from the frame names, because that document is what defines which
+  // blocks are field data and in which order -- a frame-name scan would also
+  // pick up an array whose name merely happens to end the same way.
+  if (!multiblock && !ds_id.empty()) {
+    size_t fdk_open = 0;
+    size_t fdk_past = 0;
+    std::vector<std::string> keys;
+    if (pvzstd::json::MemberObjectSpan(root_ds_json, "field_data_keys", &fdk_open, &fdk_past) &&
+        pvzstd::json::ObjectKeys(root_ds_json, fdk_open, &keys)) {
+      for (const std::string &key : keys) {
+        const std::string frame_name = ds_id + key + kFieldDataSuffix;
+        int64_t found = -1;
+        for (size_t k = 0; k < reader->arrays.size(); ++k) {
+          if (reader->arrays[k].name == frame_name) {
+            found = static_cast<int64_t>(k);
+            break;
+          }
+        }
+        // A key with no frame is kept, not dropped: the reference reader lists
+        // it too, and refuses only when it is actually read. Reporting a
+        // shorter list here would hide the desync instead of surfacing it.
+        reader->field_names.push_back(key);
+        reader->field_indices.push_back(found);
+      }
+    }
   }
 
   *out = reader;
@@ -357,6 +407,23 @@ pvz_status pvz_array_info_at(const pvz_reader *reader, uint64_t index, pvz_array
   std::memcpy(out->dtype, e.dtype, sizeof(out->dtype));
   out->nbytes = e.nbytes;
   return PVZ_OK;
+}
+
+uint64_t pvz_field_array_count(const pvz_reader *reader) {
+  return reader == nullptr ? 0 : static_cast<uint64_t>(reader->field_names.size());
+}
+
+const char *pvz_field_array_name_at(const pvz_reader *reader, uint64_t index) {
+  if (reader == nullptr || index >= reader->field_names.size()) return nullptr;
+  return reader->field_names[static_cast<size_t>(index)].c_str();
+}
+
+int64_t pvz_find_field_array(const pvz_reader *reader, const char *name) {
+  if (reader == nullptr || name == nullptr) return -1;
+  for (size_t i = 0; i < reader->field_names.size(); ++i) {
+    if (reader->field_names[i] == name) return reader->field_indices[i];
+  }
+  return -1;
 }
 
 int64_t pvz_find_array(const pvz_reader *reader, const char *name) {

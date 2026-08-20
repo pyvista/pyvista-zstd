@@ -80,7 +80,7 @@ jobs:
             found=$(find cpp/build -name "$1" -type f | head -n 1)
             if [ -z "$found" ]; then
               echo "::error::did not find $1 in the build tree"
-              find cpp/build -type f -name '*pvz*'
+              find cpp/build -type f \( -name 'pvz_*' -o -name '*pvzstd*' \)
               exit 1
             fi
             echo "$found"

@@ -117,6 +117,35 @@ PVZSTD_API pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *
                                       uint64_t count, void *const *dsts,
                                       const uint64_t *dst_sizes, int n_threads);
 
+/* ---- Field arrays ----
+ *
+ * The blocks an append adds, addressed the way a caller names them: by the
+ * bare name, without the dataset-UID prefix or the "__field_data" suffix that
+ * the frame carries. The list comes from the dataset metadata, which is what
+ * defines the set and its order -- scanning frame names for the suffix would
+ * also match an ordinary array whose name happens to end that way.
+ *
+ * Reading one costs its two frames and nothing else, because that is all
+ * pvz_read_array_at touches. Seeding a container with a mesh and committing
+ * each result as its own append therefore stays readable a block at a time,
+ * however large the file grows.
+ *
+ * A MultiBlock container reports zero field arrays: it has no single root
+ * dataset whose field data these would be. */
+
+/* Number of field arrays on the root dataset. */
+PVZSTD_API uint64_t pvz_field_array_count(const pvz_reader *reader);
+
+/* Bare name of field array `index`, owned by the reader, or NULL if out of
+ * range. */
+PVZSTD_API const char *pvz_field_array_name_at(const pvz_reader *reader, uint64_t index);
+
+/* Array index of the field array called `name` -- suitable for
+ * pvz_array_info_at and pvz_read_array_at -- or -1 if the container has no
+ * such field array. Also -1 when the metadata names it but its frame is
+ * absent, which is a damaged file rather than a missing name. */
+PVZSTD_API int64_t pvz_find_field_array(const pvz_reader *reader, const char *name);
+
 /* The two JSON metadata documents, NUL-terminated and owned by the reader.
  * Either may be NULL if the container did not carry it. */
 PVZSTD_API const char *pvz_ds_metadata_json(const pvz_reader *reader);

@@ -68,6 +68,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
+    from pyvista_zstd._capi import NativeReader
+
 # Highest on-disk format version this library can READ. Version 1 added the
 # optional byte-shuffle pre-filter (see ``_FILTER_*`` below), and version 2
 # adds fixed-width cell arrays that store their cell size in dataset metadata
@@ -1265,6 +1267,7 @@ class Reader:
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
         self._one_dataset: bool | None = None
+        self._native: NativeReader | None = None
 
         if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
@@ -1452,21 +1455,42 @@ class Reader:
         rather than taken from the native reader's single slot.
         """
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
-        with _capi_module().NativeReader(self._filename) as reader:
-            segments = reader.read_arrays(keep=keep - {meta_key})
-            # The native core has already decompressed this frame and parked it
-            # as JSON, so when it is the right one it can be taken from there
-            # instead of being pulled through zstd a second time. The core
-            # keeps a single slot, so that only holds for a file carrying one
-            # dataset -- a MultiBlock has one such frame per dataset and the
-            # slot cannot say which of them it is.
-            raw = reader.ds_metadata_json if self._holds_one_dataset() else None
+        reader = self._native_reader()
+        segments = reader.read_arrays(keep=keep - {meta_key})
+
+        # The native core has already decompressed this frame and parked it as
+        # JSON, so when it is the right one it can be taken from there instead
+        # of being pulled through zstd a second time. The core keeps a single
+        # slot, so that only holds for a file carrying one dataset -- a
+        # MultiBlock has one such frame per dataset and the slot cannot say
+        # which of them it is.
+        raw = reader.ds_metadata_json if self._holds_one_dataset() else None
 
         if raw is None:
             _, segments[meta_key] = self._decompress_pair(meta_key)
         else:
             segments[meta_key] = np.frombuffer(raw.encode("utf-8"), dtype=np.uint8)
         return segments
+
+    def _native_reader(self) -> NativeReader:
+        """
+        Return the native reader for this file, opened once and kept.
+
+        Opening one maps the file and parses the trailer and every array
+        header. This object did all of that in __init__ already, so building a
+        fresh native reader per dataset paid for a second copy of it on every
+        read -- and a MultiBlock paid once per dataset.
+
+        Holding it does not weaken any guarantee that was being offered: the
+        frame index and the mapping are both taken in __init__ and kept, so a
+        reader has always been a snapshot of the file as it was when opened.
+        It is released when this object is, the same way the mapping is.
+        """
+        reader = self._native
+        if reader is None:
+            reader = _capi_module().NativeReader(self._filename)
+            self._native = reader
+        return reader
 
     def _holds_one_dataset(self) -> bool:
         """Whether the file carries exactly one dataset-metadata frame."""

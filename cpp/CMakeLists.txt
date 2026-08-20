@@ -107,6 +107,50 @@ else()
     set(ZSTD_MULTITHREAD_SUPPORT ${PVZSTD_THREADS} CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(zstd_vendored)
     set(PVZSTD_ZSTD_TARGET libzstd_static)
+
+    # zstd ships a hand-written assembly Huffman decoder and uses it by
+    # default. On this project's reference machine that assembly is slower
+    # than zstd's own C path, so it is off by default here and nameable
+    # either way.
+    #
+    # Measured on an i9-14900KF (Raptor Cove P-cores, Gracemont E-cores),
+    # pinned with taskset because an unpinned number on a hybrid part says
+    # more about the scheduler than about the code, output byte-identical
+    # both ways. Decode kernel alone, assembly against zstd's own C path:
+    #
+    #     P-core   1.166x slower      E-core   0.919x faster
+    #
+    # End to end through Reader.read(), this build against the same reader
+    # built with the assembly on -- one read per process, so that nothing
+    # runs before the read being timed:
+    #
+    #              1.19 MB   4.81 MB   9.12 MB
+    #     P-core     1.037     1.031     1.052
+    #     E-core     1.000     0.994     0.994
+    #
+    # Turning it off wins on the performance cores at every size and is
+    # indistinguishable on the efficiency cores, where the kernel-level win
+    # above does not survive as far as the reader. So there is no trade here
+    # to weigh: it is better on one core type and neutral on the other.
+    #
+    # Timing loops that read the same file repeatedly do NOT reproduce this,
+    # and they disagree with each other. Reading a container leaves pages
+    # behind that the next read reuses, so in a loop each arm inherits its
+    # neighbour's state: the native reader measured 12.11 ms following a
+    # Python read and 15.39 ms going first, same build, same core, same file.
+    # Any fixed arm order silently books that difference against one arm.
+    # Hence one read per process -- an ordering effect larger than the thing
+    # under test cannot be averaged away, only removed.
+    #
+    # This is two microarchitectures on one machine. It is a default, not a
+    # finding about every CPU -- hence the option: set it ON to get zstd's own
+    # default back. It only reaches the vendored build, because a system zstd
+    # was compiled before we got here.
+    option(PVZSTD_ZSTD_ASM "Use zstd's assembly Huffman decoder" OFF)
+    if(NOT PVZSTD_ZSTD_ASM)
+      target_compile_definitions(libzstd_static PRIVATE ZSTD_DISABLE_ASM=1)
+    endif()
+    message(STATUS "pvzstd: zstd assembly decoder ${PVZSTD_ZSTD_ASM}")
   else()
     message(FATAL_ERROR
       "No zstd found and PVZSTD_VENDOR_ZSTD is OFF. Install zstd development "

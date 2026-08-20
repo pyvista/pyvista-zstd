@@ -210,6 +210,42 @@ struct pvz_reader {
 
 namespace {
 
+// A decompression context owned by, and reused across every frame decompressed
+// on, the calling thread.
+//
+// zstd's own guidance: "When decompressing many times, it is recommended to
+// allocate a context only once, and reuse it for each successive compression
+// operation" and "Use one context per thread for parallel execution."
+// `thread_local` satisfies both without putting a context handle in the C ABI,
+// which matters because the ABI is the part we cannot revise later.
+//
+// A container is many small frames, so the one-shot ZSTD_decompress() this
+// replaces was paying context setup per frame rather than per read.
+//
+// Returns nullptr if the context could not be allocated; callers fall back to
+// the one-shot entry point, which is correct, just slower.
+ZSTD_DCtx *ThreadDCtx() {
+  struct Holder {
+    ZSTD_DCtx *ctx = ZSTD_createDCtx();
+    Holder() = default;
+    ~Holder() {
+      if (ctx != nullptr) ZSTD_freeDCtx(ctx);
+    }
+    Holder(const Holder &) = delete;
+    Holder &operator=(const Holder &) = delete;
+  };
+  static thread_local Holder holder;
+  return holder.ctx;
+}
+
+// ZSTD_decompressDCtx on the thread's context, falling back to the one-shot
+// call when no context is available. Same result either way.
+size_t DecompressInto(void *dst, size_t dst_capacity, const void *src, size_t src_size) {
+  ZSTD_DCtx *const ctx = ThreadDCtx();
+  if (ctx == nullptr) return ZSTD_decompress(dst, dst_capacity, src, src_size);
+  return ZSTD_decompressDCtx(ctx, dst, dst_capacity, src, src_size);
+}
+
 pvz_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t expected,
                            std::vector<uint8_t> *out) {
   try {
@@ -218,7 +254,7 @@ pvz_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t expec
     return PVZ_E_NOMEM;
   }
   if (expected == 0) return PVZ_OK;
-  const size_t got = ZSTD_decompress(out->data(), out->size(), src, static_cast<size_t>(src_size));
+  const size_t got = DecompressInto(out->data(), out->size(), src, static_cast<size_t>(src_size));
   if (ZSTD_isError(got) != 0) return PVZ_E_ZSTD;
   // A mismatch here is the signature of a misparsed index: every frame still
   // decompresses, but each one yields a neighbour's payload.
@@ -458,7 +494,7 @@ pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index, void *dst
 
   if (e.filter_id == PVZ_FILTER_NONE) {
     const size_t got =
-        ZSTD_decompress(dst, static_cast<size_t>(dst_size), src, static_cast<size_t>(src_size));
+        DecompressInto(dst, static_cast<size_t>(dst_size), src, static_cast<size_t>(src_size));
     if (ZSTD_isError(got) != 0) return PVZ_E_ZSTD;
     return got == e.nbytes ? PVZ_OK : PVZ_E_FORMAT;
   }

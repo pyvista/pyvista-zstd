@@ -443,16 +443,43 @@ uint64_t pvz_array_count(const pvz_reader *reader) {
   return reader == nullptr ? 0 : static_cast<uint64_t>(reader->arrays.size());
 }
 
-pvz_status pvz_array_info_at(const pvz_reader *reader, uint64_t index, pvz_array_info *out) {
-  if (reader == nullptr || out == nullptr) return PVZ_E_INVALID;
-  if (index >= reader->arrays.size()) return PVZ_E_RANGE;
-  const ArrayEntry &e = reader->arrays[static_cast<size_t>(index)];
+namespace {
+
+// Every pointer here aliases storage the reader owns for its whole life, so
+// the filled struct stays valid until pvz_close() -- nothing is copied but the
+// dtype tag, which is a fixed-size array inside the struct.
+void FillArrayInfo(const ArrayEntry &e, pvz_array_info *out) {
   out->name = e.name.c_str();
   out->shape = e.shape.empty() ? nullptr : e.shape.data();
   out->ndim = static_cast<uint32_t>(e.shape.size());
   out->filter_id = e.filter_id;
   std::memcpy(out->dtype, e.dtype, sizeof(out->dtype));
   out->nbytes = e.nbytes;
+}
+
+}  // namespace
+
+pvz_status pvz_array_info_at(const pvz_reader *reader, uint64_t index, pvz_array_info *out) {
+  if (reader == nullptr || out == nullptr) return PVZ_E_INVALID;
+  if (index >= reader->arrays.size()) return PVZ_E_RANGE;
+  FillArrayInfo(reader->arrays[static_cast<size_t>(index)], out);
+  return PVZ_OK;
+}
+
+pvz_status pvz_array_info_range(const pvz_reader *reader, uint64_t first, uint64_t count,
+                                pvz_array_info *out) {
+  if (reader == nullptr) return PVZ_E_INVALID;
+  if (count == 0) return PVZ_OK;
+  if (out == nullptr) return PVZ_E_INVALID;
+
+  const uint64_t total = static_cast<uint64_t>(reader->arrays.size());
+  // Checked against the remaining count rather than as first + count, which
+  // would wrap for a large first and silently accept an out-of-range span.
+  if (first > total || count > total - first) return PVZ_E_RANGE;
+
+  for (uint64_t i = 0; i < count; ++i) {
+    FillArrayInfo(reader->arrays[static_cast<size_t>(first + i)], &out[i]);
+  }
   return PVZ_OK;
 }
 

@@ -50,7 +50,7 @@ __all__ = [
     "load_error",
 ]
 
-ABI_VERSION = 1
+ABI_VERSION = 2
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -181,6 +181,9 @@ def _bind(lib: ctypes.CDLL) -> None:
 
     lib.pvz_array_info_at.restype = c_int
     lib.pvz_array_info_at.argtypes = [c_void_p, c_uint64, POINTER(_ArrayInfo)]
+
+    lib.pvz_array_info_range.restype = c_int
+    lib.pvz_array_info_range.argtypes = [c_void_p, c_uint64, c_uint64, POINTER(_ArrayInfo)]
 
     lib.pvz_find_array.restype = c_int64
     lib.pvz_find_array.argtypes = [c_void_p, c_char_p]
@@ -509,21 +512,21 @@ class NativeReader:
         # decompression it wraps -- the per-array property lookups, attribute
         # resolutions and np.dtype construction dominated a small file entirely.
         handle = self._live
-        info_at = self._lib.pvz_array_info_at
         dtypes: dict[bytes, np.dtype[Any]] = {}
         empty = np.empty
-        info = _ArrayInfo()
-        ref = byref(info)
+
+        # Every header in one crossing. Asking for them one at a time cost a
+        # foreign call per array, and that call is dear relative to the few
+        # hundred bytes it returns -- for a file of a dozen arrays the calls
+        # outweighed the decompression they were preparing.
+        n_arrays = int(self._lib.pvz_array_count(handle))
+        infos = (_ArrayInfo * n_arrays)()
+        if n_arrays:
+            _check(self._lib.pvz_array_info_range(handle, 0, n_arrays, infos))
 
         wanted: list[tuple[int, str, NDArray[Any]]] = []
-        for index in range(int(self._lib.pvz_array_count(handle))):
-            # One struct, refilled in place: allocating an _ArrayInfo per array
-            # was measurable on its own. The index goes in as a plain int --
-            # argtypes declares the c_uint64, so ctypes converts it in C and
-            # wrapping it here only built a Python object to throw away.
-            status = info_at(handle, index, ref)
-            if status != _STATUS_OK:
-                _check(status, f"index {index}")
+        for index in range(n_arrays):
+            info = infos[index]
             name = info.name.decode("utf-8")
             if keep is not None and name not in keep:
                 continue

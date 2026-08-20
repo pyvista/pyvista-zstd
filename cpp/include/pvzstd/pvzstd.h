@@ -38,9 +38,16 @@
 extern "C" {
 #endif
 
-/* Bumped only on an incompatible change to the declarations below. A caller
- * that binds this ABI dynamically should check it before anything else. */
-#define PVZSTD_ABI_VERSION 1u
+/* Bumped on any change to the set of declarations below, additions included.
+ * A caller that binds this ABI dynamically should check it before anything
+ * else.
+ *
+ * Additions are bumped too because the check is an equality, not a floor: the
+ * Python package bundled with this library binds every symbol it knows about
+ * up front, so meeting an older library that is missing one would fail at bind
+ * time with an error naming the symbol rather than the version. Bumping keeps
+ * that mismatch reported as what it is. */
+#define PVZSTD_ABI_VERSION 2u
 
 /* Width of the dtype field in an array header, and of the dataset-UID name
  * prefix. These coincide in the format and the coincidence is load-bearing. */
@@ -88,6 +95,20 @@ PVZSTD_API uint64_t pvz_array_count(const pvz_reader *reader);
 /* Describe array `index`. */
 PVZSTD_API pvz_status pvz_array_info_at(const pvz_reader *reader, uint64_t index,
                                         pvz_array_info *out);
+
+/* Describe `count` arrays starting at `first`, writing out[0] .. out[count-1].
+ *
+ * Same information as calling pvz_array_info_at in a loop; the point is that
+ * it is one crossing of the boundary rather than one per array. A caller that
+ * reaches this library through a foreign-function layer pays a fixed cost per
+ * call that can exceed the work being asked for, and a container holds one
+ * array per data field, so describing a whole file was paying that cost a
+ * dozen times to copy a few hundred bytes.
+ *
+ * Returns PVZ_E_RANGE and writes nothing if first + count runs past the end.
+ * A count of zero succeeds and writes nothing. */
+PVZSTD_API pvz_status pvz_array_info_range(const pvz_reader *reader, uint64_t first, uint64_t count,
+                                           pvz_array_info *out);
 
 /* Index of the array called `name`, or -1 if there is none. */
 PVZSTD_API int64_t pvz_find_array(const pvz_reader *reader, const char *name);

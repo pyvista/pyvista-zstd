@@ -68,7 +68,7 @@ _STATUS_FILTER = 6
 _STATUS_NAMES = {
     1: "I/O error: file missing, unreadable, or truncated",
     2: "format error: the trailer or a frame header did not parse",
-    3: "zstd error: a frame failed to decompress",
+    3: "zstd error: a frame or a compression parameter was rejected",
     4: "range error: index out of range, or destination too small",
     5: "out of memory",
     6: "unsupported filter: this build cannot reverse the on-disk transform",

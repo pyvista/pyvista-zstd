@@ -57,7 +57,7 @@ typedef enum pvz_status {
   PVZ_OK = 0,
   PVZ_E_IO = 1,     /* file missing, unreadable, or truncated */
   PVZ_E_FORMAT = 2, /* trailer or header did not parse */
-  PVZ_E_ZSTD = 3,   /* a frame failed to decompress */
+  PVZ_E_ZSTD = 3,   /* zstd rejected a frame or a compression parameter */
   PVZ_E_RANGE = 4,  /* index or count out of range, or destination too small */
   PVZ_E_NOMEM = 5,  /* allocation failed */
   PVZ_E_FILTER = 6, /* per-array filter id this build cannot reverse */
@@ -221,7 +221,13 @@ PVZSTD_API pvz_status pvz_writer_set_level(pvz_writer *writer, int level);
  * This is load-bearing for byte-identity, and note the consequence: a file
  * written with a negative worker count is only reproducible on a machine
  * with the same CPU count. That is a property of the existing format's
- * writer, not something introduced here. */
+ * writer, not something introduced here.
+ *
+ * A zstd built without multithreading rejects any non-zero worker count, so
+ * on such a build pvz_writer_write returns PVZ_E_ZSTD rather than quietly
+ * emitting single-threaded frames that would not match. Passing 0 writes a
+ * valid file on any build; above the reference rule's threshold that file is
+ * correct but not byte-identical. */
 PVZSTD_API pvz_status pvz_writer_set_threads(pvz_writer *writer, int n_threads);
 
 PVZSTD_API pvz_status pvz_writer_set_shuffle(pvz_writer *writer, pvz_shuffle_mode mode);

@@ -257,6 +257,38 @@ implementation that makes this decision by any cheaper means may pick a
 different filter than Python would have for the same input: the file still
 round-trips correctly, but it is not byte-identical.
 
+## 5.1 Compression settings are part of the bytes
+
+Reproducing the layout is not enough to reproduce the file. Two settings feed
+straight into the compressed frames:
+
+- **`level`** (default 3), and
+- **the worker count**, which the reference derives from the total array bytes:
+  `n_threads = floor(total_MiB / 2)`, promoted to `-1` once that exceeds 8
+  (`_set_n_threads`, `:406-416`). A negative count means one worker per logical
+  CPU.
+
+The worker count is load-bearing because **zstd's multi-threaded mode emits
+different bytes than its single-threaded mode**. Measured here on the same two
+buffers at level 3: `threads=0` produced 2,846,994 bytes, `threads>=1` produced
+2,853,206, and every value `>= 1` agreed with every other. A plain
+single-threaded `ZSTD_compress` reproduces the `threads=0` output exactly.
+
+Two consequences worth stating plainly:
+
+1. **The reference writer's own output is a step function of data size.** Under
+   2 MiB of arrays the rule yields 0 workers and the single-threaded byte
+   stream; above it, the multi-threaded one. Nothing about the file announces
+   which.
+2. **Files written with a negative worker count are only byte-reproducible on a
+   machine with the same CPU count.** That is a property of the existing
+   format's writer, not of this port.
+
+MT output is otherwise deterministic -- five repeats at `threads=4` produced
+identical bytes -- so byte-identity is achievable in both regimes provided the
+libzstd versions match. The C++ writer therefore replicates `_set_n_threads`
+and sets `ZSTD_c_nbWorkers` rather than always compressing single-threaded.
+
 **Parity policy for this port: reproduce the decision exactly.** Optimise the
 shuffle kernel and the surrounding copies, not the decision rule.
 

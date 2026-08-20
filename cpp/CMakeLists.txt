@@ -23,10 +23,10 @@ if(NOT zstd_FOUND)
 endif()
 
 if(PVZSTD_BUILD_SHARED)
-  add_library(pvzstd SHARED src/reader.cpp)
+  add_library(pvzstd SHARED src/reader.cpp src/writer.cpp)
   target_compile_definitions(pvzstd PRIVATE PVZSTD_BUILDING PUBLIC PVZSTD_SHARED)
 else()
-  add_library(pvzstd STATIC src/reader.cpp)
+  add_library(pvzstd STATIC src/reader.cpp src/writer.cpp)
 endif()
 
 target_include_directories(pvzstd PUBLIC
@@ -51,9 +51,15 @@ else()
   target_compile_options(pvzstd PRIVATE -Wall -Wextra)
 endif()
 
+# The writer sets ZSTD_c_nbWorkers, so the library needs a thread runtime.
+find_package(Threads REQUIRED)
+target_link_libraries(pvzstd PRIVATE Threads::Threads)
+
 if(PVZSTD_BUILD_TOOLS)
   add_executable(pvz_dump tools/pvz_dump.cpp)
   target_link_libraries(pvz_dump PRIVATE pvzstd)
+  add_executable(pvz_rewrite tools/pvz_rewrite.cpp)
+  target_link_libraries(pvz_rewrite PRIVATE pvzstd)
 endif()
 
 include(GNUInstallDirs)

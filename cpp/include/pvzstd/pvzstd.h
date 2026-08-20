@@ -109,6 +109,75 @@ PVZSTD_API const char *pvz_status_message(pvz_status status);
 /* The ABI version this library was built with. */
 PVZSTD_API uint32_t pvz_abi_version(void);
 
+/* ------------------------------------------------------------------ *
+ * Writer
+ *
+ * Scope: this is the *container* layer. It takes arrays the caller has
+ * already produced and emits the trailer-indexed file. Turning a dataset
+ * into arrays (points / cells / celltypes / attribute arrays and the two
+ * JSON metadata documents) stays with the caller -- that keeps VTK out of
+ * this library entirely, which is what lets it build as a submodule and as
+ * WASM.
+ *
+ * Byte-for-byte reproduction of the reference Python writer requires
+ * matching the compression level *and the worker count*, because zstd's
+ * multi-threaded mode emits different (equally valid) bytes than its
+ * single-threaded mode. See pvz_writer_set_threads.
+ * ------------------------------------------------------------------ */
+
+typedef struct pvz_writer pvz_writer;
+
+/* Per-array byte-shuffle policy, mirroring the reference writer's
+ * ``shuffle=False | True | "auto"``. */
+typedef enum pvz_shuffle_mode {
+  PVZ_SHUFFLE_NEVER = 0,  /* default */
+  PVZ_SHUFFLE_ALWAYS = 1, /* still skipped for itemsize <= 1 */
+  PVZ_SHUFFLE_AUTO = 2    /* float/complex only, and only if a trial compress shrinks */
+} pvz_shuffle_mode;
+
+/* Pass to pvz_writer_set_threads to derive the worker count from the total
+ * payload size the way the reference writer does. */
+#define PVZ_THREADS_AUTO (-2)
+
+PVZSTD_API pvz_status pvz_writer_create(pvz_writer **out);
+PVZSTD_API void pvz_writer_free(pvz_writer *writer);
+
+/* Compression level; default 3, matching the reference writer. */
+PVZSTD_API pvz_status pvz_writer_set_level(pvz_writer *writer, int level);
+
+/* Worker count per frame. PVZ_THREADS_AUTO (the default) reproduces the
+ * reference rule: floor(total_MiB / 2), or -1 once that exceeds 8. A value
+ * of 0 means single-threaded; negative means one worker per logical CPU.
+ *
+ * This is load-bearing for byte-identity, and note the consequence: a file
+ * written with a negative worker count is only reproducible on a machine
+ * with the same CPU count. That is a property of the existing format's
+ * writer, not something introduced here. */
+PVZSTD_API pvz_status pvz_writer_set_threads(pvz_writer *writer, int n_threads);
+
+PVZSTD_API pvz_status pvz_writer_set_shuffle(pvz_writer *writer, pvz_shuffle_mode mode);
+
+/* Records that cell topology was stored without an offsets array, which is
+ * what promotes the file version to 2. */
+PVZSTD_API pvz_status pvz_writer_set_fixed_width_cells(pvz_writer *writer, int enabled);
+
+/* Append one array. Frame order is the order of these calls and it is
+ * significant -- it is how names map to frames. ``dtype`` is a numpy dtype
+ * string such as "<f8" or "|u1". The data is copied. */
+PVZSTD_API pvz_status pvz_writer_add_array(pvz_writer *writer, const char *name,
+                                           const char *dtype, const uint64_t *shape,
+                                           uint32_t ndim, const void *data, uint64_t nbytes);
+
+/* Supply the dataset-metadata JSON document, stored under a
+ * "<uid>__ds_metadata" frame. Optional but expected by dataset readers. */
+PVZSTD_API pvz_status pvz_writer_set_ds_metadata(pvz_writer *writer, const char *uid,
+                                                 const char *json);
+
+/* Emit the file. The trailing file-metadata frame (frame names, level,
+ * resolved file version) is generated here, so it always agrees with what
+ * was actually written. */
+PVZSTD_API pvz_status pvz_writer_write(pvz_writer *writer, const char *path);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

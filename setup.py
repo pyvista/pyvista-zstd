@@ -112,6 +112,13 @@ def _build_native() -> Path | None:
         "-DPVZSTD_BUILD_TOOLS=OFF",
         # Wheels must be self-contained. Vendoring zstd keeps the shared
         # object free of a runtime dependency the target machine may not have.
+        #
+        # PROVIDER, not just VENDOR_ZSTD: the latter only says "fall back to
+        # the pinned source if nothing is installed", so a build machine that
+        # happens to have zstd links that one instead. On a macOS cross-build
+        # that is fatal rather than merely undesirable -- the host's zstd is
+        # arm64, the wheel is x86_64, and the link fails outright.
+        "-DPVZSTD_ZSTD_PROVIDER=vendored",
         "-DPVZSTD_VENDOR_ZSTD=ON",
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
     ]

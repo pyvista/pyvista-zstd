@@ -63,6 +63,8 @@ from zstandard import BufferWithSegments
 from zstandard import BufferWithSegmentsCollection
 
 if TYPE_CHECKING:  # pragma: no cover
+    from types import ModuleType
+
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
@@ -79,6 +81,11 @@ FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
 FILE_VERSION_KEY = "FILE_VERSION"
+# Decompression backends. "auto" prefers the native C-ABI core and silently
+# falls back, so an install without the shared library still reads every file;
+# "native" demands it and reports why it could not load; "python" pins the
+# original pure-Python path, which remains fully supported.
+_BACKENDS = frozenset({"auto", "native", "python"})
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
@@ -392,6 +399,19 @@ class DataSetMetadata:
         """Output as a numpy uint8 array."""
         meta_bytes = self.to_json().encode("utf-8")
         return np.frombuffer(meta_bytes, dtype=np.uint8)
+
+
+def _capi_module() -> ModuleType:
+    """
+    Import the ctypes binding lazily.
+
+    Deferred so that importing ``pyvista_zstd`` costs nothing on a machine
+    with no native library, and so the pure-Python path has no import-time
+    dependency on it at all.
+    """
+    from pyvista_zstd import _capi  # noqa: PLC0415 - deliberately deferred
+
+    return _capi
 
 
 def _format_bytes(size: float) -> str:
@@ -1065,7 +1085,7 @@ except ImportError:
     has_scheme = None  # type: ignore[assignment]
 
 
-def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
+def read(filename: Path | str, n_threads: int | None = None, *, backend: str = "auto") -> DataSet:
     """
     Decompress a ``pyvista-zstd`` file.
 
@@ -1078,7 +1098,13 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
         Path to the file.
     n_threads : None | int, optional
         Number of threads to use. If omitted, the best number of threads to
-        decompress the file will be used.
+        decompress the file will be used. Ignored by the native backend, which
+        decompresses frames on demand rather than in one threaded batch.
+    backend : str, optional
+        ``"auto"`` (the default) uses the native C-ABI core when it is
+        installed and falls back to the pure-Python implementation when it is
+        not. ``"native"`` requires the native core and raises if it is
+        missing. ``"python"`` pins the pure-Python implementation.
 
     Returns
     -------
@@ -1099,7 +1125,7 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     """
     if has_scheme is not None and has_scheme(str(filename)):
         raise LocalFileRequiredError
-    return Reader(filename).read(n_threads=n_threads)
+    return Reader(filename, backend=backend).read(n_threads=n_threads)
 
 
 class _DataSetReader:
@@ -1228,8 +1254,12 @@ class Reader:
 
     """
 
-    def __init__(self, filename: Path | str) -> None:
+    def __init__(self, filename: Path | str, *, backend: str = "auto") -> None:
         """Initialize the decompressor."""
+        if backend not in _BACKENDS:
+            msg = f"backend must be one of {sorted(_BACKENDS)}, not {backend!r}"
+            raise ValueError(msg)
+        self._backend = backend
         self._filename = Path(filename)
         self._selected_point_arrays: set[str] | None = None
         self._selected_cell_arrays: set[str] | None = None
@@ -1311,7 +1341,13 @@ class Reader:
         msg = "No dataset metadata found"  # pragma: no cover
         raise RuntimeError(msg)  # pragma: no cover
 
-    def _load_ds_meta(self, key: str) -> DataSetMetadata | MultiBlockMetadata:
+    def _decompress_pair(self, key: str) -> tuple[str, NDArray[Any]]:
+        """
+        Decompress the single (header, payload) frame pair named *key*.
+
+        Used for the metadata frames, which are small enough that threading
+        them costs more than it saves.
+        """
         index = self._metadata.frame_names.index(key) * 2  # times two for metadata
         dctx = zstd.ZstdDecompressor()
 
@@ -1321,8 +1357,10 @@ class Reader:
             decompressed_sizes=self._decompressed_sizes[index * 8 : (index + 2) * 8],
             threads=0,  # tiny
         )
+        return _reconstruct_array(*segments)
 
-        name, arr = _reconstruct_array(*segments)
+    def _load_ds_meta(self, key: str) -> DataSetMetadata | MultiBlockMetadata:
+        name, arr = self._decompress_pair(key)
         if name.endswith(MULTIBLOCK_METADATA_KEY):
             return MultiBlockMetadata.from_array(arr)
         if name.endswith(DS_METADATA_KEY):
@@ -1387,6 +1425,56 @@ class Reader:
 
         return metadata
 
+    @property
+    def _use_native(self) -> bool:
+        """
+        Resolve the ``backend`` choice against what this machine actually has.
+
+        ``"native"`` is a demand and raises when the library is missing;
+        ``"auto"`` is a preference and falls back silently, because a wheel
+        built without the shared object must still read files.
+        """
+        if self._backend == "python":
+            return False
+        if self._backend == "native":
+            _capi_module()._load()  # noqa: SLF001 - raises with the load diagnostics
+            return True
+        return _capi_module().available()
+
+    def _read_ds_segments_native(self, ds_id: str, keep: set[str]) -> dict[str, NDArray[Any]]:
+        """
+        Decompress a dataset's arrays through the native core.
+
+        The dataset-metadata frame is not an array frame -- the native reader
+        lifts it out into JSON and does not report it among the arrays -- and a
+        MultiBlock file carries one per dataset, so it is decompressed here
+        rather than taken from the native reader's single slot.
+        """
+        meta_key = f"{ds_id}{DS_METADATA_KEY}"
+        with _capi_module().NativeReader(self._filename) as reader:
+            segments = reader.read_arrays(keep=keep - {meta_key})
+        _, segments[meta_key] = self._decompress_pair(meta_key)
+        return segments
+
+    def _selected_frame_names(self, ds_id: str) -> set[str]:
+        """
+        Return the frame names to decompress for one dataset.
+
+        Applies the array selection, then narrows to frames belonging to
+        *ds_id* -- a MultiBlock file holds several datasets' frames side by
+        side and only this one's are wanted.
+        """
+        excluded = set()
+        for name in self.available_point_arrays - self.selected_point_arrays:
+            excluded.add(f"{ds_id}{name}{POINT_DATA_SUFFIX}")
+        for name in self.available_cell_arrays - self.selected_cell_arrays:
+            excluded.add(f"{ds_id}{name}{CELL_DATA_SUFFIX}")
+        for name in self.available_field_arrays - self.selected_field_arrays:
+            excluded.add(f"{ds_id}{name}{FIELD_DATA_SUFFIX}")
+
+        names = set(self._metadata.frame_names) - excluded
+        return {f for f in names if f.startswith(ds_id)}
+
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
         """Read a single dataset."""
@@ -1396,20 +1484,20 @@ class Reader:
             msg = "Frame names not found in metadata."
             raise RuntimeError(msg)
 
-        excluded = set()
-        for name in self.available_point_arrays - self.selected_point_arrays:
-            excluded.add(f"{ds_id}{name}{POINT_DATA_SUFFIX}")
-        for name in self.available_cell_arrays - self.selected_cell_arrays:
-            excluded.add(f"{ds_id}{name}{CELL_DATA_SUFFIX}")
-        for name in self.available_field_arrays - self.selected_field_arrays:
-            excluded.add(f"{ds_id}{name}{FIELD_DATA_SUFFIX}")
-
         selected_frames = []
         sizes = []
-        selected_frame_names = set(frame_names) - excluded
+        selected_frame_names = self._selected_frame_names(ds_id)
 
-        # downselect to the matching dataset id
-        selected_frame_names = {f for f in selected_frame_names if f.startswith(ds_id)}
+        if not selected_frame_names:  # pragma: no cover
+            msg = "No selected frames"
+            raise RuntimeError(msg)
+
+        if self._use_native:
+            # Arrays that were not selected are never decompressed at all --
+            # the native reader is frame-addressed, so downselecting saves the
+            # whole frame rather than just the copy into the dataset.
+            segments = self._read_ds_segments_native(ds_id, selected_frame_names)
+            return self._segments_to_ds(ds_id, segments)
 
         n_frames = len(frame_names)
         if len(selected_frame_names) == n_frames:

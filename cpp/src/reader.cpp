@@ -21,7 +21,17 @@
 #include <cstring>
 #include <new>
 #include <string>
+#include <thread>
 #include <vector>
+
+#if defined(_WIN32)
+#  include <windows.h>
+#else
+#  include <fcntl.h>
+#  include <sys/mman.h>
+#  include <sys/stat.h>
+#  include <unistd.h>
+#endif
 
 namespace {
 
@@ -80,10 +90,95 @@ uint64_t DtypeItemsize(const char *dtype) {
   return width;
 }
 
+// A read-only view of the file.
+//
+// Mapping rather than reading matters more than it looks: the reference
+// reader mmaps, and copying the file into a buffer at open cost 7.85 ms on a
+// 21 MB container here -- enough to turn a decompression win into an
+// end-to-end loss. Pages are also faulted in only for the frames actually
+// read, so a selective read never touches the rest of the file.
+class FileMapping {
+ public:
+  FileMapping() = default;
+  ~FileMapping() { Reset(); }
+  FileMapping(const FileMapping &) = delete;
+  FileMapping &operator=(const FileMapping &) = delete;
+
+  pvz_status Open(const char *path) {
+    Reset();
+#if defined(_WIN32)
+    handle_ = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                          FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle_ == INVALID_HANDLE_VALUE) return PVZ_E_IO;
+    LARGE_INTEGER li;
+    if (GetFileSizeEx(handle_, &li) == 0 || li.QuadPart <= 0) {
+      Reset();
+      return PVZ_E_IO;
+    }
+    size_ = static_cast<uint64_t>(li.QuadPart);
+    mapping_ = CreateFileMappingA(handle_, nullptr, PAGE_READONLY, 0, 0, nullptr);
+    if (mapping_ == nullptr) {
+      Reset();
+      return PVZ_E_IO;
+    }
+    data_ = static_cast<const uint8_t *>(MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, 0));
+    if (data_ == nullptr) {
+      Reset();
+      return PVZ_E_IO;
+    }
+#else
+    fd_ = ::open(path, O_RDONLY);
+    if (fd_ < 0) return PVZ_E_IO;
+    struct stat st {};
+    if (::fstat(fd_, &st) != 0 || st.st_size <= 0) {
+      Reset();
+      return PVZ_E_IO;
+    }
+    size_ = static_cast<uint64_t>(st.st_size);
+    void *addr = ::mmap(nullptr, static_cast<size_t>(size_), PROT_READ, MAP_PRIVATE, fd_, 0);
+    if (addr == MAP_FAILED) {
+      Reset();
+      return PVZ_E_IO;
+    }
+    data_ = static_cast<const uint8_t *>(addr);
+#endif
+    return PVZ_OK;
+  }
+
+  const uint8_t *data() const { return data_; }
+  uint64_t size() const { return size_; }
+
+ private:
+  void Reset() {
+#if defined(_WIN32)
+    if (data_ != nullptr) UnmapViewOfFile(data_);
+    if (mapping_ != nullptr) CloseHandle(mapping_);
+    if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
+    mapping_ = nullptr;
+    handle_ = INVALID_HANDLE_VALUE;
+#else
+    if (data_ != nullptr) ::munmap(const_cast<uint8_t *>(data_), static_cast<size_t>(size_));
+    if (fd_ >= 0) ::close(fd_);
+    fd_ = -1;
+#endif
+    data_ = nullptr;
+    size_ = 0;
+  }
+
+  const uint8_t *data_ = nullptr;
+  uint64_t size_ = 0;
+#if defined(_WIN32)
+  HANDLE handle_ = INVALID_HANDLE_VALUE;
+  HANDLE mapping_ = nullptr;
+#else
+  int fd_ = -1;
+#endif
+};
+
 }  // namespace
 
 struct pvz_reader {
-  std::vector<uint8_t> bytes;
+  FileMapping map;
   std::vector<ArrayEntry> arrays;
   std::string ds_metadata;
   std::string file_metadata;
@@ -94,30 +189,6 @@ struct pvz_reader {
 };
 
 namespace {
-
-pvz_status ReadWholeFile(const char *path, std::vector<uint8_t> *out) {
-  std::FILE *fp = std::fopen(path, "rb");
-  if (fp == nullptr) return PVZ_E_IO;
-  if (std::fseek(fp, 0, SEEK_END) != 0) {
-    std::fclose(fp);
-    return PVZ_E_IO;
-  }
-  const long size = std::ftell(fp);
-  if (size < 0) {
-    std::fclose(fp);
-    return PVZ_E_IO;
-  }
-  std::rewind(fp);
-  try {
-    out->resize(static_cast<size_t>(size));
-  } catch (const std::bad_alloc &) {
-    std::fclose(fp);
-    return PVZ_E_NOMEM;
-  }
-  const size_t got = out->empty() ? 0 : std::fread(out->data(), 1, out->size(), fp);
-  std::fclose(fp);
-  return got == out->size() ? PVZ_OK : PVZ_E_IO;
-}
 
 pvz_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t expected,
                            std::vector<uint8_t> *out) {
@@ -183,13 +254,13 @@ pvz_status pvz_open(const char *path, pvz_reader **out) {
   pvz_reader *reader = new (std::nothrow) pvz_reader();
   if (reader == nullptr) return PVZ_E_NOMEM;
 
-  pvz_status st = ReadWholeFile(path, &reader->bytes);
+  pvz_status st = reader->map.Open(path);
   if (st != PVZ_OK) {
     delete reader;
     return st;
   }
 
-  const std::vector<uint8_t> &raw = reader->bytes;
+  const FileMapping &raw = reader->map;
   if (raw.size() < kTrailerCountBytes) {
     delete reader;
     return PVZ_E_FORMAT;
@@ -304,7 +375,7 @@ pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index, void *dst
   if (dst_size < e.nbytes) return PVZ_E_RANGE;
   if (e.nbytes == 0) return PVZ_OK;
 
-  const uint8_t *src = reader->bytes.data() + e.payload_start;
+  const uint8_t *src = reader->map.data() + e.payload_start;
   const uint64_t src_size = e.payload_end - e.payload_start;
 
   if (e.filter_id == PVZ_FILTER_NONE) {
@@ -323,6 +394,51 @@ pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index, void *dst
   const pvz_status st = DecompressFrame(src, src_size, e.nbytes, &filtered);
   if (st != PVZ_OK) return st;
   Unshuffle(filtered.data(), static_cast<uint8_t *>(dst), e.nbytes, itemsize);
+  return PVZ_OK;
+}
+
+pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, uint64_t count,
+                           void *const *dsts, const uint64_t *dst_sizes, int n_threads) {
+  if (reader == nullptr || indices == nullptr || dsts == nullptr || dst_sizes == nullptr) {
+    return PVZ_E_INVALID;
+  }
+  if (count == 0) return PVZ_OK;
+
+  int workers = n_threads;
+  if (workers == PVZ_THREADS_AUTO) {
+    const unsigned hw = std::thread::hardware_concurrency();
+    workers = hw == 0 ? 1 : static_cast<int>(hw);
+  }
+  if (workers > static_cast<int>(count)) workers = static_cast<int>(count);
+
+  if (workers <= 1) {
+    for (uint64_t i = 0; i < count; ++i) {
+      const pvz_status st = pvz_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
+      if (st != PVZ_OK) return st;
+    }
+    return PVZ_OK;
+  }
+
+  // Static striding rather than a work queue: frames vary in size but there
+  // is no shared state to contend on, so the simplest partition that keeps
+  // every worker busy is enough. Each slot is written by exactly one thread.
+  std::vector<pvz_status> results(static_cast<size_t>(count), PVZ_OK);
+  std::vector<std::thread> pool;
+  pool.reserve(static_cast<size_t>(workers));
+  for (int w = 0; w < workers; ++w) {
+    pool.emplace_back([&, w]() {
+      for (uint64_t i = static_cast<uint64_t>(w); i < count;
+           i += static_cast<uint64_t>(workers)) {
+        results[static_cast<size_t>(i)] =
+            pvz_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
+      }
+    });
+  }
+  for (std::thread &t : pool) t.join();
+
+  for (uint64_t i = 0; i < count; ++i) {
+    if (results[static_cast<size_t>(i)] != PVZ_OK) return results[static_cast<size_t>(i)];
+  }
   return PVZ_OK;
 }
 

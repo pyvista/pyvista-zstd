@@ -98,6 +98,25 @@ PVZSTD_API int64_t pvz_find_array(const pvz_reader *reader, const char *name);
 PVZSTD_API pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index,
                                         void *dst, uint64_t dst_size);
 
+/* Decompress `count` arrays at once, spreading them over `n_threads` workers.
+ *
+ * `indices[i]` is decompressed into `dsts[i]`, which must be at least
+ * `dst_sizes[i]` bytes. Frames are independent -- each has its own source
+ * range and its own destination -- so this is a pure fan-out with no shared
+ * mutable state and no ordering between arrays.
+ *
+ * This exists because it is the shape the work actually has. Reading arrays
+ * one at a time leaves every core but one idle, and measured against the
+ * reference reader's threaded batch decompressor that is a net loss, not a
+ * win. `n_threads` <= 1 runs inline; PVZ_THREADS_AUTO uses the hardware
+ * concurrency, capped at `count`.
+ *
+ * Returns the first non-OK status any array produced, so a single bad frame
+ * still reports its own reason rather than a generic failure. */
+PVZSTD_API pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices,
+                                      uint64_t count, void *const *dsts,
+                                      const uint64_t *dst_sizes, int n_threads);
+
 /* The two JSON metadata documents, NUL-terminated and owned by the reader.
  * Either may be NULL if the container did not carry it. */
 PVZSTD_API const char *pvz_ds_metadata_json(const pvz_reader *reader);

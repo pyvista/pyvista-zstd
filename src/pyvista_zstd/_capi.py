@@ -1,0 +1,485 @@
+"""
+``ctypes`` binding to the ``pvzstd`` C ABI.
+
+There is no compiled extension module here and no binding framework. The
+native core is a plain shared library exposing a C ABI, and this module loads
+it with :mod:`ctypes`. That choice is what lets the same library be consumed as
+a C++ submodule, cross-compiled to WebAssembly, and shipped in a wheel without
+three separate binding layers going out of step.
+
+Importing this module never fails on a machine without the library: use
+:func:`available` to ask, and let the pure-Python implementation handle the
+rest. Nothing in the package requires the native path to exist.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import ctypes
+from ctypes import POINTER
+from ctypes import Structure
+from ctypes import byref
+from ctypes import c_char
+from ctypes import c_char_p
+from ctypes import c_int
+from ctypes import c_int64
+from ctypes import c_uint8
+from ctypes import c_uint32
+from ctypes import c_uint64
+from ctypes import c_void_p
+import os
+from pathlib import Path
+import sys
+from typing import TYPE_CHECKING
+from typing import Any
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from numpy.typing import NDArray
+
+__all__ = [
+    "ABI_VERSION",
+    "NativeReader",
+    "NativeUnavailableError",
+    "PvzstdError",
+    "available",
+    "library_path",
+]
+
+ABI_VERSION = 1
+"""ABI this binding speaks. A library reporting anything else is refused."""
+
+DTYPE_LEN = 16
+
+# Mirrors PVZ_THREADS_AUTO: let the native core pick from hardware concurrency.
+THREADS_AUTO = -2
+
+# Discovery override for development and for unusual deployments. This names
+# *which* library to load; it does not change what the library does. Every
+# behavioural knob is a keyword argument.
+_LIBRARY_ENV_VAR = "PVZSTD_LIBRARY"
+
+_STATUS_OK = 0
+_STATUS_FILTER = 6
+_STATUS_NAMES = {
+    1: "I/O error: file missing, unreadable, or truncated",
+    2: "format error: the trailer or a frame header did not parse",
+    3: "zstd error: a frame failed to decompress",
+    4: "range error: index out of range, or destination too small",
+    5: "out of memory",
+    6: "unsupported filter: this build cannot reverse the on-disk transform",
+    7: "invalid argument",
+}
+
+
+class PvzstdError(RuntimeError):
+    """The native library reported a failure."""
+
+    def __init__(self, status: int, detail: str = "", message: str | None = None) -> None:
+        if message is None:
+            described = _STATUS_NAMES.get(status, f"unknown status {status}")
+            message = f"{described} ({detail})" if detail else described
+        super().__init__(message)
+        self.status = status
+
+
+class UnsupportedFilterError(PvzstdError, ValueError):
+    """
+    An array carries a byte filter this build cannot reverse.
+
+    Inherits from :class:`ValueError` because that is what the pure-Python
+    reader has always raised for this condition, and the two backends are two
+    implementations of one contract -- code that catches the error must not
+    have to care which one ran.
+    """
+
+    def __init__(self, filter_id: int, name: str) -> None:
+        # Wording kept in step with the pure-Python reader, which is the
+        # published contract; the status code stays available on .status.
+        super().__init__(
+            _STATUS_FILTER,
+            message=(
+                f"Unsupported per-array filter id {filter_id} for array '{name}'. Upgrade `pyvista-zstd` to read it."
+            ),
+        )
+
+
+class NativeUnavailableError(RuntimeError):
+    """The native library could not be loaded on this machine."""
+
+
+class _ArrayInfo(Structure):
+    _fields_ = (
+        ("name", c_char_p),
+        ("shape", POINTER(c_uint64)),
+        ("ndim", c_uint32),
+        ("filter_id", c_uint8),
+        ("dtype", c_char * (DTYPE_LEN + 1)),
+        ("nbytes", c_uint64),
+    )
+
+
+def _candidate_names() -> list[str]:
+    """Return shared-library file names to try, most specific first."""
+    if sys.platform == "win32":
+        return ["pvzstd.dll", "libpvzstd.dll"]
+    if sys.platform == "darwin":
+        return ["libpvzstd.dylib"]
+    return ["libpvzstd.so"]
+
+
+def _candidate_paths() -> Iterator[str]:
+    """
+    Yield places the shared library may live, in priority order.
+
+    The bundled copy inside the package wins over anything on the system
+    search path, so an installed wheel is self-contained and cannot be
+    silently served by an unrelated build sitting in the loader path.
+    """
+    override = os.environ.get(_LIBRARY_ENV_VAR)
+    if override:
+        yield override
+
+    here = Path(__file__).parent
+    for directory in (here / "lib", here):
+        for name in _candidate_names():
+            candidate = directory / name
+            if candidate.exists():
+                yield str(candidate)
+
+    # Last: let the platform loader search. Yields a bare name, not a path.
+    yield from _candidate_names()
+
+
+_lib: ctypes.CDLL | None = None
+_lib_path: str | None = None
+_load_error: str | None = None
+
+
+def _bind(lib: ctypes.CDLL) -> None:
+    """Declare every signature. ctypes defaults are wrong for 64-bit returns."""
+    lib.pvz_abi_version.restype = c_uint32
+    lib.pvz_abi_version.argtypes = []
+
+    lib.pvz_status_message.restype = c_char_p
+    lib.pvz_status_message.argtypes = [c_int]
+
+    lib.pvz_open.restype = c_int
+    lib.pvz_open.argtypes = [c_char_p, POINTER(c_void_p)]
+
+    lib.pvz_close.restype = None
+    lib.pvz_close.argtypes = [c_void_p]
+
+    # Without an explicit restype ctypes truncates this to a C int, which
+    # silently corrupts any count above 2**31.
+    lib.pvz_array_count.restype = c_uint64
+    lib.pvz_array_count.argtypes = [c_void_p]
+
+    lib.pvz_array_info_at.restype = c_int
+    lib.pvz_array_info_at.argtypes = [c_void_p, c_uint64, POINTER(_ArrayInfo)]
+
+    lib.pvz_find_array.restype = c_int64
+    lib.pvz_find_array.argtypes = [c_void_p, c_char_p]
+
+    lib.pvz_read_array_at.restype = c_int
+    lib.pvz_read_array_at.argtypes = [c_void_p, c_uint64, c_void_p, c_uint64]
+
+    lib.pvz_read_arrays.restype = c_int
+    lib.pvz_read_arrays.argtypes = [
+        c_void_p,
+        POINTER(c_uint64),
+        c_uint64,
+        POINTER(c_void_p),
+        POINTER(c_uint64),
+        c_int,
+    ]
+
+    lib.pvz_ds_metadata_json.restype = c_char_p
+    lib.pvz_ds_metadata_json.argtypes = [c_void_p]
+
+    lib.pvz_file_metadata_json.restype = c_char_p
+    lib.pvz_file_metadata_json.argtypes = [c_void_p]
+
+
+def _load() -> ctypes.CDLL:
+    global _lib, _lib_path, _load_error  # noqa: PLW0603 - module-level cache
+
+    if _lib is not None:
+        return _lib
+    if _load_error is not None:
+        raise NativeUnavailableError(_load_error)
+
+    attempts: list[str] = []
+    for candidate in _candidate_paths():
+        try:
+            lib = ctypes.CDLL(candidate)
+        except OSError as exc:
+            attempts.append(f"{candidate}: {exc}")
+            continue
+
+        _bind(lib)
+        found = int(lib.pvz_abi_version())
+        if found != ABI_VERSION:
+            # A mismatched ABI is worse than a missing one: the struct layout
+            # this module declares would be read against a different contract.
+            attempts.append(f"{candidate}: ABI version {found}, expected {ABI_VERSION}")
+            continue
+
+        _lib = lib
+        _lib_path = candidate
+        return lib
+
+    _load_error = "could not load the pvzstd shared library. Tried:\n  " + "\n  ".join(attempts)
+    raise NativeUnavailableError(_load_error)
+
+
+def available() -> bool:
+    """
+    Return whether the native core can be loaded.
+
+    Returns
+    -------
+    bool
+        True when :class:`NativeReader` will work on this machine.
+
+    """
+    try:
+        _load()
+    except NativeUnavailableError:
+        return False
+    return True
+
+
+def library_path() -> str | None:
+    """
+    Return the file the native core was loaded from, or None.
+
+    Useful when diagnosing which of several builds is actually in play.
+
+    Returns
+    -------
+    str | None
+
+    """
+    if _lib is None and not available():
+        return None
+    return _lib_path
+
+
+def _check(status: int, detail: str = "") -> None:
+    if status != _STATUS_OK:
+        raise PvzstdError(status, detail)
+
+
+class NativeReader:
+    """
+    Read a container through the native core.
+
+    Opening parses only the trailer and the per-array headers; payloads are
+    decompressed on demand. Reading two arrays out of a large file therefore
+    costs two frames, not the whole file.
+
+    Parameters
+    ----------
+    path : pathlib.Path | str
+        Path to a ``.pv`` or ``.zvtk`` file.
+
+    Examples
+    --------
+    >>> from pyvista_zstd import _capi
+    >>> with _capi.NativeReader("dataset.pv") as reader:  # doctest: +SKIP
+    ...     names = reader.names()
+
+    """
+
+    def __init__(self, path: Path | str) -> None:
+        lib = _load()
+        self._lib = lib
+        self._handle: c_void_p | None = None
+
+        handle = c_void_p()
+        status = lib.pvz_open(str(path).encode("utf-8"), byref(handle))
+        _check(status, str(path))
+        self._handle = handle
+
+    # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
+    def __enter__(self) -> NativeReader:  # noqa: PYI034
+        """Return self; the reader is already open."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Release the native reader."""
+        self.close()
+
+    def close(self) -> None:
+        """Release the native reader. Safe to call more than once."""
+        if self._handle is not None:
+            self._lib.pvz_close(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        """Release the native reader if the caller forgot to."""
+        # A ctypes handle is not garbage-collected by the interpreter, so
+        # without this a dropped reader leaks the mapping until exit. Errors
+        # here are unreportable: the interpreter may already be tearing down.
+        with contextlib.suppress(Exception):
+            self.close()
+
+    @property
+    def _live(self) -> c_void_p:
+        if self._handle is None:
+            msg = "operation on a closed NativeReader"
+            raise ValueError(msg)
+        return self._handle
+
+    def __len__(self) -> int:
+        """Return the number of arrays, excluding the JSON metadata frames."""
+        return int(self._lib.pvz_array_count(self._live))
+
+    def _info(self, index: int) -> _ArrayInfo:
+        info = _ArrayInfo()
+        _check(self._lib.pvz_array_info_at(self._live, c_uint64(index), byref(info)), f"index {index}")
+        return info
+
+    def names(self) -> list[str]:
+        """
+        Return every array name, in frame order.
+
+        Returns
+        -------
+        list[str]
+            Names as stored, including the 16-character UID prefix.
+
+        """
+        return [self._info(i).name.decode("utf-8") for i in range(len(self))]
+
+    def read_at(self, index: int) -> NDArray[Any]:
+        """
+        Decompress one array by index.
+
+        Parameters
+        ----------
+        index : int
+            Position in frame order.
+
+        Returns
+        -------
+        numpy.ndarray
+            The array, with its filter already reversed by the native core.
+
+        """
+        info = self._info(index)
+        dtype = np.dtype(info.dtype.decode("utf-8"))
+        shape = tuple(info.shape[i] for i in range(info.ndim))
+
+        out = np.empty(shape, dtype=dtype)
+        if info.nbytes:
+            # np.empty gives a C-contiguous buffer, so ctypes.data is the whole
+            # payload and the native core can write straight into it.
+            status = self._lib.pvz_read_array_at(
+                self._live,
+                c_uint64(index),
+                c_void_p(out.ctypes.data),
+                c_uint64(info.nbytes),
+            )
+            # The core decides whether a filter is reversible; this only
+            # restates its verdict in the exception the library has always
+            # raised for it.
+            if status == _STATUS_FILTER:
+                raise UnsupportedFilterError(info.filter_id, info.name.decode("utf-8"))
+            _check(status, info.name.decode("utf-8"))
+        return out
+
+    def find(self, name: str) -> int | None:
+        """
+        Return the index of *name*, or None when the file has no such array.
+
+        Parameters
+        ----------
+        name : str
+            Full stored name, including the UID prefix.
+
+        Returns
+        -------
+        int | None
+
+        """
+        found = int(self._lib.pvz_find_array(self._live, name.encode("utf-8")))
+        return None if found < 0 else found
+
+    def read_arrays(self, keep: set[str] | None = None, n_threads: int = THREADS_AUTO) -> dict[str, NDArray[Any]]:
+        """
+        Decompress arrays into a name-keyed mapping.
+
+        All wanted frames are handed to the native core in one call so it can
+        decompress them in parallel. Doing this one array at a time leaves
+        every core but one idle, which measured *slower* than the pure-Python
+        reader -- that one batches through zstd's own threaded decompressor.
+
+        Parameters
+        ----------
+        keep : set[str] | None, optional
+            Names to decompress. When omitted, every array is read. Arrays
+            that are not kept are never decompressed at all -- the saving is
+            the whole frame, not just the copy.
+        n_threads : int, optional
+            Workers to spread the frames over. The default follows the
+            hardware concurrency; 1 decompresses inline.
+
+        Returns
+        -------
+        dict[str, numpy.ndarray]
+
+        """
+        wanted: list[tuple[int, str, NDArray[Any]]] = []
+        for index in range(len(self)):
+            info = self._info(index)
+            name = info.name.decode("utf-8")
+            if keep is not None and name not in keep:
+                continue
+            dtype = np.dtype(info.dtype.decode("utf-8"))
+            shape = tuple(info.shape[i] for i in range(info.ndim))
+            wanted.append((index, name, np.empty(shape, dtype=dtype)))
+
+        payloads = [(i, n, a) for i, n, a in wanted if a.nbytes]
+        if payloads:
+            count = len(payloads)
+            indices = (c_uint64 * count)(*(i for i, _, _ in payloads))
+            # np.empty is C-contiguous, so .ctypes.data addresses the whole
+            # payload and the core writes straight into the final array.
+            dsts = (c_void_p * count)(*(a.ctypes.data for _, _, a in payloads))
+            sizes = (c_uint64 * count)(*(a.nbytes for _, _, a in payloads))
+            status = self._lib.pvz_read_arrays(self._live, indices, c_uint64(count), dsts, sizes, c_int(n_threads))
+            if status == _STATUS_FILTER:
+                self._raise_filter_error(payloads)
+            _check(status)
+
+        return {name: arr for _, name, arr in wanted}
+
+    def _raise_filter_error(self, payloads: list[tuple[int, str, NDArray[Any]]]) -> None:
+        """Re-read one at a time to name the array the batch call rejected."""
+        for index, name, arr in payloads:
+            info = self._info(index)
+            if (
+                self._lib.pvz_read_array_at(
+                    self._live, c_uint64(index), c_void_p(arr.ctypes.data), c_uint64(arr.nbytes)
+                )
+                == _STATUS_FILTER
+            ):
+                raise UnsupportedFilterError(info.filter_id, name)
+        raise PvzstdError(_STATUS_FILTER)  # pragma: no cover - batch said yes, singles said no
+
+    @property
+    def ds_metadata_json(self) -> str | None:
+        """Return the dataset metadata JSON document, or None."""
+        raw = self._lib.pvz_ds_metadata_json(self._live)
+        return None if raw is None else raw.decode("utf-8")
+
+    @property
+    def file_metadata_json(self) -> str | None:
+        """Return the file metadata JSON document, or None."""
+        raw = self._lib.pvz_file_metadata_json(self._live)
+        return None if raw is None else raw.decode("utf-8")

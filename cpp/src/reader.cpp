@@ -327,11 +327,16 @@ pvz_status pvz_open(const char *path, pvz_reader **out) {
     delete reader;  // frames pair as (header, payload)
     return PVZ_E_FORMAT;
   }
-  const uint64_t index_bytes = n_frames * kIndexEntryBytes;
-  if (raw.size() < kTrailerCountBytes + index_bytes) {
+  // Bounded by division rather than by comparing against n_frames * 16: the
+  // count is read from the file, and the product overflows for a large enough
+  // value, which turns a size check into a pass. The vectors below are sized
+  // from this count, so an unchecked one is an allocation the file never
+  // justified -- pvz_append_arrays already guards this way.
+  if (n_frames > (raw.size() - kTrailerCountBytes) / kIndexEntryBytes) {
     delete reader;
     return PVZ_E_FORMAT;
   }
+  const uint64_t index_bytes = n_frames * kIndexEntryBytes;
   const uint64_t index_off = raw.size() - kTrailerCountBytes - index_bytes;
 
   std::vector<uint64_t> ends(static_cast<size_t>(n_frames));

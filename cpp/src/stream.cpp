@@ -209,11 +209,21 @@ pvz_status pvz_stream_open(const char *path, pvz_stream **out) {
     return st;
   };
 
-  if (std::fseek(s->fp, -8, SEEK_END) != 0) return fail(PVZ_E_IO);
+  if (SeekTo(s->fp, 0, SEEK_END) != 0) return fail(PVZ_E_IO);
+  const int64_t file_size = TellAt(s->fp);
+  if (file_size < 8) return fail(PVZ_E_FORMAT);
+
+  if (SeekTo(s->fp, -8, SEEK_END) != 0) return fail(PVZ_E_IO);
   uint8_t count_buf[8];
   if (std::fread(count_buf, 1, 8, s->fp) != 8) return fail(PVZ_E_IO);
   const uint64_t n_frames = LoadU64(count_buf);
   if (n_frames < kTailFrames || (n_frames % 2) != 0) return fail(PVZ_E_FORMAT);
+  // Bounded by division rather than by comparing against n_frames * 16: the
+  // count is read from the file, and the product overflows for a large enough
+  // value. Everything below is sized from this count, so an unchecked one is
+  // an allocation the file never justified -- pvz_append_arrays already guards
+  // this way.
+  if (n_frames > (static_cast<uint64_t>(file_size) - 8) / 16) return fail(PVZ_E_FORMAT);
 
   std::vector<uint64_t> ends(static_cast<size_t>(n_frames));
   std::vector<uint64_t> sizes(static_cast<size_t>(n_frames));

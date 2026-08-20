@@ -83,16 +83,34 @@ void Unshuffle(const uint8_t *src, uint8_t *dst, uint64_t nbytes, uint64_t items
   }
 }
 
-// Byte width implied by a numpy dtype string such as "<f8" or "|u1".
+// Byte width implied by a numpy dtype string such as "<f8" or "|u1", or 0 when
+// this build cannot read one off the tag. Shared with the writer so the two
+// halves cannot disagree about a stride.
 uint64_t DtypeItemsize(const char *dtype) {
-  const size_t n = std::strlen(dtype);
-  if (n < 3) return 0;
-  uint64_t width = 0;
-  for (size_t i = 2; i < n; ++i) {
-    if (dtype[i] < '0' || dtype[i] > '9') return 0;
-    width = width * 10 + static_cast<uint64_t>(dtype[i] - '0');
+  const pvzstd::detail::Dtype d = pvzstd::detail::ParseDtype(dtype);
+  return d.valid ? d.itemsize : 0;
+}
+
+// Whether the payload size the trailer declares agrees with the shape and
+// dtype the header announces.
+//
+// Nothing else checks this. pvz_read_array_at honours the declared payload
+// size, while a caller sizes its destination from the shape and dtype, so a
+// header saying "10 float64" over a payload declaring 8000 bytes writes 8000
+// bytes into an 80-byte destination. That is a buffer overrun produced by a
+// file, which makes refusing it the reader's job and not the caller's.
+//
+// A dtype whose width cannot be read off the tag is left unchecked rather than
+// rejected: the format carries whatever numpy spelled, and refusing a
+// spelling this build does not recognise would reject a valid file.
+bool DeclaredSizeAgrees(const std::vector<uint64_t> &shape, const char *dtype, uint64_t nbytes) {
+  uint64_t n = DtypeItemsize(dtype);
+  if (n == 0) return true;
+  for (const uint64_t dim : shape) {
+    if (dim != 0 && n > UINT64_MAX / dim) return false;
+    n *= dim;
   }
-  return width;
+  return n == nbytes;
 }
 
 // Total decompressed bytes below which AUTO decompresses inline instead of
@@ -381,6 +399,10 @@ pvz_status pvz_open(const char *path, pvz_reader **out) {
     entry.nbytes = sizes[static_cast<size_t>(i + 1)];
     entry.payload_start = hdr_end;
     entry.payload_end = pay_end;
+    if (!DeclaredSizeAgrees(entry.shape, entry.dtype, entry.nbytes)) {
+      delete reader;
+      return PVZ_E_FORMAT;
+    }
 
     const bool is_ds = EndsWith(entry.name, kDsMetadataSuffix);
     const bool is_file = EndsWith(entry.name, kFileMetadataSuffix);

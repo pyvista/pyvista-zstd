@@ -410,13 +410,19 @@ class NativeReader:
 
         out = np.empty(shape, dtype=dtype)
         if info.nbytes:
-            # np.empty gives a C-contiguous buffer, so ctypes.data is the whole
-            # payload and the native core can write straight into it.
+            # The destination size is the destination's, not the file's. Handing
+            # over the declared payload size instead would authorise a write of
+            # exactly the length the header claimed -- which is the length the
+            # core is about to produce -- so a file whose payload is larger than
+            # the shape it announces would be written past the end of this
+            # array rather than reported. The core rejects that disagreement at
+            # open; this is the same refusal on the near side of the boundary,
+            # where the buffer being risked actually lives.
             status = self._lib.pvz_read_array_at(
                 self._live,
                 c_uint64(index),
                 c_void_p(out.ctypes.data),
-                c_uint64(info.nbytes),
+                c_uint64(out.nbytes),
             )
             # The core decides whether a filter is reversible; this only
             # restates its verdict in the exception the library has always

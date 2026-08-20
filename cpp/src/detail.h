@@ -1,10 +1,11 @@
-// Primitives shared by the writing translation units.
+// Primitives shared by the translation units that touch array bytes.
 //
 // These were the writer's private helpers until the append path needed the
-// same ones. They are byte-level reproductions of specific reference-writer
-// behaviours, not general utilities: the shuffle decision, the worker count,
-// and the JSON escaping all decide what ends up on disk, so a second
-// implementation of any of them would be a second chance to disagree.
+// same ones, and the reader needs the dtype rule. They are byte-level
+// reproductions of specific reference-writer behaviours, not general
+// utilities: the shuffle decision, the worker count, the dtype width and the
+// JSON escaping all decide what ends up on disk, so a second implementation of
+// any of them would be a second chance to disagree.
 
 #ifndef PVZSTD_DETAIL_H
 #define PVZSTD_DETAIL_H
@@ -50,11 +51,14 @@ struct Dtype {
   bool valid = false;
 };
 
+// Byte width of a numpy dtype string such as "<f8", "|u1" or "<U8". Anything
+// that is not "<byteorder><kind><decimal>" -- "<M8[ns]", say -- is reported
+// invalid rather than guessed at.
 inline Dtype ParseDtype(const char *s) {
   Dtype d;
   if (s == nullptr) return d;
   const size_t n = std::strlen(s);
-  if (n < 3) return d;
+  if (n < 3 || n > PVZSTD_DTYPE_LEN) return d;
   d.byteorder = s[0];
   d.kind = s[1];
   uint64_t width = 0;
@@ -63,6 +67,11 @@ inline Dtype ParseDtype(const char *s) {
     width = width * 10 + static_cast<uint64_t>(s[i] - '0');
   }
   if (width == 0) return d;
+  // A "<U8" is eight 4-byte code points, so for that one kind the tag's number
+  // is an element count and not a byte width -- numpy reports itemsize 32.
+  // Reading it as 8 would shuffle and unshuffle such an array on the wrong
+  // stride, which is silent corruption rather than an error.
+  if (d.kind == 'U') width *= 4;
   d.itemsize = width;
   d.valid = true;
   return d;

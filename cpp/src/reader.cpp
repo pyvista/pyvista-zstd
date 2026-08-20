@@ -525,7 +525,7 @@ const char *pvz_status_message(pvz_status status) {
     case PVZ_E_IO: return "file missing, unreadable, or truncated";
     case PVZ_E_FORMAT: return "container did not parse as a .pv trailer-indexed file";
     case PVZ_E_ZSTD: return "a zstd frame failed to decompress";
-    case PVZ_E_RANGE: return "index out of range, or destination buffer too small";
+    case PVZ_E_RANGE: return "index or count out of range, or destination buffer too small";
     case PVZ_E_NOMEM: return "allocation failed";
     case PVZ_E_FILTER: return "array uses a filter this build cannot reverse";
     case PVZ_E_INVALID: return "invalid argument";

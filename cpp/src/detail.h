@@ -175,6 +175,21 @@ inline void AppendJsonString(std::string *out, const std::string &s) {
   out->push_back('"');
 }
 
+// One "<name>":{"shape":[...],"dtype":"..."} entry, in the reference
+// dataclass's field order and with json.dumps' compact separators.
+inline void AppendFieldEntry(std::string *out, const std::string &name, const std::string &dtype_name,
+                      const uint64_t *shape, uint32_t ndim) {
+  AppendJsonString(out, name);
+  *out += ":{\"shape\":[";
+  for (uint32_t d = 0; d < ndim; ++d) {
+    if (d != 0) out->push_back(',');
+    *out += std::to_string(shape[d]);
+  }
+  *out += "],\"dtype\":";
+  AppendJsonString(out, dtype_name);
+  out->push_back('}');
+}
+
 // The array-metadata frame payload: name, shape, dtype, and -- only when a
 // filter is in use -- the filter byte. Omitting the byte when it would be zero
 // is what the reference writer does, and readers key on the payload length.

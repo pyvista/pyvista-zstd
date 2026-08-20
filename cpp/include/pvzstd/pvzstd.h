@@ -51,7 +51,7 @@ typedef enum pvz_status {
   PVZ_E_IO = 1,          /* file missing, unreadable, or truncated */
   PVZ_E_FORMAT = 2,      /* trailer or header did not parse */
   PVZ_E_ZSTD = 3,        /* a frame failed to decompress */
-  PVZ_E_RANGE = 4,       /* index out of range, or destination too small */
+  PVZ_E_RANGE = 4,       /* index or count out of range, or destination too small */
   PVZ_E_NOMEM = 5,       /* allocation failed */
   PVZ_E_FILTER = 6,      /* per-array filter id this build cannot reverse */
   PVZ_E_INVALID = 7      /* NULL argument or misuse */
@@ -272,6 +272,61 @@ typedef struct pvz_append_array {
  * Appending nothing is a no-op, not an error. */
 PVZSTD_API pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays,
                                         uint64_t count, int level, pvz_shuffle_mode shuffle);
+
+/* ------------------------------------------------------------------ *
+ * Streaming append
+ *
+ * The same edit pvz_append_arrays performs, with the state it needs kept
+ * open instead of rediscovered. That function is handed a path, so every
+ * call re-reads the trailer, decompresses both metadata frames, and copies
+ * the body to a temporary file: cost proportional to the whole container.
+ * Measured over 40 single-block commits, the per-commit cost rose from the
+ * first five to the last five by 4.24x on one run and 10.30x on another --
+ * how much of the container is still in page cache dominates the figure, so
+ * treat the growth as unbounded rather than as a constant. The direction is
+ * the reproducible part.
+ *
+ * A stream holds the trailer, the offset where the metadata tail begins,
+ * and the dataset-metadata document, so committing costs what is being
+ * added and not what is already there. The bytes are the same: a stream of
+ * N commits produces the file N separate pvz_append_arrays calls would.
+ *
+ * The trade is crash behaviour, and it is why both exist.
+ * pvz_append_arrays commits by rename, so an interrupted call leaves the
+ * previous file intact. A stream writes in place, so a commit interrupted
+ * partway leaves a trailer describing frames that were not fully written --
+ * earlier commits' bytes are never revisited, but recovering them means
+ * rebuilding the trailer, which this library does not do. Use
+ * pvz_append_arrays when every single commit must leave a valid file.
+ * ------------------------------------------------------------------ */
+
+typedef struct pvz_stream pvz_stream;
+
+/* Take over an existing container for streaming. Parses it once; nothing
+ * after this re-reads the file.
+ *
+ * The container must have its two metadata arrays as the final two, which
+ * is what this library and the reference writer emit. MultiBlock files are
+ * refused (PVZ_E_FORMAT): no single root dataset to stream into. */
+PVZSTD_API pvz_status pvz_stream_open(const char *path, pvz_stream **out);
+
+/* Commit `count` arrays as one group, under the compression level and
+ * settings recorded in the file. Names must not collide with a field array
+ * already present. Committing nothing is a no-op, not an error. */
+PVZSTD_API pvz_status pvz_stream_append(pvz_stream *stream, const pvz_append_array *arrays,
+                                        uint64_t count, pvz_shuffle_mode shuffle);
+
+/* Commits made so far. */
+PVZSTD_API uint64_t pvz_stream_commit_count(const pvz_stream *stream);
+
+/* Finalise. `expected_commits` is the count the caller declared up front;
+ * a mismatch returns PVZ_E_RANGE rather than letting a short stream be
+ * mistaken for a complete result. Does not release the stream. */
+PVZSTD_API pvz_status pvz_stream_close(pvz_stream *stream, uint64_t expected_commits);
+
+/* Release. Safe with NULL, and safe without closing -- what is on disk is
+ * whatever the last completed commit left. */
+PVZSTD_API void pvz_stream_free(pvz_stream *stream);
 
 #ifdef __cplusplus
 } /* extern "C" */

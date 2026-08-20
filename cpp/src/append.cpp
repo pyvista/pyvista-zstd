@@ -144,21 +144,6 @@ bool EndsWith(const std::string &s, const char *suffix) {
   return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
 }
 
-// One "<name>":{"shape":[...],"dtype":"..."} entry, in the reference
-// dataclass's field order and with json.dumps' compact separators.
-void AppendFieldEntry(std::string *out, const std::string &name, const std::string &dtype_name,
-                      const uint64_t *shape, uint32_t ndim) {
-  AppendJsonString(out, name);
-  *out += ":{\"shape\":[";
-  for (uint32_t d = 0; d < ndim; ++d) {
-    if (d != 0) out->push_back(',');
-    *out += std::to_string(shape[d]);
-  }
-  *out += "],\"dtype\":";
-  AppendJsonString(out, dtype_name);
-  out->push_back('}');
-}
-
 struct StagedFrame {
   bool copy = false;      // copied verbatim from the source
   uint64_t src_start = 0;

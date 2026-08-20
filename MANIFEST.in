@@ -1,0 +1,10 @@
+# The sdist has to carry the C++ sources, or `pip install pyvista-zstd`
+# from source can only ever produce the pure-Python fallback.
+graft cpp
+include LICENSE
+include README.rst
+recursive-include tests *.py
+recursive-include doc/format *.md
+prune cpp/build
+global-exclude *.pyc
+global-exclude __pycache__

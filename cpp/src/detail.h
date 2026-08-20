@@ -16,10 +16,10 @@
 #include <cstring>
 #include <new>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "pvzstd/pvzstd.h"
+#include "threads.h"
 
 namespace pvzstd::detail {
 
@@ -121,8 +121,7 @@ inline int ResolveThreads(int requested, uint64_t total_bytes) {
 // python-zstandard maps a negative worker count to the logical CPU count.
 inline int EffectiveWorkers(int threads) {
   if (threads >= 0) return threads;
-  const unsigned hw = std::thread::hardware_concurrency();
-  return hw == 0 ? 1 : static_cast<int>(hw);
+  return HardwareWorkers();
 }
 
 inline pvz_status CompressFrame(const uint8_t *src, uint64_t n, int level, int workers,

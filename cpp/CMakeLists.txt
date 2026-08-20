@@ -4,6 +4,23 @@ project(pvzstd LANGUAGES CXX)
 option(PVZSTD_BUILD_TOOLS "Build the pvz_dump conformance tool" ON)
 option(PVZSTD_BUILD_SHARED "Build a shared library (needed for the ctypes binding)" ON)
 
+# Threads are how the library goes faster, not how it stays correct. Turning
+# this off is for targets with no thread runtime to link against, where the
+# alternative is not building at all. What it costs is stated plainly:
+#
+#   read   nothing. The batch reader decompresses inline instead of spreading
+#          frames over workers; same frames, same bytes, one core.
+#   write  byte-identity above the reference rule's 2 MiB threshold, where
+#          that rule asks zstd for workers. A zstd without ZSTD_MULTITHREAD
+#          rejects a non-zero ZSTD_c_nbWorkers, so pvz_writer_write reports
+#          PVZ_E_ZSTD rather than emitting frames that would not match.
+#          Passing 0 workers still writes a valid file. Reading, appending and
+#          streaming are unaffected -- those already compress single-threaded.
+#
+# Build-time rather than runtime because that zstd answer has to be decided
+# with this one; the vendored build below follows it.
+option(PVZSTD_THREADS "Use threads for batch decompression and zstd workers" ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -85,8 +102,9 @@ else()
     # Load-bearing, not a preference. The writer sets ZSTD_c_nbWorkers to
     # reproduce the reference writer's bytes; a zstd built without threads
     # rejects that parameter, and the writer reports the failure rather than
-    # silently emitting single-threaded frames that would not match.
-    set(ZSTD_MULTITHREAD_SUPPORT ON CACHE BOOL "" FORCE)
+    # silently emitting single-threaded frames that would not match. It follows
+    # PVZSTD_THREADS so the two answers cannot disagree.
+    set(ZSTD_MULTITHREAD_SUPPORT ${PVZSTD_THREADS} CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(zstd_vendored)
     set(PVZSTD_ZSTD_TARGET libzstd_static)
   else()
@@ -120,9 +138,14 @@ else()
   target_compile_options(pvzstd PRIVATE -Wall -Wextra)
 endif()
 
-# The writer sets ZSTD_c_nbWorkers, so the library needs a thread runtime.
-find_package(Threads REQUIRED)
-target_link_libraries(pvzstd PRIVATE Threads::Threads)
+if(PVZSTD_THREADS)
+  # The batch reader spreads frames over std::thread workers, and the writer
+  # sets ZSTD_c_nbWorkers; both want a thread runtime.
+  find_package(Threads REQUIRED)
+  target_link_libraries(pvzstd PRIVATE Threads::Threads)
+else()
+  target_compile_definitions(pvzstd PRIVATE PVZSTD_NO_THREADS)
+endif()
 
 if(PVZSTD_BUILD_TOOLS)
   add_executable(pvz_dump tools/pvz_dump.cpp)

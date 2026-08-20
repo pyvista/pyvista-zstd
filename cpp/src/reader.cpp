@@ -19,11 +19,12 @@
 #include <cstring>
 #include <new>
 #include <string>
-#include <thread>
 #include <vector>
 
+#include "detail.h"
 #include "json_read.h"
 #include "pvzstd/pvzstd.h"
+#include "threads.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -582,17 +583,9 @@ pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, ui
   // is no shared state to contend on, so the simplest partition that keeps
   // every worker busy is enough. Each slot is written by exactly one thread.
   std::vector<pvz_status> results(static_cast<size_t>(count), PVZ_OK);
-  std::vector<std::thread> pool;
-  pool.reserve(static_cast<size_t>(workers));
-  for (int w = 0; w < workers; ++w) {
-    pool.emplace_back([&, w]() {
-      for (uint64_t i = static_cast<uint64_t>(w); i < count; i += static_cast<uint64_t>(workers)) {
-        results[static_cast<size_t>(i)] =
-            pvz_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
-      }
-    });
-  }
-  for (std::thread &t : pool) t.join();
+  pvzstd::detail::ParallelStride(workers, count, [&](uint64_t i) {
+    results[static_cast<size_t>(i)] = pvz_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
+  });
 
   for (uint64_t i = 0; i < count; ++i) {
     if (results[static_cast<size_t>(i)] != PVZ_OK) return results[static_cast<size_t>(i)];
@@ -619,7 +612,10 @@ const char *pvz_status_message(pvz_status status) {
     case PVZ_E_FORMAT:
       return "container did not parse as a .pv trailer-indexed file";
     case PVZ_E_ZSTD:
-      return "a zstd frame failed to decompress";
+      // Both directions: the writer reports a rejected compression parameter
+      // through the same code, and "failed to decompress" reads as a damaged
+      // file when the cause was a request this zstd build cannot serve.
+      return "zstd rejected a frame or a compression parameter";
     case PVZ_E_RANGE:
       return "index or count out of range, or destination buffer too small";
     case PVZ_E_NOMEM:

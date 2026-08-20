@@ -19,8 +19,8 @@ not, so that is what gets compared, never a millisecond figure.
 Nor is the *control's* growth an absolute the way it first looked. Requiring it
 to exceed a fixed factor reddened all three CI platforms, because on those
 runners this fixture only drives it to 2.52x (Windows) and 2.97x (macOS) where
-a workstation reaches 10.30x. The requirement is now the separation between the
-two arms, which survives the machine changing underneath it.
+a workstation reaches 10.30x. That was replaced by a separation between the two
+arms, on the reasoning that a ratio survives the machine changing underneath it.
 
 That fix reddened CI a second time, one assertion further down: the total
 speedup floor was 5.0, and a Linux runner managed 4.39x against a workstation's
@@ -30,6 +30,26 @@ this code and transfers; a bound on how large the control gets, or on any ratio
 the control dominates, is a claim about the machine's storage and does not.**
 So `MAX_STREAM_GROWTH` stays absolute and the speedup floor became a bare
 "faster than", with the magnitude left to the docs where it belongs.
+
+The separation then became the third instance of the same mistake, and how it
+got there is worth more than the fix. It was written as a two-arm ratio --
+control growth over stream growth -- which the rule above permits. But the
+denominator was floored at 1.0, to stop noise in a flat stream arm inflating the
+result. A healthy stream *is* flat: measured 0.42x to 0.89x across eight runs,
+so the floor bound every one of them, the denominator was the constant 1.0, and
+the ratio was control growth wearing a ratio's clothes. It failed 8 of 12 runs
+on an idle machine, at 1.39x to 1.76x against a bound of 1.8. **Clamping one arm
+of a ratio turns it into a bound on the other**, and the tell was printed in
+every failure message: separation and control growth were the same number to two
+decimal places, run after run.
+
+What that assertion was really for is not a claim about this code -- the flat
+arm and the bytes-read assertion below already carry that, and both passed
+throughout. It asks whether the fixture still poses the problem the stream
+exists to solve. That is settled by how much container the copying path is made
+to re-read, which is a property of the fixture rather than of the machine:
+`MIN_CONTROL_CONTAINER_GROWTH` measures it in bytes on disk, where page cache
+cannot flatter it, and it cannot go flaky because nothing about it is timed.
 
 One limit worth knowing: the bytes-read assertion -- the one that actually
 holds this line -- reads ``/proc/self/io`` and therefore only runs on Linux.
@@ -84,23 +104,27 @@ SHUFFLE_CODE = {False: "0", True: "1", "auto": "2"}
 # Enough commits that a per-commit cost proportional to the file has room to
 # show itself. How much room depends on the machine: this fixture produced 10.30x
 # control growth on a workstation but only 2.52x on a Windows CI runner, which is
-# why the assertions below compare the two arms to each other and not to a shared
-# constant.
+# why nothing below is asserted against how long the control took.
 N_COMMITS = 24
 # Which of these may be an absolute number is not a matter of taste. A bound on
 # the arm that is supposed to stay flat is a statement about this code, and
 # transfers. A bound on how large the *control* gets -- or on any ratio the
 # control dominates -- is a statement about the machine's storage, and does not.
-# Both kinds were absolute here at first and CI reddened on each in turn.
+# Both kinds were absolute here at first and CI reddened on each in turn, and a
+# ratio with a clamped denominator turned out to be the second kind in disguise.
 #
 # Statement about the code: the stream must not be meaningfully slower at the
 # end than at the start. Measured 0.97x; 3.0 leaves room for a loaded runner.
 MAX_STREAM_GROWTH = 3.0
-# Statement about the two arms relative to each other, which survives the
-# machine changing. Measured separations: 10.6x (workstation), ~2.5x (Windows
-# CI). Below this the fixture is too small on that machine for the comparison
-# to mean anything, and the test says so rather than passing quietly.
-MIN_GROWTH_SEPARATION = 1.8
+# Statement about the fixture, which is the same everywhere. The copying path
+# reads and rewrites the whole container on every call, so how much work it is
+# made to repeat is fixed by how much the container grows -- 0.81 MB to 14.82 MB
+# over these commits, a last-HEAD-to-first-HEAD ratio of 6.70x. The block is
+# incompressible random data under a fixed seed, so that ratio is arithmetic and
+# not a measurement; 3.0 is well clear of it. Below this the fixture has stopped
+# exercising what the comparison is about, and the test says so rather than
+# passing quietly.
+MIN_CONTROL_CONTAINER_GROWTH = 3.0
 # The claim here is only that streaming beats the copying path -- faster, not
 # merely equal. The *magnitude* is machine-dependent and belongs in the docs,
 # not in a bound: measured 87.6x on a workstation and 4.39x on a Linux CI
@@ -219,10 +243,11 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
 
     Asserted against a control measured in the same run, because the absolute
     numbers are not stable across machines or even across runs on one machine
-    -- page-cache residency dominates them. The control has to *show growth*
-    for its arm to mean anything: if it ever comes out flat, the fixture has
-    stopped exercising the thing being compared and this test is measuring
-    nothing.
+    -- page-cache residency dominates them. The fixture also has to keep posing
+    the problem: if the container stops growing, the copying path is never made
+    to repeat any work and this test is measuring nothing. That is checked on
+    the size of the file rather than on how long the control took, because the
+    first is arithmetic and the second is the machine's storage.
     """
     rng = np.random.default_rng(7)
     ds = pv.ImageData(dimensions=(30, 30, 30))
@@ -234,10 +259,12 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     control = tmp_path / "control.pv"
     pz.write(ds, control, progress_bar=False)
     control_times = []
+    control_sizes = []
     for i in range(N_COMMITS):
         start = time.perf_counter()
         pz.append_arrays(control, {f"step_{i}_u": block}, shuffle=False)
         control_times.append(time.perf_counter() - start)
+        control_sizes.append(control.stat().st_size)
 
     streamed = tmp_path / "streamed.pv"
     pz.write(ds, streamed, progress_bar=False)
@@ -254,27 +281,22 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     control_growth = sum(control_times[-HEAD:]) / sum(control_times[:HEAD])
     stream_growth = sum(stream_times[-HEAD:]) / sum(stream_times[:HEAD])
     speedup = sum(control_times) / sum(stream_times)
-
-    # Compared to each other, not to a shared constant. How steeply the control
-    # grows is a property of the machine -- 10.30x here, 2.52x on a Windows CI
-    # runner -- so an absolute floor on it fails on slow storage for reasons that
-    # have nothing to do with this code. What holds everywhere is that one arm
-    # grows with the container and the other does not. Noise can push the
-    # stream's ratio below 1.0, which would inflate the separation, so the
-    # denominator is floored.
-    separation = control_growth / max(stream_growth, 1.0)
+    # How much more container the copying path is made to re-read at the end of
+    # the run than at the start. Measured, not timed: the question this answers
+    # is whether the fixture still poses the problem, and that is settled by how
+    # big the file got, which no amount of page cache can flatter.
+    container_growth = sum(control_sizes[-HEAD:]) / sum(control_sizes[:HEAD])
     # Every failure below carries all four numbers. The first CI failure here
     # reported only the one that tripped, which was not enough to say whether
     # the stream had regressed or the runner was merely slow.
     measured = (
         f"[control growth {control_growth:.2f}x, stream growth {stream_growth:.2f}x, "
-        f"separation {separation:.2f}x, total speedup {speedup:.2f}x] "
+        f"container growth {container_growth:.2f}x, total speedup {speedup:.2f}x] "
     )
-    assert separation > MIN_GROWTH_SEPARATION, (
-        f"{measured}Either the stream has started scaling with what is already "
-        "committed, or this fixture is too small on this machine for the copying "
-        "path's cost to show -- and if it is the latter, this comparison is proving "
-        "nothing and needs a bigger fixture, not a lower bound"
+    assert container_growth > MIN_CONTROL_CONTAINER_GROWTH, (
+        f"{measured}the container barely grew across the run, so the copying path was "
+        "never made to repeat meaningful work and there is nothing here for the stream "
+        "to be better than -- this needs a bigger fixture, not a lower bound"
     )
     assert stream_growth < MAX_STREAM_GROWTH, (
         f"{measured}per-commit cost grew from the first {HEAD} commits to the last "

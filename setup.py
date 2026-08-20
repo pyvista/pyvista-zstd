@@ -65,6 +65,27 @@ def _find_built_library(build_dir: Path) -> Path | None:
     return None
 
 
+def _macos_architectures() -> str:
+    """
+    Return the macOS architectures to build for, or an empty string.
+
+    ``CMAKE_OSX_ARCHITECTURES`` wins when set. Otherwise the value is recovered
+    from ``ARCHFLAGS``, which is how wheel builders request a cross-build: they
+    export ``ARCHFLAGS=-arch x86_64`` and say nothing about CMake. Ignoring it
+    silently produces a library for the host architecture inside a wheel
+    labelled for the other one -- caught here only because the wheel repair
+    step refused it.
+    """
+    explicit = os.environ.get("CMAKE_OSX_ARCHITECTURES", "").strip()
+    if explicit:
+        return explicit
+    if sys.platform != "darwin":
+        return ""
+    flags = os.environ.get("ARCHFLAGS", "").split()
+    found = [flags[i + 1] for i, flag in enumerate(flags) if flag == "-arch" and i + 1 < len(flags)]
+    return ";".join(dict.fromkeys(found))
+
+
 def _build_native() -> Path | None:
     """Configure, build, and return the path to the bundled shared library."""
     if _SKIPPED:
@@ -96,7 +117,7 @@ def _build_native() -> Path | None:
     ]
     if sys.platform == "darwin" and (target := os.environ.get("MACOSX_DEPLOYMENT_TARGET")):
         configure.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target}")
-    if archs := os.environ.get("CMAKE_OSX_ARCHITECTURES"):
+    if archs := _macos_architectures():
         configure.append(f"-DCMAKE_OSX_ARCHITECTURES={archs}")
 
     try:

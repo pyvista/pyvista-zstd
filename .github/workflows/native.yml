@@ -54,10 +54,18 @@ jobs:
       - name: Configure
         shell: bash
         run: |
+          # Pinned zstd, not the distribution's. The byte-identity tests
+          # compare against a reference writer that carries its own copy of
+          # zstd, and different zstd versions emit different (equally valid)
+          # frames for the same input. Linking whatever the runner happened to
+          # have installed made those tests fail on Linux while the same
+          # commit passed on macOS and Windows, which have no system zstd to
+          # find -- a difference in the dependency, not in this writer.
           cmake -S cpp -B cpp/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DPVZSTD_BUILD_SHARED=ON \
-            -DPVZSTD_BUILD_TOOLS=ON
+            -DPVZSTD_BUILD_TOOLS=ON \
+            -DPVZSTD_ZSTD_PROVIDER=vendored
 
       - name: Build
         shell: bash
@@ -207,6 +215,11 @@ jobs:
           # library is loaded through ctypes and carries no CPython ABI, and
           # setup.py tags the wheel py3-none-<platform> to say so.
           CIBW_BUILD: "cp312-*"
+          # No musl wheels. The package requires a rendering stack that
+          # publishes none, so a musllinux wheel of this project could not be
+          # installed alongside its own dependencies -- cibuildwheel's install
+          # test proves it by failing to resolve them.
+          CIBW_SKIP: "*-musllinux_*"
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64

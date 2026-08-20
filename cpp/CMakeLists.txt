@@ -22,11 +22,28 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 # builds possible at all -- neither has a system zstd to find.
 option(PVZSTD_VENDOR_ZSTD "Build a pinned zstd from source if none is installed" ON)
 
-find_package(zstd CONFIG QUIET)
-if(NOT zstd_FOUND)
-  find_package(PkgConfig QUIET)
-  if(PkgConfig_FOUND)
-    pkg_check_modules(ZSTD IMPORTED_TARGET libzstd)
+# auto      prefer an installed zstd, fall back to the pinned source build
+# vendored  always build the pinned source, ignoring anything installed
+# system    require an installed zstd
+#
+# "vendored" exists because byte-for-byte reproduction of the reference
+# writer's output depends on the zstd build, not only on this writer's logic:
+# different zstd versions emit different (equally valid) compressed frames for
+# the same input. The conformance suite compares against a reference writer
+# carrying its own copy of zstd, so it has to pin the same source to compare
+# like with like. Measured: linking a distribution's system zstd instead of the
+# pinned one made the byte-identity tests fail on multi-frame data while the
+# same commit passed on platforms that had no system zstd to find.
+set(PVZSTD_ZSTD_PROVIDER "auto" CACHE STRING "Where zstd comes from: auto, vendored, or system")
+set_property(CACHE PVZSTD_ZSTD_PROVIDER PROPERTY STRINGS auto vendored system)
+
+if(NOT PVZSTD_ZSTD_PROVIDER STREQUAL "vendored")
+  find_package(zstd CONFIG QUIET)
+  if(NOT zstd_FOUND)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+      pkg_check_modules(ZSTD IMPORTED_TARGET libzstd)
+    endif()
   endif()
 endif()
 
@@ -42,7 +59,11 @@ else()
   # usual case for cross-compilers) still links against what it already has.
   find_path(PVZSTD_ZSTD_INCLUDE_DIR zstd.h)
   find_library(PVZSTD_ZSTD_LIBRARY NAMES zstd libzstd zstd_static)
-  if(PVZSTD_ZSTD_INCLUDE_DIR AND PVZSTD_ZSTD_LIBRARY)
+  if(PVZSTD_ZSTD_PROVIDER STREQUAL "system")
+    message(FATAL_ERROR
+      "PVZSTD_ZSTD_PROVIDER=system but no installed zstd was found.")
+  endif()
+  if(PVZSTD_ZSTD_INCLUDE_DIR AND PVZSTD_ZSTD_LIBRARY AND NOT PVZSTD_ZSTD_PROVIDER STREQUAL "vendored")
     add_library(pvzstd_zstd_found UNKNOWN IMPORTED)
     set_target_properties(pvzstd_zstd_found PROPERTIES
       IMPORTED_LOCATION "${PVZSTD_ZSTD_LIBRARY}"

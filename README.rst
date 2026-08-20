@@ -77,6 +77,13 @@ the redundant offsets array. This applies to triangles, quads, tetrahedra, and
 any other fixed-width cell topology. Mixed-width cell arrays retain their
 explicit offsets.
 
+Explicit point coordinates and homogeneous triangle connectivity also use
+lossless mesh-specific transforms by default when a quick trial compression
+shows they reduce the output. Coordinate components are grouped into separate
+byte planes, while consecutive triangle index triplets are differenced and
+byte-shuffled. Pass ``mesh_filters=False`` to ``write`` when format-version-2
+compatibility is required.
+
 **Alternative VTK example**
 
 .. code:: py

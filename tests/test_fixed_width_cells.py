@@ -33,7 +33,7 @@ def _frame_name(reader: pz.Reader, name: str, suffix: str) -> str:
 def test_homogeneous_polydata_omits_offsets(polydata: pv.PolyData, tmp_path: Path) -> None:
     """Triangle-only PolyData stores its width in metadata, not an offsets frame."""
     path = tmp_path / "triangles.pv"
-    pz.write(polydata, path)
+    pz.write(polydata, path, mesh_filters=False)
 
     reader = pz.Reader(path)
     frame_names = reader._metadata.frame_names  # noqa: SLF001
@@ -108,7 +108,7 @@ def test_mixed_width_cells_keep_offsets(tmp_path: Path) -> None:
 def test_fixed_width_and_shuffle_use_version_2(polydata: pv.PolyData, tmp_path: Path) -> None:
     """Format version 2 covers fixed-width topology combined with byte shuffle."""
     path = tmp_path / "fixed-shuffled.pv"
-    pz.write(polydata, path, shuffle=True)
+    pz.write(polydata, path, shuffle=True, mesh_filters=False)
     reader = pz.Reader(path)
     assert reader._metadata.file_version == FILE_VERSION_FIXED_WIDTH_CELLS  # noqa: SLF001
     assert reader.read() == polydata
@@ -117,7 +117,7 @@ def test_fixed_width_and_shuffle_use_version_2(polydata: pv.PolyData, tmp_path: 
 def test_append_preserves_fixed_width_metadata(polydata: pv.PolyData, tmp_path: Path) -> None:
     """Appending field data keeps the fixed-width topology metadata intact."""
     path = tmp_path / "append.pv"
-    pz.write(polydata, path)
+    pz.write(polydata, path, mesh_filters=False)
     append_arrays(path, {"run_id": np.array([7], dtype=np.int32)})
 
     reader = pz.Reader(path)

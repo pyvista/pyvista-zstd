@@ -94,6 +94,8 @@ _IMPLEMENTATIONS = frozenset({"auto", "native", "python"})
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
+# The cell arrays an ExplicitStructuredGrid needs to be cast back into one.
+ESGRID_BLOCK_KEYS = ("BLOCK_I", "BLOCK_J", "BLOCK_K")
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
 OFFSET_SUFFIX = "_offset"
@@ -966,7 +968,33 @@ def _segments_to_esgrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> ExplicitStructuredGrid:
-    return _segments_to_ugrid(ds_id, segments, metadata).cast_to_explicit_structured_grid()
+    """
+    Rebuild an explicit structured grid from its frames.
+
+    The cast is driven by the ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` cell arrays,
+    so they have to be on the grid before it happens. The caller attaches cell
+    data only after this returns, which is why they are pulled from the
+    segments here rather than left to the general path -- without this the
+    cast sees a grid with no cell data at all and refuses every file.
+    """
+    ugrid = _segments_to_ugrid(ds_id, segments, metadata)
+
+    missing = []
+    for name in ESGRID_BLOCK_KEYS:
+        key = f"{ds_id}{name}{CELL_DATA_SUFFIX}"
+        if key in segments:
+            ugrid.cell_data.set_array(np.asarray(segments[key]), name)
+        else:
+            missing.append(name)
+    if missing:
+        msg = (
+            f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
+            "These cell arrays define the i/j/k blocking and are required by "
+            "the cast; do not exclude them via selected_cell_arrays."
+        )
+        raise ValueError(msg)
+
+    return ugrid.cast_to_explicit_structured_grid()
 
 
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:

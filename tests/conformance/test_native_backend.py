@@ -257,3 +257,46 @@ def test_missing_file_reports_io_not_crash(tmp_path) -> None:
     """A missing file is a clean error from the native core."""
     with pytest.raises(_capi.PvzstdError, match="I/O error"):
         _capi.NativeReader(tmp_path / "nope.pv")
+
+
+def _esgrid() -> pv.DataSet:
+    """
+    Build an explicit structured grid carrying the arrays its own cast needs.
+
+    ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` are what turn an unstructured grid
+    back into this type, so a grid without them cannot round-trip through any
+    container -- which is exactly why the reader has to restore them before
+    it casts.
+    """
+    ni, nj, nk = 2, 3, 4
+    xc, yc, zc = (np.arange(n + 1, dtype=float) for n in (ni, nj, nk))
+    xx, yy, zz = np.meshgrid(xc, yc, zc, indexing="ij")
+    grid = pv.StructuredGrid(xx, yy, zz).cast_to_unstructured_grid()
+
+    i, j, k = np.meshgrid(np.arange(ni), np.arange(nj), np.arange(nk), indexing="ij")
+    grid.cell_data["BLOCK_I"] = i.ravel(order="F").astype(np.int32)
+    grid.cell_data["BLOCK_J"] = j.ravel(order="F").astype(np.int32)
+    grid.cell_data["BLOCK_K"] = k.ravel(order="F").astype(np.int32)
+    grid.cell_data["payload"] = np.arange(grid.n_cells, dtype=np.float64)
+    return grid.cast_to_explicit_structured_grid()
+
+
+def test_explicit_structured_grid_round_trips(tmp_path) -> None:
+    """
+    An ExplicitStructuredGrid survives the container on both implementations.
+
+    It used to survive on neither: the reader cast the rebuilt unstructured
+    grid before attaching any cell data, so the cast never saw the blocking
+    arrays it is driven by and refused every file of this type.
+    """
+    ds = _esgrid()
+    path = tmp_path / "esgrid.pv"
+    pz.write(ds, path, progress_bar=False)
+
+    from_python = pz.Reader(path, _impl="python").read()
+    from_native = pz.Reader(path, _impl="native").read()
+
+    assert type(from_python) is type(ds), "round-trip changed the dataset type"
+    assert _assert_same_dataset(from_python, from_native) > 0
+    for key in ("BLOCK_I", "BLOCK_J", "BLOCK_K", "payload"):
+        assert np.array_equal(from_python.cell_data[key], ds.cell_data[key]), key

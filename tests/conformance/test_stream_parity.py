@@ -16,6 +16,12 @@ another, because how much of the container is in page cache dominates. What is
 stable is that one arm grows with what is already committed and the other does
 not, so that is what gets compared, never a millisecond figure.
 
+Nor is the *control's* growth an absolute the way it first looked. Requiring it
+to exceed a fixed factor reddened all three CI platforms, because on those
+runners this fixture only drives it to 2.52x (Windows) and 2.97x (macOS) where
+a workstation reaches 10.30x. The requirement is now the separation between the
+two arms, which survives the machine changing underneath it.
+
 What these tests catch was established by breaking the implementation, and one
 break is the reason the cost test asserts on bytes rather than on time alone.
 Making every commit re-read the whole container -- the exact regression the
@@ -61,11 +67,19 @@ pytestmark = pytest.mark.skipif(
 
 SHUFFLE_CODE = {False: "0", True: "1", "auto": "2"}
 # Enough commits that a per-commit cost proportional to the file has room to
-# show itself; the control below confirms it does.
+# show itself. How much room depends on the machine: this fixture produced 10.30x
+# control growth on a workstation but only 2.52x on a Windows CI runner, which is
+# why the assertions below compare the two arms to each other and not to a shared
+# constant.
 N_COMMITS = 24
 # The stream must not be meaningfully slower at the end than at the start.
 # Measured 0.97x; 3.0 leaves room for a loaded runner without admitting growth.
 MAX_STREAM_GROWTH = 3.0
+# The control must grow at least this much faster than the stream. Measured
+# separations: 10.6x (workstation), ~2.5x (Windows CI). Below this the fixture
+# is too small on that machine for the comparison to mean anything, and the
+# test says so rather than passing quietly.
+MIN_GROWTH_SEPARATION = 1.8
 # The stream must beat the copying path over the whole run. Measured 87.6x on
 # this fixture; 5 is a floor, not a target.
 MIN_TOTAL_SPEEDUP = 5.0
@@ -218,9 +232,20 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     stream_growth = sum(stream_times[-HEAD:]) / sum(stream_times[:HEAD])
     speedup = sum(control_times) / sum(stream_times)
 
-    assert control_growth > MAX_STREAM_GROWTH, (
-        f"the control did not grow ({control_growth:.2f}x); the fixture is too small "
-        "for the copying path's cost to show, so the comparison proves nothing"
+    # Compared to each other, not to a shared constant. How steeply the control
+    # grows is a property of the machine -- 10.30x here, 2.52x on a Windows CI
+    # runner -- so an absolute floor on it fails on slow storage for reasons that
+    # have nothing to do with this code. What holds everywhere is that one arm
+    # grows with the container and the other does not. Noise can push the
+    # stream's ratio below 1.0, which would inflate the separation, so the
+    # denominator is floored.
+    separation = control_growth / max(stream_growth, 1.0)
+    assert separation > MIN_GROWTH_SEPARATION, (
+        f"control grew {control_growth:.2f}x against the stream's {stream_growth:.2f}x "
+        f"(separation {separation:.2f}x). Either the stream has started scaling with "
+        "what is already committed, or this fixture is too small on this machine for "
+        "the copying path's cost to show -- and if it is the latter, this comparison "
+        "is proving nothing and needs a bigger fixture, not a lower bound"
     )
     assert stream_growth < MAX_STREAM_GROWTH, (
         f"per-commit cost grew {stream_growth:.2f}x from the first {HEAD} commits to the "

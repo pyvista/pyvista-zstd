@@ -82,6 +82,11 @@ required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.per-file-ignores]
 "doc/**" = ["INP001"]
+# A build script legitimately prints its progress and shells out to the build
+# tool it exists to drive; `cmake` is resolved from PATH on purpose, because
+# pinning an absolute path would break every environment that installs it
+# somewhere else (including the cmake wheel this build depends on).
+"setup.py" = ["S603", "S607", "T201"]
 "tests/**" = ["ANN001", "INP001", "S101"]
 
 [tool.ruff.lint.pyupgrade]

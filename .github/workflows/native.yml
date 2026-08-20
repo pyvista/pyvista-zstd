@@ -1,0 +1,266 @@
+name: Native Core
+
+# The C++ core, the platforms it has to build on, and the wheels that carry it.
+#
+# Each job proves something the others cannot:
+#
+#   cmake   the library builds on every desktop platform and agrees with the
+#           pure-Python implementation bit for bit
+#   wasm    the same sources build and *run* under WebAssembly, checked by
+#           diffing a real container dump against the native build
+#   wheels  the shared object we ship actually loads on the target platform
+#   sdist   a source install can still reach the native core
+#
+# The parity suite lives in the cmake job rather than the wheel job on purpose:
+# the wheel test environments cannot install a rendering stack on every exotic
+# platform tag, and a test that gets skipped everywhere proves nothing.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SHELLOPTS: "errexit:pipefail"
+
+jobs:
+  cmake:
+    name: CMake + parity (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S cpp -B cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPVZSTD_BUILD_SHARED=ON \
+            -DPVZSTD_BUILD_TOOLS=ON
+
+      - name: Build
+        shell: bash
+        run: cmake --build cpp/build --config Release --parallel
+
+      - name: Locate the build artefacts
+        shell: bash
+        run: |
+          # Multi-config generators (Visual Studio) put these under Release/,
+          # single-config generators put them at the top of the build tree.
+          find_one() {
+            found=$(find cpp/build -name "$1" -type f | head -n 1)
+            if [ -z "$found" ]; then
+              echo "::error::did not find $1 in the build tree"
+              find cpp/build -type f -name '*pvz*'
+              exit 1
+            fi
+            echo "$found"
+          }
+          case "${{ runner.os }}" in
+            Windows) libname=pvzstd.dll; suffix=.exe ;;
+            macOS)   libname=libpvzstd.dylib; suffix= ;;
+            *)       libname=libpvzstd.so; suffix= ;;
+          esac
+          {
+            echo "PVZSTD_LIBRARY=$(pwd)/$(find_one "$libname")"
+            echo "PVZ_DUMP=$(pwd)/$(find_one "pvz_dump$suffix")"
+            echo "PVZ_REWRITE=$(pwd)/$(find_one "pvz_rewrite$suffix")"
+          } >> "$GITHUB_ENV"
+
+      - name: Install the package as pure Python
+        shell: bash
+        # Deliberately pure: this job is testing the CMake build above, pointed
+        # at by PVZSTD_LIBRARY. Letting the install compile its own copy would
+        # mean the artefact under test was never the one exercised.
+        env:
+          PVZSTD_BUILD_NATIVE: "0"
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[tests]
+
+      - name: Confirm the tests will use the CMake build
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pyvista_zstd import _capi
+
+          expected = os.environ["PVZSTD_LIBRARY"]
+          assert _capi.available(), f"native core did not load: {_capi.load_error()}"
+          actual = _capi.library_path()
+          assert actual == expected, f"loaded {actual}, expected {expected}"
+          print(f"ABI {_capi.ABI_VERSION} from {actual}")
+          PY
+
+      - name: Conformance and parity
+        shell: bash
+        run: pytest tests -vv
+
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.64
+
+      - name: Build for the host
+        run: |
+          cmake -S cpp -B cpp/build-host -DCMAKE_BUILD_TYPE=Release -DPVZSTD_BUILD_TOOLS=ON
+          cmake --build cpp/build-host --parallel
+
+      - name: Build for WebAssembly
+        # pthreads are enabled so that zstd keeps its multithreaded mode. The
+        # writer refuses to run without it rather than silently emitting
+        # different bytes, so a single-threaded WASM build would not be the
+        # same library.
+        run: |
+          emcmake cmake -S cpp -B cpp/build-wasm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPVZSTD_BUILD_SHARED=OFF \
+            -DPVZSTD_BUILD_TOOLS=ON \
+            -DCMAKE_C_FLAGS=-pthread \
+            -DCMAKE_CXX_FLAGS=-pthread \
+            -DCMAKE_EXE_LINKER_FLAGS="-pthread -sPTHREAD_POOL_SIZE=4 -sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1"
+          cmake --build cpp/build-wasm --parallel
+
+      - name: Write a container to read back
+        run: |
+          python -m pip install --upgrade pip
+          PVZSTD_BUILD_NATIVE=0 pip install .[tests]
+          python - <<'PY'
+          import numpy as np
+          import pyvista as pv
+
+          import pyvista_zstd as pz
+
+          rng = np.random.default_rng(7)
+          ds = pv.Sphere(theta_resolution=24, phi_resolution=24)
+          ds.point_data["scal_f64"] = rng.random(ds.n_points)
+          ds.point_data["vec_f32"] = rng.random((ds.n_points, 3)).astype(np.float32)
+          ds.cell_data["ids_i64"] = np.arange(ds.n_cells, dtype=np.int64)
+          # shuffle=True so the filter branch is exercised under WebAssembly.
+          # It is off by default, and a run that never enters the branch would
+          # not have tested it.
+          pz.write(ds, "sample.pv", shuffle=True, progress_bar=False)
+          PY
+
+      - name: The WASM build must agree with the native one, byte for byte
+        run: |
+          ./cpp/build-host/pvz_dump sample.pv > native.txt
+          node cpp/build-wasm/pvz_dump.js sample.pv > wasm.txt
+          # pvz_dump prints an FNV-1a checksum of every decompressed payload,
+          # so an identical dump means decompression and filter reversal both
+          # produced the same bytes -- not merely that the file parsed.
+          diff native.txt wasm.txt
+          echo "WebAssembly output is identical to native:"
+          cat wasm.txt
+
+  wheels:
+    name: Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # setuptools-scm needs the tags to derive a version.
+          fetch-depth: 0
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.2.0
+        env:
+          # One wheel per platform, not one per interpreter: the bundled
+          # library is loaded through ctypes and carries no CPython ABI, and
+          # setup.py tags the wheel py3-none-<platform> to say so.
+          CIBW_BUILD: "cp312-*"
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_WINDOWS: AMD64
+          # A wheel that quietly lost its native core is the failure mode this
+          # whole job exists to prevent, so make it fatal at build time.
+          CIBW_ENVIRONMENT: PVZSTD_BUILD_NATIVE=1
+          CIBW_ENVIRONMENT_MACOS: PVZSTD_BUILD_NATIVE=1 MACOSX_DEPLOYMENT_TARGET=10.15
+          # Checks the property that only a wheel can have: that the shared
+          # object inside it loads on the machine the wheel targets. The
+          # correctness of that library is the cmake job's business.
+          CIBW_TEST_COMMAND: >
+            python -c
+            "from pyvista_zstd import _capi;
+            assert _capi.available(), _capi.load_error();
+            print('native core loaded from', _capi.library_path())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build the sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+
+      - name: A source install must still reach the native core
+        # The sdist has to carry cpp/. If it does not, this install silently
+        # degrades to pure Python and the assertion below catches it.
+        env:
+          PVZSTD_BUILD_NATIVE: "1"
+        run: |
+          pip install dist/*.tar.gz
+          cd "$(mktemp -d)"
+          python -c "
+          from pyvista_zstd import _capi
+          assert _capi.available(), _capi.load_error()
+          print('native core built from sdist:', _capi.library_path())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz

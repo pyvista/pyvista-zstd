@@ -18,11 +18,11 @@ lost its accelerator looks exactly like one that never had it. Set
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
 from setuptools import setup
 from setuptools.dist import Distribution
@@ -37,7 +37,8 @@ _SKIPPED = _MODE == "0"
 
 
 def _library_names() -> list[str]:
-    """Shared-library file names CMake may produce, per platform.
+    """
+    Shared-library file names CMake may produce, per platform.
 
     Kept in step with ``pyvista_zstd._capi._candidate_names``; the loader looks
     for these exact names inside the installed package.
@@ -50,7 +51,8 @@ def _library_names() -> list[str]:
 
 
 def _find_built_library(build_dir: Path) -> Path | None:
-    """Locate the shared library inside a finished CMake build tree.
+    """
+    Locate the shared library inside a finished CMake build tree.
 
     Searched recursively because multi-config generators (Visual Studio) place
     the artefact under a per-configuration subdirectory, while single-config
@@ -148,14 +150,16 @@ _bundled: Path | None = _build_native() if _is_a_build() else None
 
 
 class NativeDistribution(Distribution):
-    """Tag the wheel for this platform once a compiled library is inside it.
+    """
+    Tag the wheel for this platform once a compiled library is inside it.
 
     Without this, setuptools sees no ``ext_modules`` and stamps the wheel
     ``py3-none-any`` -- which would advertise a Linux shared object as valid
     on Windows.
     """
 
-    def has_ext_modules(self) -> bool:  # noqa: PLR6301 - setuptools calls it on the instance
+    def has_ext_modules(self) -> bool:
+        """Report whether a compiled artefact is going into the wheel."""
         return _bundled is not None
 
 
@@ -172,7 +176,8 @@ except ImportError:  # pragma: no cover - setuptools older than 70.1
 if bdist_wheel is not None:
 
     class PlatformNotInterpreterWheel(bdist_wheel):
-        """Tag the wheel by platform only, never by interpreter.
+        """
+        Tag the wheel by platform only, never by interpreter.
 
         ``has_ext_modules`` above makes setuptools reach for the full
         ``cp312-cp312-linux_x86_64`` tag, which is what a CPython extension
@@ -184,6 +189,7 @@ if bdist_wheel is not None:
         """
 
         def get_tag(self) -> tuple[str, str, str]:
+            """Return the wheel tag, widened to every Python 3 interpreter."""
             python, abi, platform = super().get_tag()
             if _bundled is not None:
                 return "py3", "none", platform

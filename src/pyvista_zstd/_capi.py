@@ -47,6 +47,7 @@ __all__ = [
     "PvzstdError",
     "available",
     "library_path",
+    "load_error",
 ]
 
 ABI_VERSION = 1
@@ -267,6 +268,26 @@ def library_path() -> str | None:
     if _lib is None and not available():
         return None
     return _lib_path
+
+
+def load_error() -> str | None:
+    """
+    Return why the native core could not be loaded, or None if it did.
+
+    ``available()`` collapses every reason to False, which is the right shape
+    for a fallback decision and the wrong one for a diagnosis: a missing
+    library, a library built against a different ABI, and one that failed to
+    link all look identical. This reports the candidates that were tried and
+    what each of them said.
+
+    Returns
+    -------
+    str | None
+
+    """
+    if available():
+        return None
+    return _load_error
 
 
 def _check(status: int, detail: str = "") -> None:

@@ -9,8 +9,6 @@
 #ifndef PVZSTD_DETAIL_H
 #define PVZSTD_DETAIL_H
 
-#include "pvzstd/pvzstd.h"
-
 #include <zstd.h>
 
 #include <cstdint>
@@ -20,6 +18,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "pvzstd/pvzstd.h"
 
 namespace pvzstd::detail {
 
@@ -157,11 +157,21 @@ inline void AppendJsonString(std::string *out, const std::string &s) {
   out->push_back('"');
   for (const char c : s) {
     switch (c) {
-      case '"': *out += "\\\""; break;
-      case '\\': *out += "\\\\"; break;
-      case '\n': *out += "\\n"; break;
-      case '\r': *out += "\\r"; break;
-      case '\t': *out += "\\t"; break;
+      case '"':
+        *out += "\\\"";
+        break;
+      case '\\':
+        *out += "\\\\";
+        break;
+      case '\n':
+        *out += "\\n";
+        break;
+      case '\r':
+        *out += "\\r";
+        break;
+      case '\t':
+        *out += "\\t";
+        break;
       default:
         if (static_cast<unsigned char>(c) < 0x20) {
           char buf[8];
@@ -177,8 +187,8 @@ inline void AppendJsonString(std::string *out, const std::string &s) {
 
 // One "<name>":{"shape":[...],"dtype":"..."} entry, in the reference
 // dataclass's field order and with json.dumps' compact separators.
-inline void AppendFieldEntry(std::string *out, const std::string &name, const std::string &dtype_name,
-                      const uint64_t *shape, uint32_t ndim) {
+inline void AppendFieldEntry(std::string *out, const std::string &name,
+                             const std::string &dtype_name, const uint64_t *shape, uint32_t ndim) {
   AppendJsonString(out, name);
   *out += ":{\"shape\":[";
   for (uint32_t d = 0; d < ndim; ++d) {

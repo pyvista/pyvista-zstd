@@ -5,12 +5,12 @@
 // match byte for byte. A checksum over the decoded payload is what makes the
 // comparison bit-exact rather than merely structural.
 
-#include "pvzstd/pvzstd.h"
-
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+
+#include "pvzstd/pvzstd.h"
 
 namespace {
 

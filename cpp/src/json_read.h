@@ -37,14 +37,30 @@ inline bool ReadJsonString(const std::string &s, size_t *i, std::string *out) {
       if (*i + 1 >= s.size()) return false;
       const char esc = s[*i + 1];
       switch (esc) {
-        case '"': out->push_back('"'); break;
-        case '\\': out->push_back('\\'); break;
-        case '/': out->push_back('/'); break;
-        case 'n': out->push_back('\n'); break;
-        case 'r': out->push_back('\r'); break;
-        case 't': out->push_back('\t'); break;
-        case 'b': out->push_back('\b'); break;
-        case 'f': out->push_back('\f'); break;
+        case '"':
+          out->push_back('"');
+          break;
+        case '\\':
+          out->push_back('\\');
+          break;
+        case '/':
+          out->push_back('/');
+          break;
+        case 'n':
+          out->push_back('\n');
+          break;
+        case 'r':
+          out->push_back('\r');
+          break;
+        case 't':
+          out->push_back('\t');
+          break;
+        case 'b':
+          out->push_back('\b');
+          break;
+        case 'f':
+          out->push_back('\f');
+          break;
         case 'u': {
           // Only the escapes json.dumps emits for the identifiers this format
           // carries; a real code point outside Latin-1 would need UTF-8
@@ -54,17 +70,22 @@ inline bool ReadJsonString(const std::string &s, size_t *i, std::string *out) {
           for (int k = 0; k < 4; ++k) {
             const char h = s[*i + 2 + k];
             code <<= 4;
-            if (h >= '0' && h <= '9') code |= static_cast<unsigned>(h - '0');
-            else if (h >= 'a' && h <= 'f') code |= static_cast<unsigned>(h - 'a' + 10);
-            else if (h >= 'A' && h <= 'F') code |= static_cast<unsigned>(h - 'A' + 10);
-            else return false;
+            if (h >= '0' && h <= '9')
+              code |= static_cast<unsigned>(h - '0');
+            else if (h >= 'a' && h <= 'f')
+              code |= static_cast<unsigned>(h - 'a' + 10);
+            else if (h >= 'A' && h <= 'F')
+              code |= static_cast<unsigned>(h - 'A' + 10);
+            else
+              return false;
           }
           if (code > 0x7F) return false;
           out->push_back(static_cast<char>(code));
           *i += 4;
           break;
         }
-        default: return false;
+        default:
+          return false;
       }
       *i += 2;
       continue;
@@ -94,7 +115,8 @@ inline bool SkipValue(const std::string &s, size_t *i) {
         if (!ReadJsonString(s, i, &ignored)) return false;
         continue;
       }
-      if (d == open) ++depth;
+      if (d == open)
+        ++depth;
       else if (d == close && --depth == 0) {
         ++*i;
         return true;

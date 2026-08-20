@@ -223,6 +223,12 @@ jobs:
           # test proves it by failing to resolve them.
           CIBW_SKIP: "*-musllinux_*"
           CIBW_ARCHS_LINUX: x86_64
+          # manylinux2014 (glibc 2.17) rather than cibuildwheel's newer
+          # default. The core needs only C++17 and zstd, both of which the
+          # 2014 image's toolchain provides, so nothing is given up -- and the
+          # resulting wheel installs on the older enterprise distributions
+          # this is meant to be droppable into.
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
           # A wheel that quietly lost its native core is the failure mode this

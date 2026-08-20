@@ -23,15 +23,15 @@
 #include <stdint.h>
 
 #if defined(_WIN32) && defined(PVZSTD_SHARED)
-#  if defined(PVZSTD_BUILDING)
-#    define PVZSTD_API __declspec(dllexport)
-#  else
-#    define PVZSTD_API __declspec(dllimport)
-#  endif
-#elif defined(__GNUC__) && __GNUC__ >= 4
-#  define PVZSTD_API __attribute__((visibility("default")))
+#if defined(PVZSTD_BUILDING)
+#define PVZSTD_API __declspec(dllexport)
 #else
-#  define PVZSTD_API
+#define PVZSTD_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) && __GNUC__ >= 4
+#define PVZSTD_API __attribute__((visibility("default")))
+#else
+#define PVZSTD_API
 #endif
 
 #ifdef __cplusplus
@@ -48,13 +48,13 @@ extern "C" {
 
 typedef enum pvz_status {
   PVZ_OK = 0,
-  PVZ_E_IO = 1,          /* file missing, unreadable, or truncated */
-  PVZ_E_FORMAT = 2,      /* trailer or header did not parse */
-  PVZ_E_ZSTD = 3,        /* a frame failed to decompress */
-  PVZ_E_RANGE = 4,       /* index or count out of range, or destination too small */
-  PVZ_E_NOMEM = 5,       /* allocation failed */
-  PVZ_E_FILTER = 6,      /* per-array filter id this build cannot reverse */
-  PVZ_E_INVALID = 7      /* NULL argument or misuse */
+  PVZ_E_IO = 1,     /* file missing, unreadable, or truncated */
+  PVZ_E_FORMAT = 2, /* trailer or header did not parse */
+  PVZ_E_ZSTD = 3,   /* a frame failed to decompress */
+  PVZ_E_RANGE = 4,  /* index or count out of range, or destination too small */
+  PVZ_E_NOMEM = 5,  /* allocation failed */
+  PVZ_E_FILTER = 6, /* per-array filter id this build cannot reverse */
+  PVZ_E_INVALID = 7 /* NULL argument or misuse */
 } pvz_status;
 
 /* Per-array filter ids. An unknown id is an error, never a passthrough:
@@ -67,12 +67,12 @@ typedef struct pvz_reader pvz_reader;
 /* A view onto one array's header. All pointers are owned by the reader and
  * remain valid until pvz_close(); do not free them. */
 typedef struct pvz_array_info {
-  const char *name;        /* NUL-terminated, UTF-8, includes the UID prefix */
-  const uint64_t *shape;   /* ndim entries; NULL when ndim == 0 */
+  const char *name;      /* NUL-terminated, UTF-8, includes the UID prefix */
+  const uint64_t *shape; /* ndim entries; NULL when ndim == 0 */
   uint32_t ndim;
   uint8_t filter_id;
   char dtype[PVZSTD_DTYPE_LEN + 1]; /* e.g. "<f8", "|u1"; NUL-terminated */
-  uint64_t nbytes;         /* decompressed payload size */
+  uint64_t nbytes;                  /* decompressed payload size */
 } pvz_array_info;
 
 /* Open a container. On success *out receives a reader that must be released
@@ -95,8 +95,8 @@ PVZSTD_API int64_t pvz_find_array(const pvz_reader *reader, const char *name);
 /* Decompress array `index` into `dst`, reversing any filter. `dst_size` must
  * be at least the `nbytes` reported by pvz_array_info_at, or PVZ_E_RANGE is
  * returned and nothing is written. */
-PVZSTD_API pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index,
-                                        void *dst, uint64_t dst_size);
+PVZSTD_API pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index, void *dst,
+                                        uint64_t dst_size);
 
 /* Decompress `count` arrays at once, spreading them over `n_threads` workers.
  *
@@ -114,8 +114,8 @@ PVZSTD_API pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index
  * Returns the first non-OK status any array produced, so a single bad frame
  * still reports its own reason rather than a generic failure. */
 PVZSTD_API pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices,
-                                      uint64_t count, void *const *dsts,
-                                      const uint64_t *dst_sizes, int n_threads);
+                                      uint64_t count, void *const *dsts, const uint64_t *dst_sizes,
+                                      int n_threads);
 
 /* ---- Field arrays ----
  *
@@ -212,9 +212,9 @@ PVZSTD_API pvz_status pvz_writer_set_fixed_width_cells(pvz_writer *writer, int e
 /* Append one array. Frame order is the order of these calls and it is
  * significant -- it is how names map to frames. ``dtype`` is a numpy dtype
  * string such as "<f8" or "|u1". The data is copied. */
-PVZSTD_API pvz_status pvz_writer_add_array(pvz_writer *writer, const char *name,
-                                           const char *dtype, const uint64_t *shape,
-                                           uint32_t ndim, const void *data, uint64_t nbytes);
+PVZSTD_API pvz_status pvz_writer_add_array(pvz_writer *writer, const char *name, const char *dtype,
+                                           const uint64_t *shape, uint32_t ndim, const void *data,
+                                           uint64_t nbytes);
 
 /* Supply the dataset-metadata JSON document, stored under a
  * "<uid>__ds_metadata" frame. Optional but expected by dataset readers. */

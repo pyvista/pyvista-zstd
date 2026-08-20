@@ -36,21 +36,20 @@
 // which this library does not do. Callers that need a valid file after every
 // single commit should use pvz_append_arrays and pay the copy.
 
-#include "pvzstd/pvzstd.h"
-
-#include "detail.h"
-#include "json_read.h"
-
 #include <cstdio>
 #include <cstring>
 #include <new>
 #include <string>
 #include <vector>
 
+#include "detail.h"
+#include "json_read.h"
+#include "pvzstd/pvzstd.h"
+
 #if defined(_WIN32)
-#  include <io.h>
+#include <io.h>
 #else
-#  include <unistd.h>
+#include <unistd.h>
 #endif
 
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
@@ -155,8 +154,7 @@ pvz_status WriteTail(pvz_stream *s) {
   try {
     plain.push_back(PackArrayMetadata(s->ds_name, "|u1", {s->ds_json.size()}, PVZ_FILTER_NONE));
     plain.emplace_back(s->ds_json.begin(), s->ds_json.end());
-    plain.push_back(PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()},
-                                      PVZ_FILTER_NONE));
+    plain.push_back(PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZ_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
   } catch (const std::bad_alloc &) {
     return PVZ_E_NOMEM;

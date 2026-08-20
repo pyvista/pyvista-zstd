@@ -1,8 +1,21 @@
 ci:
-  autofix_prs: false
+  # The C++ core arrived with this branch, and clang-format is the one hook
+  # here whose fixes are purely mechanical -- so let the service push them
+  # rather than bouncing a PR over brace placement.
+  autofix_prs: true
+  autofix_commit_msg: "style: pre-commit.ci auto fixes"
   autoupdate_schedule: quarterly
 
 repos:
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v21.1.2
+    hooks:
+      - id: clang-format
+        types_or: [c, c++]
+        # Only our own sources. cpp/third_party carries a vendored zstd that
+        # must stay byte-identical to its upstream release: reformatting it
+        # would make the pinned-tarball checksum meaningless.
+        exclude: ^cpp/third_party/
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.2
     hooks:

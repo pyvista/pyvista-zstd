@@ -14,10 +14,6 @@
 //     its single-threaded mode. Reproducing the layout but not the worker
 //     count yields a valid file that is not the same file.
 
-#include "pvzstd/pvzstd.h"
-
-#include "detail.h"
-
 #include <zstd.h>
 
 #include <cstdio>
@@ -26,6 +22,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "detail.h"
+#include "pvzstd/pvzstd.h"
 
 // The primitives below moved to detail.h when the append path came to need the
 // same ones; this brings them back into scope unqualified.

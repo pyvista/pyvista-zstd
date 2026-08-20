@@ -14,8 +14,6 @@
 //            name <TAB> dtype <TAB> dtype_name <TAB> shape_csv <TAB> raw_path
 //            shape_csv is empty for a 0-d array.
 
-#include "pvzstd/pvzstd.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -24,6 +22,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "pvzstd/pvzstd.h"
 
 namespace {
 

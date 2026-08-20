@@ -10,12 +10,12 @@
 // the comparison is against real reference bytes rather than against our own
 // idea of what they should be.
 
-#include "pvzstd/pvzstd.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+
+#include "pvzstd/pvzstd.h"
 
 namespace {
 

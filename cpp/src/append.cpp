@@ -22,11 +22,6 @@
 //     splicing only has to reproduce the entries actually being added, and
 //     leaves every other byte untouched by construction.
 
-#include "pvzstd/pvzstd.h"
-
-#include "detail.h"
-#include "json_read.h"
-
 #include <zstd.h>
 
 #include <cstdio>
@@ -34,6 +29,10 @@
 #include <new>
 #include <string>
 #include <vector>
+
+#include "detail.h"
+#include "json_read.h"
+#include "pvzstd/pvzstd.h"
 
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
 using namespace pvzstd::json;    // NOLINT(google-build-using-namespace)
@@ -145,7 +144,7 @@ bool EndsWith(const std::string &s, const char *suffix) {
 }
 
 struct StagedFrame {
-  bool copy = false;      // copied verbatim from the source
+  bool copy = false;  // copied verbatim from the source
   uint64_t src_start = 0;
   uint64_t src_end = 0;
   std::vector<uint8_t> bytes;  // when !copy
@@ -321,8 +320,7 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   try {
     plain.push_back(PackArrayMetadata(ds_name, "|u1", {ds_new.size()}, PVZ_FILTER_NONE));
     plain.emplace_back(ds_new.begin(), ds_new.end());
-    plain.push_back(PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()},
-                                      PVZ_FILTER_NONE));
+    plain.push_back(PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZ_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
   } catch (const std::bad_alloc &) {
     return PVZ_E_NOMEM;

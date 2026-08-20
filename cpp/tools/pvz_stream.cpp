@@ -22,8 +22,6 @@
 // compression noise. Bytes read is the same property measured deterministically
 // -- reading a growing file grows it, holding state in memory does not.
 
-#include "pvzstd/pvzstd.h"
-
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -32,6 +30,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "pvzstd/pvzstd.h"
 
 namespace {
 
@@ -156,8 +156,7 @@ int main(int argc, char **argv) {
                            static_cast<pvz_shuffle_mode>(shuffle_code));
     const auto t1 = std::chrono::steady_clock::now();
     const long long read1 = BytesRead();
-    std::fprintf(stderr, "commit %d %.6f %lld\n", c,
-                 std::chrono::duration<double>(t1 - t0).count(),
+    std::fprintf(stderr, "commit %d %.6f %lld\n", c, std::chrono::duration<double>(t1 - t0).count(),
                  (read0 < 0 || read1 < 0) ? -1 : read1 - read0);
     if (st != PVZ_OK) {
       std::cerr << "pvz_stream_append: " << pvz_status_message(st) << "\n";

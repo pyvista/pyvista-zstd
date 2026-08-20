@@ -6,13 +6,17 @@ installed beside the package. The comparison is exact: the native path is a
 different implementation of the same format, not an approximation of it, so
 any difference in a value is a defect rather than a tolerance question.
 
-The tests also assert that the native path was actually *taken*. ``backend
-="auto"`` falls back silently by design, which is right for users and
-dangerous for a test suite -- a green run proves nothing if every case
-quietly ran the Python implementation.
+The tests also assert that the native path was actually *taken*. Selection
+falls back silently by design, which is right for users and dangerous for a
+test suite -- a green run proves nothing if every case quietly ran the Python
+implementation. That is why these tests reach for the private ``_impl``
+argument: the public API deliberately offers no way to demand one of the two,
+because the two agree, but a parity test has to be able to name an arm.
 """
 
 from __future__ import annotations
+
+import contextlib
 
 import numpy as np
 import pytest
@@ -129,8 +133,8 @@ def test_native_matches_python(tmp_path, label, shuffle) -> None:
     path = tmp_path / f"{label}.pv"
     pz.write(DATASETS[label](), path, shuffle=shuffle, progress_bar=False)
 
-    from_python = pz.read(path, backend="python")
-    from_native = pz.read(path, backend="native")
+    from_python = pz.Reader(path, _impl="python").read()
+    from_native = pz.Reader(path, _impl="native").read()
     assert _assert_same_dataset(from_python, from_native) > 0
 
 
@@ -155,11 +159,11 @@ def test_native_backend_is_actually_used(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(_capi.NativeReader, "read_arrays", _sabotage)
 
     with pytest.raises(RuntimeError, match="deliberately broken"):
-        pz.read(path, backend="native")
+        pz.Reader(path, _impl="native").read()
 
     # The pure-Python backend must be untouched by the sabotage, which is what
     # proves the two paths are genuinely separate.
-    assert pz.read(path, backend="python").n_points > 0
+    assert pz.Reader(path, _impl="python").read().n_points > 0
 
 
 def test_shuffle_filter_is_exercised_natively(tmp_path) -> None:
@@ -178,12 +182,47 @@ def test_shuffle_filter_is_exercised_natively(tmp_path) -> None:
     assert any(f == 1 for f in filters), "no array carried the shuffle filter"
 
 
-def test_unknown_backend_is_refused(tmp_path) -> None:
-    """A misspelt backend fails loudly rather than falling back."""
+def test_unknown_implementation_is_refused(tmp_path) -> None:
+    """A misspelt implementation fails loudly rather than falling back."""
     path = tmp_path / "x.pv"
     pz.write(_sphere(), path, progress_bar=False)
-    with pytest.raises(ValueError, match="backend must be one of"):
-        pz.read(path, backend="c++")
+    with pytest.raises(ValueError, match="_impl must be one of"):
+        pz.Reader(path, _impl="c++")
+
+
+def _call_discarding_result(fn, path) -> None:
+    """
+    Invoke ``fn`` for its warning alone.
+
+    ``read_array`` is handed a name the fixture does not carry, so it raises;
+    that is fine, because the warning has to be emitted before the lookup can
+    fail, and the warning is what is under test.
+    """
+    with contextlib.suppress(KeyError):
+        fn(path)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda p: pz.read(p, backend="python"), id="read"),
+        pytest.param(lambda p: pz.Reader(p, backend="native"), id="Reader"),
+        pytest.param(lambda p: pz.read_array(p, "nope", backend="auto"), id="read_array"),
+        pytest.param(lambda p: pz.AppendReader(p, backend="auto"), id="AppendReader"),
+    ],
+)
+def test_backend_argument_is_deprecated(tmp_path, call) -> None:
+    """
+    Every public entry point that took ``backend`` now warns and ignores it.
+
+    The value passed is deliberately not the one the reader would pick, so a
+    warning that fired while the argument was still being honoured would not
+    be enough to pass: the read has to succeed on whatever the reader chose.
+    """
+    path = tmp_path / "deprecated.pv"
+    pz.write(_sphere(), path, progress_bar=False)
+    with pytest.warns(DeprecationWarning, match="no longer has any effect"):
+        _call_discarding_result(call, path)
 
 
 def test_array_downselection_matches(tmp_path) -> None:
@@ -191,8 +230,8 @@ def test_array_downselection_matches(tmp_path) -> None:
     path = tmp_path / "subset.pv"
     pz.write(_sphere(), path, progress_bar=False)
 
-    def _read(backend: str) -> pv.DataSet:
-        reader = pz.Reader(path, backend=backend)
+    def _read(impl: str) -> pv.DataSet:
+        reader = pz.Reader(path, _impl=impl)
         reader.selected_point_arrays = {"scal_f64"}
         reader.selected_cell_arrays = set()
         return reader.read()

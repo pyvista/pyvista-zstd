@@ -68,9 +68,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import zstandard as zstd
 
-from pyvista_zstd.pyvista_zstd import _BACKENDS
 from pyvista_zstd.pyvista_zstd import _FILTER_NONE
 from pyvista_zstd.pyvista_zstd import _FILTER_SHUFFLE
+from pyvista_zstd.pyvista_zstd import _IMPLEMENTATIONS
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import FIELD_DATA_SUFFIX
 from pyvista_zstd.pyvista_zstd import FILE_METADATA_KEY
@@ -86,6 +86,7 @@ from pyvista_zstd.pyvista_zstd import _pack_array_metadata
 from pyvista_zstd.pyvista_zstd import _reconstruct_array
 from pyvista_zstd.pyvista_zstd import _resolve_shuffle
 from pyvista_zstd.pyvista_zstd import _shuffle_bytes
+from pyvista_zstd.pyvista_zstd import _warn_backend_deprecated
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
@@ -459,7 +460,12 @@ def _with_field_keys(meta: DataSetMetadata, field_keys: dict[str, ArrayInfo]) ->
     return DataSetMetadata.from_json(json.dumps(raw, separators=(",", ":")))
 
 
-def read_array(filename: Path | str, name: str, *, backend: str = "auto") -> NDArray:
+def read_array(
+    filename: Path | str,
+    name: str,
+    *,
+    backend: str | None = None,
+) -> NDArray:
     """
     Read a single appended (field) array back without full decompression.
 
@@ -475,9 +481,10 @@ def read_array(filename: Path | str, name: str, *, backend: str = "auto") -> NDA
         Field-array name (the key passed to :func:`append_arrays`, or any
         field-data key present in the file).
     backend : str, optional
-        ``"auto"`` (the default) uses the native C-ABI core when this
-        install has it and the pure-Python path otherwise; ``"native"``
-        demands it; ``"python"`` refuses it.
+        Deprecated and ignored. The native C-ABI core is used when this
+        install has it and the pure-Python path otherwise; the two produce
+        byte-identical results, so there is nothing to select between.
+        Passing this raises a :class:`DeprecationWarning`.
 
     Returns
     -------
@@ -485,7 +492,8 @@ def read_array(filename: Path | str, name: str, *, backend: str = "auto") -> NDA
         The stored array, bit-exact.
 
     """
-    return AppendReader(filename, backend=backend).read_array(name)
+    _warn_backend_deprecated(backend)
+    return AppendReader(filename).read_array(name)
 
 
 class AppendReader:
@@ -502,9 +510,10 @@ class AppendReader:
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
     backend : str, optional
-        ``"auto"`` (the default) uses the native C-ABI core when this
-        install has it and the pure-Python path otherwise; ``"native"``
-        demands it; ``"python"`` refuses it.
+        Deprecated and ignored. The native C-ABI core is used when this
+        install has it and the pure-Python path otherwise; the two produce
+        byte-identical results, so there is nothing to select between.
+        Passing this raises a :class:`DeprecationWarning`.
 
     Examples
     --------
@@ -516,12 +525,24 @@ class AppendReader:
 
     """
 
-    def __init__(self, filename: Path | str, *, backend: str = "auto") -> None:
-        """Open ``filename`` and read its footer + metadata frames."""
-        if backend not in _BACKENDS:
-            msg = f"backend must be one of {sorted(_BACKENDS)}, not {backend!r}"
+    def __init__(
+        self,
+        filename: Path | str,
+        *,
+        backend: str | None = None,
+        _impl: str = "auto",
+    ) -> None:
+        """
+        Open ``filename`` and read its footer + metadata frames.
+
+        ``backend`` is deprecated and ignored; ``_impl`` is private and exists
+        for the conformance suite and the parity harness.
+        """
+        _warn_backend_deprecated(backend)
+        if _impl not in _IMPLEMENTATIONS:
+            msg = f"_impl must be one of {sorted(_IMPLEMENTATIONS)}, not {_impl!r}"
             raise ValueError(msg)
-        self._backend = backend
+        self._impl = _impl
         self._native: NativeReader | None = None
         self._path = Path(filename)
         if self._path.suffix not in SUPPORTED_READ_SUFFIXES:
@@ -557,11 +578,11 @@ class AppendReader:
         second single-block read cheap. Resolved lazily so constructing a
         reader and never reading from it costs nothing.
         """
-        if self._backend == "python":
+        if self._impl == "python":
             return None
         if self._native is None:
             capi = _capi_module()
-            if self._backend != "native" and not capi.available():
+            if self._impl != "native" and not capi.available():
                 return None
             # "native" falls through without the availability check so the
             # load failure itself is what gets raised, with its diagnostics.

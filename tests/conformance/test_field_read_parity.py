@@ -78,7 +78,7 @@ def _seed(tmp_path: Path) -> Path:
 def test_native_lists_the_same_field_arrays_in_the_same_order(tmp_path) -> None:
     """The native index matches the reference list exactly, order included."""
     path = _seed(tmp_path)
-    expected = AppendReader(path, backend="python").field_array_names
+    expected = AppendReader(path, _impl="python").field_array_names
 
     with _capi.NativeReader(path) as reader:
         assert reader.field_array_names() == expected
@@ -91,8 +91,8 @@ def test_native_lists_the_same_field_arrays_in_the_same_order(tmp_path) -> None:
 def test_native_reads_are_bit_identical_to_the_reference(tmp_path) -> None:
     """Every field array reads back identically through both backends."""
     path = _seed(tmp_path)
-    reference = AppendReader(path, backend="python")
-    native = AppendReader(path, backend="native")
+    reference = AppendReader(path, _impl="python")
+    native = AppendReader(path, _impl="native")
 
     for name in reference.field_array_names:
         want = reference.read_array(name)
@@ -141,8 +141,12 @@ def test_find_field_declines_arrays_that_are_not_field_data(tmp_path) -> None:
 
 
 def test_read_array_helper_uses_the_native_core(tmp_path) -> None:
-    """The module-level helper honours the backend choice and agrees."""
+    """The module-level helper agrees with both implementations."""
     path = _seed(tmp_path)
-    want = pz.read_array(path, "step_1_u", backend="python")
-    got = pz.read_array(path, "step_1_u", backend="native")
+    want = AppendReader(path, _impl="python").read_array("step_1_u")
+    got = AppendReader(path, _impl="native").read_array("step_1_u")
     assert np.array_equal(got, want)
+    # The helper picks for itself; whichever it picked has to land on the
+    # same bytes, which is only a statement worth making because the two
+    # arms above were just shown to agree.
+    assert np.array_equal(pz.read_array(path, "step_1_u"), want)

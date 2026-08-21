@@ -42,56 +42,56 @@ struct PendingArray {
 
 }  // namespace
 
-struct pvz_writer {
+struct pvzstd_writer {
   int level = kDefaultLevel;
-  int threads = PVZ_THREADS_AUTO;
-  pvz_shuffle_mode shuffle = PVZ_SHUFFLE_NEVER;
+  int threads = PVZSTD_THREADS_AUTO;
+  pvzstd_shuffle_mode shuffle = PVZSTD_SHUFFLE_NEVER;
   bool fixed_width_cells = false;
   std::vector<PendingArray> arrays;
 };
 
 extern "C" {
 
-pvz_status pvz_writer_create(pvz_writer **out) {
-  if (out == nullptr) return PVZ_E_INVALID;
-  *out = new (std::nothrow) pvz_writer();
-  return *out == nullptr ? PVZ_E_NOMEM : PVZ_OK;
+pvzstd_status pvzstd_writer_create(pvzstd_writer **out) {
+  if (out == nullptr) return PVZSTD_E_INVALID;
+  *out = new (std::nothrow) pvzstd_writer();
+  return *out == nullptr ? PVZSTD_E_NOMEM : PVZSTD_OK;
 }
 
-void pvz_writer_free(pvz_writer *writer) { delete writer; }
+void pvzstd_writer_free(pvzstd_writer *writer) { delete writer; }
 
-pvz_status pvz_writer_set_level(pvz_writer *writer, int level) {
-  if (writer == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_writer_set_level(pvzstd_writer *writer, int level) {
+  if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->level = level;
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-pvz_status pvz_writer_set_threads(pvz_writer *writer, int n_threads) {
-  if (writer == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_writer_set_threads(pvzstd_writer *writer, int n_threads) {
+  if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->threads = n_threads;
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-pvz_status pvz_writer_set_shuffle(pvz_writer *writer, pvz_shuffle_mode mode) {
-  if (writer == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_writer_set_shuffle(pvzstd_writer *writer, pvzstd_shuffle_mode mode) {
+  if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->shuffle = mode;
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-pvz_status pvz_writer_set_fixed_width_cells(pvz_writer *writer, int enabled) {
-  if (writer == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int enabled) {
+  if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->fixed_width_cells = enabled != 0;
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-pvz_status pvz_writer_add_array(pvz_writer *writer, const char *name, const char *dtype,
-                                const uint64_t *shape, uint32_t ndim, const void *data,
-                                uint64_t nbytes) {
-  if (writer == nullptr || name == nullptr || dtype == nullptr) return PVZ_E_INVALID;
-  if (nbytes > 0 && data == nullptr) return PVZ_E_INVALID;
-  if (ndim > 0 && shape == nullptr) return PVZ_E_INVALID;
-  if (std::strlen(dtype) > PVZSTD_DTYPE_LEN) return PVZ_E_INVALID;
-  if (!ParseDtype(dtype).valid) return PVZ_E_INVALID;
+pvzstd_status pvzstd_writer_add_array(pvzstd_writer *writer, const char *name, const char *dtype,
+                                      const uint64_t *shape, uint32_t ndim, const void *data,
+                                      uint64_t nbytes) {
+  if (writer == nullptr || name == nullptr || dtype == nullptr) return PVZSTD_E_INVALID;
+  if (nbytes > 0 && data == nullptr) return PVZSTD_E_INVALID;
+  if (ndim > 0 && shape == nullptr) return PVZSTD_E_INVALID;
+  if (std::strlen(dtype) > PVZSTD_DTYPE_LEN) return PVZSTD_E_INVALID;
+  if (!ParseDtype(dtype).valid) return PVZSTD_E_INVALID;
 
   PendingArray entry;
   entry.name = name;
@@ -102,13 +102,14 @@ pvz_status pvz_writer_add_array(pvz_writer *writer, const char *name, const char
                       static_cast<const uint8_t *>(data) + nbytes);
     writer->arrays.push_back(std::move(entry));
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-pvz_status pvz_writer_set_ds_metadata(pvz_writer *writer, const char *uid, const char *json) {
-  if (writer == nullptr || uid == nullptr || json == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, const char *uid,
+                                            const char *json) {
+  if (writer == nullptr || uid == nullptr || json == nullptr) return PVZSTD_E_INVALID;
   const uint64_t n = std::strlen(json);
   PendingArray entry;
   entry.name = std::string(uid) + "__ds_metadata";
@@ -119,17 +120,17 @@ pvz_status pvz_writer_set_ds_metadata(pvz_writer *writer, const char *uid, const
     entry.data.assign(json, json + n);
     writer->arrays.push_back(std::move(entry));
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
-  if (writer == nullptr || path == nullptr) return PVZ_E_INVALID;
-  if (writer->arrays.empty()) return PVZ_E_INVALID;
+pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
+  if (writer == nullptr || path == nullptr) return PVZSTD_E_INVALID;
+  if (writer->arrays.empty()) return PVZSTD_E_INVALID;
 
   // 1. Resolve each array's filter, exactly as the reference writer does.
-  std::vector<uint8_t> filters(writer->arrays.size(), PVZ_FILTER_NONE);
+  std::vector<uint8_t> filters(writer->arrays.size(), PVZSTD_FILTER_NONE);
   bool any_filtered = false;
   for (size_t i = 0; i < writer->arrays.size(); ++i) {
     const PendingArray &a = writer->arrays[i];
@@ -138,15 +139,15 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
     // Note the absent emptiness check: the reference decides from dtype, so an
     // empty multibyte array under shuffle=True is still *recorded* as
     // filtered. Shuffling nothing is a no-op, but the header byte is not.
-    if (writer->shuffle != PVZ_SHUFFLE_NEVER && d.itemsize > 1) {
-      if (writer->shuffle == PVZ_SHUFFLE_ALWAYS) {
+    if (writer->shuffle != PVZSTD_SHUFFLE_NEVER && d.itemsize > 1) {
+      if (writer->shuffle == PVZSTD_SHUFFLE_ALWAYS) {
         use = true;
       } else if (d.kind == 'f' || d.kind == 'c') {
         use = AutoShuffleBeneficial(a.data.data(), a.data.size(), d.itemsize, writer->level);
       }
     }
     if (use) {
-      filters[i] = PVZ_FILTER_SHUFFLE;
+      filters[i] = PVZSTD_FILTER_SHUFFLE;
       any_filtered = true;
     }
   }
@@ -186,7 +187,7 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
   try {
     meta_entry.data.assign(meta.begin(), meta.end());
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
   // Appended to a local list rather than to the writer's own, so writing the
   // same writer to a second path emits one metadata frame and not two. The
@@ -195,24 +196,24 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
   emit.reserve(writer->arrays.size() + 1);
   for (const PendingArray &a : writer->arrays) emit.push_back(&a);
   emit.push_back(&meta_entry);
-  filters.push_back(PVZ_FILTER_NONE);  // the JSON blob is never shuffled
+  filters.push_back(PVZSTD_FILTER_NONE);  // the JSON blob is never shuffled
 
   // 4. Worker count, from the total computed above.
   const int workers = EffectiveWorkers(ResolveThreads(writer->threads, total_bytes));
 
   // 5. Emit (header, payload) pairs, recording END offsets.
   std::FILE *fp = std::fopen(path, "wb");
-  if (fp == nullptr) return PVZ_E_IO;
+  if (fp == nullptr) return PVZSTD_E_IO;
 
   std::vector<uint64_t> ends;
   std::vector<uint64_t> sizes;
   uint64_t offset = 0;
-  pvz_status st = PVZ_OK;
+  pvzstd_status st = PVZSTD_OK;
   std::vector<uint8_t> header;
   std::vector<uint8_t> payload;
   std::vector<uint8_t> frame;
 
-  for (size_t i = 0; i < emit.size() && st == PVZ_OK; ++i) {
+  for (size_t i = 0; i < emit.size() && st == PVZSTD_OK; ++i) {
     const PendingArray &a = *emit[i];
     const Dtype d = ParseDtype(a.dtype.c_str());
 
@@ -224,13 +225,13 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
     for (size_t k = 0; k < PVZSTD_DTYPE_LEN; ++k) {
       header.push_back(k < a.dtype.size() ? static_cast<uint8_t>(a.dtype[k]) : ' ');
     }
-    // Written only when a filter is in use: absence means PVZ_FILTER_NONE and
+    // Written only when a filter is in use: absence means PVZSTD_FILTER_NONE and
     // keeps unfiltered frames byte-identical to the legacy layout.
-    if (filters[i] != PVZ_FILTER_NONE) header.push_back(filters[i]);
+    if (filters[i] != PVZSTD_FILTER_NONE) header.push_back(filters[i]);
 
     const uint8_t *payload_ptr = a.data.data();
     uint64_t payload_len = a.data.size();
-    if (filters[i] == PVZ_FILTER_SHUFFLE) {
+    if (filters[i] == PVZSTD_FILTER_SHUFFLE) {
       payload.assign(a.data.size(), 0);
       ShuffleBytes(a.data.data(), payload.data(), a.data.size(), d.itemsize);
       payload_ptr = payload.data();
@@ -239,11 +240,11 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
 
     const uint8_t *pieces[2] = {header.data(), payload_ptr};
     const uint64_t lengths[2] = {header.size(), payload_len};
-    for (int part = 0; part < 2 && st == PVZ_OK; ++part) {
+    for (int part = 0; part < 2 && st == PVZSTD_OK; ++part) {
       st = CompressFrame(pieces[part], lengths[part], writer->level, workers, &frame);
-      if (st != PVZ_OK) break;
+      if (st != PVZSTD_OK) break;
       if (!frame.empty() && std::fwrite(frame.data(), 1, frame.size(), fp) != frame.size()) {
-        st = PVZ_E_IO;
+        st = PVZSTD_E_IO;
         break;
       }
       offset += frame.size();
@@ -253,17 +254,17 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) {
   }
 
   // 6. Trailer: (end, decompressed_size) per frame, then the frame count.
-  if (st == PVZ_OK) {
+  if (st == PVZSTD_OK) {
     std::vector<uint8_t> trailer;
     for (size_t i = 0; i < ends.size(); ++i) {
       StoreU64(&trailer, ends[i]);
       StoreU64(&trailer, sizes[i]);
     }
     StoreU64(&trailer, static_cast<uint64_t>(ends.size()));
-    if (std::fwrite(trailer.data(), 1, trailer.size(), fp) != trailer.size()) st = PVZ_E_IO;
+    if (std::fwrite(trailer.data(), 1, trailer.size(), fp) != trailer.size()) st = PVZSTD_E_IO;
   }
 
-  if (std::fclose(fp) != 0 && st == PVZ_OK) st = PVZ_E_IO;
+  if (std::fclose(fp) != 0 && st == PVZSTD_OK) st = PVZSTD_E_IO;
   return st;
 }
 

@@ -1,6 +1,6 @@
-// Streaming append: the same file edit as pvz_append_arrays, held open.
+// Streaming append: the same file edit as pvzstd_append_arrays, held open.
 //
-// pvz_append_arrays is correct and self-contained -- it reads the trailer,
+// pvzstd_append_arrays is correct and self-contained -- it reads the trailer,
 // decompresses the two metadata frames, and copies the body to a temporary
 // file it renames into place. That makes every call cost the size of the
 // file. Measured on 40 single-block commits, the per-commit cost went from
@@ -22,11 +22,11 @@
 // Byte-identity with the copying path is not approximate. The dataset
 // metadata is spliced, not regenerated: the document is held as the string it
 // was read as, and each commit inserts into its "field_data_keys" object,
-// exactly as pvz_append_arrays does to the copy it decompressed. The frames
+// exactly as pvzstd_append_arrays does to the copy it decompressed. The frames
 // are built by the same helpers with the same single-threaded framing, so a
 // stream of N commits produces the file N separate appends would have.
 //
-// Crash behaviour differs from pvz_append_arrays and the difference is the
+// Crash behaviour differs from pvzstd_append_arrays and the difference is the
 // point of having both. That function commits by rename: an interrupted call
 // leaves the previous file untouched. A stream writes in place, so a commit
 // interrupted partway leaves the trailer describing frames that were not
@@ -34,7 +34,7 @@
 // the one that was interrupted -- those bytes are never revisited -- but
 // recovering them from an interrupted stream means rebuilding the trailer,
 // which this library does not do. Callers that need a valid file after every
-// single commit should use pvz_append_arrays and pay the copy.
+// single commit should use pvzstd_append_arrays and pay the copy.
 
 #include <cstdio>
 #include <cstring>
@@ -88,7 +88,7 @@ struct FrameEntry {
 
 }  // namespace
 
-struct pvz_stream {
+struct pvzstd_stream {
   std::FILE *fp = nullptr;
   std::string path;
 
@@ -114,8 +114,8 @@ struct pvz_stream {
 namespace {
 
 // Decompress frame `index` of the open file into `out`.
-pvz_status ReadFrame(pvz_stream *s, const std::vector<uint64_t> &ends,
-                     const std::vector<uint64_t> &sizes, size_t index, std::string *out) {
+pvzstd_status ReadFrame(pvzstd_stream *s, const std::vector<uint64_t> &ends,
+                        const std::vector<uint64_t> &sizes, size_t index, std::string *out) {
   const uint64_t start = (index == 0) ? 0 : ends[index - 1];
   const uint64_t n = ends[index] - start;
   std::vector<uint8_t> comp;
@@ -123,21 +123,21 @@ pvz_status ReadFrame(pvz_stream *s, const std::vector<uint64_t> &ends,
     comp.resize(static_cast<size_t>(n));
     out->resize(static_cast<size_t>(sizes[index]));
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
-  if (SeekTo(s->fp, static_cast<int64_t>(start), SEEK_SET) != 0) return PVZ_E_IO;
-  if (n > 0 && std::fread(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZ_E_IO;
-  if (sizes[index] == 0) return PVZ_OK;
+  if (SeekTo(s->fp, static_cast<int64_t>(start), SEEK_SET) != 0) return PVZSTD_E_IO;
+  if (n > 0 && std::fread(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZSTD_E_IO;
+  if (sizes[index] == 0) return PVZSTD_OK;
   const size_t got = ZSTD_decompress(&(*out)[0], out->size(), comp.data(), comp.size());
-  if (ZSTD_isError(got) != 0) return PVZ_E_ZSTD;
-  if (got != out->size()) return PVZ_E_FORMAT;
-  return PVZ_OK;
+  if (ZSTD_isError(got) != 0) return PVZSTD_E_ZSTD;
+  if (got != out->size()) return PVZSTD_E_FORMAT;
+  return PVZSTD_OK;
 }
 
 // Emit the metadata tail (dataset + file metadata) at body_end, write the
 // trailer, and cut the file to exactly what was written. The tail can shrink,
 // and a stale suffix would leave the trailer no longer at the end.
-pvz_status WriteTail(pvz_stream *s) {
+pvzstd_status WriteTail(pvzstd_stream *s) {
   std::vector<std::string> final_names = s->names;
   final_names.push_back(s->ds_name);
 
@@ -153,23 +153,24 @@ pvz_status WriteTail(pvz_stream *s) {
 
   std::vector<std::vector<uint8_t>> plain;
   try {
-    plain.push_back(PackArrayMetadata(s->ds_name, "|u1", {s->ds_json.size()}, PVZ_FILTER_NONE));
+    plain.push_back(PackArrayMetadata(s->ds_name, "|u1", {s->ds_json.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(s->ds_json.begin(), s->ds_json.end());
-    plain.push_back(PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZ_FILTER_NONE));
+    plain.push_back(
+        PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
 
-  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZ_E_IO;
+  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZSTD_E_IO;
   uint64_t offset = s->body_end;
   for (std::vector<uint8_t> &payload : plain) {
     std::vector<uint8_t> comp;
     // Single-threaded, matching the reference append: same level, different
     // framing from the writer's worker pool.
-    const pvz_status st = CompressFrame(payload.data(), payload.size(), s->level, 0, &comp);
-    if (st != PVZ_OK) return st;
-    if (std::fwrite(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZ_E_IO;
+    const pvzstd_status st = CompressFrame(payload.data(), payload.size(), s->level, 0, &comp);
+    if (st != PVZSTD_OK) return st;
+    if (std::fwrite(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZSTD_E_IO;
     offset += comp.size();
     s->frames.push_back({offset, payload.size()});
   }
@@ -180,50 +181,50 @@ pvz_status WriteTail(pvz_stream *s) {
     StoreU64(&trailer, f.decomp);
   }
   StoreU64(&trailer, s->frames.size());
-  if (std::fwrite(trailer.data(), 1, trailer.size(), s->fp) != trailer.size()) return PVZ_E_IO;
+  if (std::fwrite(trailer.data(), 1, trailer.size(), s->fp) != trailer.size()) return PVZSTD_E_IO;
 
-  return TruncateTo(s->fp, offset + trailer.size()) ? PVZ_OK : PVZ_E_IO;
+  return TruncateTo(s->fp, offset + trailer.size()) ? PVZSTD_OK : PVZSTD_E_IO;
 }
 
 }  // namespace
 
 extern "C" {
 
-pvz_status pvz_stream_open(const char *path, pvz_stream **out) {
-  if (path == nullptr || out == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) {
+  if (path == nullptr || out == nullptr) return PVZSTD_E_INVALID;
   *out = nullptr;
 
-  pvz_stream *s = new (std::nothrow) pvz_stream();
-  if (s == nullptr) return PVZ_E_NOMEM;
+  pvzstd_stream *s = new (std::nothrow) pvzstd_stream();
+  if (s == nullptr) return PVZSTD_E_NOMEM;
   s->path = path;
   s->fp = std::fopen(path, "r+b");
   if (s->fp == nullptr) {
     delete s;
-    return PVZ_E_IO;
+    return PVZSTD_E_IO;
   }
 
   // One parse, at open. Everything an append needs is kept from here on.
-  auto fail = [&](pvz_status st) {
+  auto fail = [&](pvzstd_status st) {
     std::fclose(s->fp);
     delete s;
     return st;
   };
 
-  if (SeekTo(s->fp, 0, SEEK_END) != 0) return fail(PVZ_E_IO);
+  if (SeekTo(s->fp, 0, SEEK_END) != 0) return fail(PVZSTD_E_IO);
   const int64_t file_size = TellAt(s->fp);
-  if (file_size < 8) return fail(PVZ_E_FORMAT);
+  if (file_size < 8) return fail(PVZSTD_E_FORMAT);
 
-  if (SeekTo(s->fp, -8, SEEK_END) != 0) return fail(PVZ_E_IO);
+  if (SeekTo(s->fp, -8, SEEK_END) != 0) return fail(PVZSTD_E_IO);
   uint8_t count_buf[8];
-  if (std::fread(count_buf, 1, 8, s->fp) != 8) return fail(PVZ_E_IO);
+  if (std::fread(count_buf, 1, 8, s->fp) != 8) return fail(PVZSTD_E_IO);
   const uint64_t n_frames = LoadU64(count_buf);
-  if (n_frames < kTailFrames || (n_frames % 2) != 0) return fail(PVZ_E_FORMAT);
+  if (n_frames < kTailFrames || (n_frames % 2) != 0) return fail(PVZSTD_E_FORMAT);
   // Bounded by division rather than by comparing against n_frames * 16: the
   // count is read from the file, and the product overflows for a large enough
   // value. Everything below is sized from this count, so an unchecked one is
-  // an allocation the file never justified -- pvz_append_arrays already guards
+  // an allocation the file never justified -- pvzstd_append_arrays already guards
   // this way.
-  if (n_frames > (static_cast<uint64_t>(file_size) - 8) / 16) return fail(PVZ_E_FORMAT);
+  if (n_frames > (static_cast<uint64_t>(file_size) - 8) / 16) return fail(PVZSTD_E_FORMAT);
 
   std::vector<uint64_t> ends(static_cast<size_t>(n_frames));
   std::vector<uint64_t> sizes(static_cast<size_t>(n_frames));
@@ -232,25 +233,25 @@ pvz_status pvz_stream_open(const char *path, pvz_stream **out) {
     try {
       table.resize(static_cast<size_t>(n_frames) * 16);
     } catch (const std::bad_alloc &) {
-      return fail(PVZ_E_NOMEM);
+      return fail(PVZSTD_E_NOMEM);
     }
     if (SeekTo(s->fp, -static_cast<int64_t>(table.size() + 8), SEEK_END) != 0) {
-      return fail(PVZ_E_IO);
+      return fail(PVZSTD_E_IO);
     }
-    if (std::fread(table.data(), 1, table.size(), s->fp) != table.size()) return fail(PVZ_E_IO);
+    if (std::fread(table.data(), 1, table.size(), s->fp) != table.size()) return fail(PVZSTD_E_IO);
     uint64_t prev = 0;
     for (uint64_t i = 0; i < n_frames; ++i) {
       ends[static_cast<size_t>(i)] = LoadU64(table.data() + i * 16);
       sizes[static_cast<size_t>(i)] = LoadU64(table.data() + i * 16 + 8);
-      if (ends[static_cast<size_t>(i)] < prev) return fail(PVZ_E_FORMAT);
+      if (ends[static_cast<size_t>(i)] < prev) return fail(PVZSTD_E_FORMAT);
       prev = ends[static_cast<size_t>(i)];
     }
   }
 
   const size_t n_arrays = static_cast<size_t>(n_frames) / 2;
   std::string file_meta_json;
-  pvz_status st = ReadFrame(s, ends, sizes, (n_arrays - 1) * 2 + 1, &file_meta_json);
-  if (st != PVZ_OK) return fail(st);
+  pvzstd_status st = ReadFrame(s, ends, sizes, (n_arrays - 1) * 2 + 1, &file_meta_json);
+  if (st != PVZSTD_OK) return fail(st);
 
   std::vector<std::string> frame_names;
   long long level = 0;
@@ -259,33 +260,33 @@ pvz_status pvz_stream_open(const char *path, pvz_stream **out) {
       !MemberInt(file_meta_json, "compression_level", &level) ||
       !MemberInt(file_meta_json, "file_version", &version) ||
       !MemberString(file_meta_json, "compression", &s->compression)) {
-    return fail(PVZ_E_FORMAT);
+    return fail(PVZSTD_E_FORMAT);
   }
   // The trailing file-metadata array's own name is deliberately absent.
-  if (frame_names.size() != n_arrays - 1) return fail(PVZ_E_FORMAT);
+  if (frame_names.size() != n_arrays - 1) return fail(PVZSTD_E_FORMAT);
   s->level = static_cast<int>(level);
   s->file_version = version;
 
   size_t root_idx = frame_names.size();
   for (size_t i = 0; i < frame_names.size(); ++i) {
     // A MultiBlock container has no single root dataset to stream into.
-    if (EndsWith(frame_names[i], kMultiblockKey)) return fail(PVZ_E_FORMAT);
+    if (EndsWith(frame_names[i], kMultiblockKey)) return fail(PVZSTD_E_FORMAT);
     if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataKey)) root_idx = i;
   }
-  if (root_idx == frame_names.size()) return fail(PVZ_E_FORMAT);
-  if (frame_names[root_idx].size() < kUidNChar) return fail(PVZ_E_FORMAT);
+  if (root_idx == frame_names.size()) return fail(PVZSTD_E_FORMAT);
+  if (frame_names[root_idx].size() < kUidNChar) return fail(PVZSTD_E_FORMAT);
   // Streaming rewrites the tail in place, which requires the two metadata
   // arrays to *be* the tail. They are, in every file this library writes.
-  if (root_idx != n_arrays - 2) return fail(PVZ_E_FORMAT);
+  if (root_idx != n_arrays - 2) return fail(PVZSTD_E_FORMAT);
   s->ds_id = frame_names[root_idx].substr(0, kUidNChar);
   s->ds_name = frame_names[root_idx];
 
   st = ReadFrame(s, ends, sizes, root_idx * 2 + 1, &s->ds_json);
-  if (st != PVZ_OK) return fail(st);
+  if (st != PVZSTD_OK) return fail(st);
   size_t fdk_open = 0;
   size_t fdk_past = 0;
   if (!MemberObjectSpan(s->ds_json, "field_data_keys", &fdk_open, &fdk_past)) {
-    return fail(PVZ_E_FORMAT);
+    return fail(PVZSTD_E_FORMAT);
   }
 
   for (size_t i = 0; i < root_idx; ++i) s->names.push_back(frame_names[i]);
@@ -295,61 +296,61 @@ pvz_status pvz_stream_open(const char *path, pvz_stream **out) {
   s->body_end = (root_idx == 0) ? 0 : ends[root_idx * 2 - 1];
 
   *out = s;
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-pvz_status pvz_stream_append(pvz_stream *s, const pvz_append_array *arrays, uint64_t count,
-                             pvz_shuffle_mode shuffle) {
-  if (s == nullptr) return PVZ_E_INVALID;
-  if (s->closed) return PVZ_E_INVALID;
-  if (count == 0) return PVZ_OK;
-  if (arrays == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *arrays,
+                                   uint64_t count, pvzstd_shuffle_mode shuffle) {
+  if (s == nullptr) return PVZSTD_E_INVALID;
+  if (s->closed) return PVZSTD_E_INVALID;
+  if (count == 0) return PVZSTD_OK;
+  if (arrays == nullptr) return PVZSTD_E_INVALID;
 
   std::vector<std::string> existing;
   size_t fdk_open = 0;
   size_t fdk_past = 0;
   if (!MemberObjectSpan(s->ds_json, "field_data_keys", &fdk_open, &fdk_past) ||
       !ObjectKeys(s->ds_json, fdk_open, &existing)) {
-    return PVZ_E_FORMAT;
+    return PVZSTD_E_FORMAT;
   }
   for (uint64_t k = 0; k < count; ++k) {
     if (arrays[k].name == nullptr || arrays[k].dtype == nullptr ||
         arrays[k].dtype_name == nullptr) {
-      return PVZ_E_INVALID;
+      return PVZSTD_E_INVALID;
     }
     for (const std::string &have : existing) {
       // Refused, not overwritten: the old block's bytes would stay in the
       // file with nothing pointing at them.
-      if (have == arrays[k].name) return PVZ_E_INVALID;
+      if (have == arrays[k].name) return PVZSTD_E_INVALID;
     }
     for (uint64_t j = 0; j < k; ++j) {
-      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZ_E_INVALID;
+      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZSTD_E_INVALID;
     }
   }
 
   // Drop the tail's frame entries; WriteTail re-adds them.
-  if (s->frames.size() < kTailFrames) return PVZ_E_FORMAT;
+  if (s->frames.size() < kTailFrames) return PVZSTD_E_FORMAT;
   s->frames.resize(s->frames.size() - kTailFrames);
 
-  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZ_E_IO;
+  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZSTD_E_IO;
   uint64_t offset = s->body_end;
   std::string fdk_addition;
 
   for (uint64_t k = 0; k < count; ++k) {
-    const pvz_append_array &a = arrays[k];
+    const pvzstd_append_array &a = arrays[k];
     const std::string frame_name = s->ds_id + a.name + kFieldDataSuffix;
     const Dtype d = ParseDtype(a.dtype);
 
     bool use_shuffle = false;
-    if (shuffle != PVZ_SHUFFLE_NEVER && d.itemsize > 1) {
-      if (shuffle == PVZ_SHUFFLE_ALWAYS) {
+    if (shuffle != PVZSTD_SHUFFLE_NEVER && d.itemsize > 1) {
+      if (shuffle == PVZSTD_SHUFFLE_ALWAYS) {
         use_shuffle = true;
       } else if (d.kind == 'f' || d.kind == 'c') {
         use_shuffle = AutoShuffleBeneficial(static_cast<const uint8_t *>(a.data), a.nbytes,
                                             d.itemsize, s->level);
       }
     }
-    const uint8_t filter = use_shuffle ? PVZ_FILTER_SHUFFLE : PVZ_FILTER_NONE;
+    const uint8_t filter = use_shuffle ? PVZSTD_FILTER_SHUFFLE : PVZSTD_FILTER_NONE;
     if (use_shuffle && s->file_version < kFileVersionShuffle) {
       s->file_version = kFileVersionShuffle;
     }
@@ -369,14 +370,14 @@ pvz_status pvz_stream_append(pvz_stream *s, const pvz_append_array *arrays, uint
       }
       pair.push_back(std::move(payload));
     } catch (const std::bad_alloc &) {
-      return PVZ_E_NOMEM;
+      return PVZSTD_E_NOMEM;
     }
 
     for (std::vector<uint8_t> &payload : pair) {
       std::vector<uint8_t> comp;
-      const pvz_status st = CompressFrame(payload.data(), payload.size(), s->level, 0, &comp);
-      if (st != PVZ_OK) return st;
-      if (std::fwrite(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZ_E_IO;
+      const pvzstd_status st = CompressFrame(payload.data(), payload.size(), s->level, 0, &comp);
+      if (st != PVZSTD_OK) return st;
+      if (std::fwrite(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZSTD_E_IO;
       offset += comp.size();
       s->frames.push_back({offset, payload.size()});
     }
@@ -393,26 +394,28 @@ pvz_status pvz_stream_append(pvz_stream *s, const pvz_append_array *arrays, uint
   // path without having to reproduce another library's key order.
   s->ds_json.insert(fdk_past - 1, fdk_addition);
 
-  const pvz_status st = WriteTail(s);
-  if (st != PVZ_OK) return st;
+  const pvzstd_status st = WriteTail(s);
+  if (st != PVZSTD_OK) return st;
   ++s->commits;
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
-uint64_t pvz_stream_commit_count(const pvz_stream *s) { return s == nullptr ? 0 : s->commits; }
+uint64_t pvzstd_stream_commit_count(const pvzstd_stream *s) {
+  return s == nullptr ? 0 : s->commits;
+}
 
-pvz_status pvz_stream_close(pvz_stream *s, uint64_t expected_commits) {
-  if (s == nullptr) return PVZ_E_INVALID;
-  if (s->closed) return PVZ_OK;
+pvzstd_status pvzstd_stream_close(pvzstd_stream *s, uint64_t expected_commits) {
+  if (s == nullptr) return PVZSTD_E_INVALID;
+  if (s->closed) return PVZSTD_OK;
   // A short stream presented as a complete one is worse than an error: the
   // file reads back perfectly, with results missing.
-  if (s->commits != expected_commits) return PVZ_E_RANGE;
+  if (s->commits != expected_commits) return PVZSTD_E_RANGE;
   s->closed = true;
-  if (std::fflush(s->fp) != 0) return PVZ_E_IO;
-  return PVZ_OK;
+  if (std::fflush(s->fp) != 0) return PVZSTD_E_IO;
+  return PVZSTD_OK;
 }
 
-void pvz_stream_free(pvz_stream *s) {
+void pvzstd_stream_free(pvzstd_stream *s) {
   if (s == nullptr) return;
   if (s->fp != nullptr) std::fclose(s->fp);
   delete s;

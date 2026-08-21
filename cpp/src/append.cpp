@@ -13,7 +13,7 @@
 // Two details decide most of that agreement:
 //
 //   * the reference append compresses with threads=0, so these frames are
-//     single-threaded -- unlike pvz_writer_write, which sizes a worker pool
+//     single-threaded -- unlike pvzstd_writer_write, which sizes a worker pool
 //     from the payload total. Same level, different framing;
 //   * the dataset-metadata JSON is edited by splicing into its
 //     "field_data_keys" object rather than by parsing and re-emitting the
@@ -84,59 +84,59 @@ bool ReadAt(std::FILE *fp, uint64_t offset, uint64_t len, std::vector<uint8_t> *
 
 // The trailer: per frame [cumulative_end:u64][decompressed_size:u64], then the
 // frame count as the final 8 bytes.
-pvz_status ReadFooter(std::FILE *fp, std::vector<FrameEntry> *frames, uint64_t *body_end) {
-  if (SeekTo(fp, 0, SEEK_END) != 0) return PVZ_E_IO;
+pvzstd_status ReadFooter(std::FILE *fp, std::vector<FrameEntry> *frames, uint64_t *body_end) {
+  if (SeekTo(fp, 0, SEEK_END) != 0) return PVZSTD_E_IO;
   const int64_t end = TellAt(fp);
-  if (end < 8) return PVZ_E_FORMAT;
+  if (end < 8) return PVZSTD_E_FORMAT;
   const uint64_t size = static_cast<uint64_t>(end);
 
   std::vector<uint8_t> buf;
-  if (!ReadAt(fp, size - 8, 8, &buf)) return PVZ_E_IO;
+  if (!ReadAt(fp, size - 8, 8, &buf)) return PVZSTD_E_IO;
   const uint64_t n_frames = LoadU64(buf.data());
   // An empty or odd frame count cannot be a (header, payload) pairing, and a
   // count that does not fit in the file is a truncation, not a container.
-  if (n_frames < 4 || (n_frames % 2) != 0) return PVZ_E_FORMAT;
-  if (n_frames > (size - 8) / 16) return PVZ_E_FORMAT;
+  if (n_frames < 4 || (n_frames % 2) != 0) return PVZSTD_E_FORMAT;
+  if (n_frames > (size - 8) / 16) return PVZSTD_E_FORMAT;
 
   const uint64_t table_bytes = n_frames * 16;
-  if (!ReadAt(fp, size - 8 - table_bytes, table_bytes, &buf)) return PVZ_E_IO;
+  if (!ReadAt(fp, size - 8 - table_bytes, table_bytes, &buf)) return PVZSTD_E_IO;
   frames->resize(static_cast<size_t>(n_frames));
   uint64_t prev = 0;
   for (uint64_t i = 0; i < n_frames; ++i) {
     (*frames)[i].end = LoadU64(buf.data() + i * 16);
     (*frames)[i].decomp = LoadU64(buf.data() + i * 16 + 8);
     // Ends are cumulative, so they must not go backwards or past the trailer.
-    if ((*frames)[i].end < prev) return PVZ_E_FORMAT;
+    if ((*frames)[i].end < prev) return PVZSTD_E_FORMAT;
     prev = (*frames)[i].end;
   }
-  if (prev > size - 8 - table_bytes) return PVZ_E_FORMAT;
+  if (prev > size - 8 - table_bytes) return PVZSTD_E_FORMAT;
   *body_end = prev;
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
 uint64_t FrameStart(const std::vector<FrameEntry> &frames, size_t i) {
   return i == 0 ? 0 : frames[i - 1].end;
 }
 
-pvz_status DecompressFrame(std::FILE *fp, const std::vector<FrameEntry> &frames, size_t index,
-                           std::string *out) {
+pvzstd_status DecompressFrame(std::FILE *fp, const std::vector<FrameEntry> &frames, size_t index,
+                              std::string *out) {
   const uint64_t start = FrameStart(frames, index);
   const uint64_t len = frames[index].end - start;
   std::vector<uint8_t> raw;
-  if (!ReadAt(fp, start, len, &raw)) return PVZ_E_IO;
+  if (!ReadAt(fp, start, len, &raw)) return PVZSTD_E_IO;
   std::string plain;
   try {
     plain.resize(static_cast<size_t>(frames[index].decomp));
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
   const size_t got = ZSTD_decompress(plain.data(), plain.size(), raw.data(), raw.size());
-  if (ZSTD_isError(got) != 0) return PVZ_E_ZSTD;
+  if (ZSTD_isError(got) != 0) return PVZSTD_E_ZSTD;
   // A frame that decompressed to a different length than the trailer declared
   // means the trailer and the body disagree; trusting either would be a guess.
-  if (got != plain.size()) return PVZ_E_FORMAT;
+  if (got != plain.size()) return PVZSTD_E_FORMAT;
   *out = std::move(plain);
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
 bool EndsWith(const std::string &s, const char *suffix) {
@@ -156,35 +156,35 @@ struct StagedFrame {
 
 extern "C" {
 
-pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, uint64_t count,
-                             int level, pvz_shuffle_mode shuffle) {
-  if (path == nullptr) return PVZ_E_INVALID;
-  if (count == 0) return PVZ_OK;  // appending nothing is a no-op, not an error
-  if (arrays == nullptr) return PVZ_E_INVALID;
+pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *arrays,
+                                   uint64_t count, int level, pvzstd_shuffle_mode shuffle) {
+  if (path == nullptr) return PVZSTD_E_INVALID;
+  if (count == 0) return PVZSTD_OK;  // appending nothing is a no-op, not an error
+  if (arrays == nullptr) return PVZSTD_E_INVALID;
 
   for (uint64_t k = 0; k < count; ++k) {
-    const pvz_append_array &a = arrays[k];
-    if (a.name == nullptr || a.dtype == nullptr || a.dtype_name == nullptr) return PVZ_E_INVALID;
-    if (a.ndim > 0 && a.shape == nullptr) return PVZ_E_INVALID;
-    if (a.nbytes > 0 && a.data == nullptr) return PVZ_E_INVALID;
-    if (std::strlen(a.dtype) > PVZSTD_DTYPE_LEN) return PVZ_E_INVALID;
-    if (!ParseDtype(a.dtype).valid) return PVZ_E_INVALID;
+    const pvzstd_append_array &a = arrays[k];
+    if (a.name == nullptr || a.dtype == nullptr || a.dtype_name == nullptr) return PVZSTD_E_INVALID;
+    if (a.ndim > 0 && a.shape == nullptr) return PVZSTD_E_INVALID;
+    if (a.nbytes > 0 && a.data == nullptr) return PVZSTD_E_INVALID;
+    if (std::strlen(a.dtype) > PVZSTD_DTYPE_LEN) return PVZSTD_E_INVALID;
+    if (!ParseDtype(a.dtype).valid) return PVZSTD_E_INVALID;
   }
 
   ScopedFile src(std::fopen(path, "rb"));
-  if (src.get() == nullptr) return PVZ_E_IO;
+  if (src.get() == nullptr) return PVZSTD_E_IO;
 
   std::vector<FrameEntry> frames;
   uint64_t body_end = 0;
-  pvz_status st = ReadFooter(src.get(), &frames, &body_end);
-  if (st != PVZ_OK) return st;
+  pvzstd_status st = ReadFooter(src.get(), &frames, &body_end);
+  if (st != PVZSTD_OK) return st;
   const size_t n_arrays = frames.size() / 2;
   const size_t file_meta_idx = n_arrays - 1;
 
   // 1. The file metadata is always the final array.
   std::string file_meta_json;
   st = DecompressFrame(src.get(), frames, file_meta_idx * 2 + 1, &file_meta_json);
-  if (st != PVZ_OK) return st;
+  if (st != PVZSTD_OK) return st;
 
   std::vector<std::string> frame_names;
   long long old_level = 0;
@@ -194,48 +194,48 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
       !MemberInt(file_meta_json, "compression_level", &old_level) ||
       !MemberInt(file_meta_json, "file_version", &old_version) ||
       !MemberString(file_meta_json, "compression", &compression)) {
-    return PVZ_E_FORMAT;
+    return PVZSTD_E_FORMAT;
   }
   // The trailing file-metadata array's own name is deliberately absent from
   // frame_names; if the counts disagree the pairing we are about to rebuild
   // would silently shift every name onto the wrong frame.
-  if (frame_names.size() != n_arrays - 1) return PVZ_E_FORMAT;
+  if (frame_names.size() != n_arrays - 1) return PVZSTD_E_FORMAT;
 
   size_t root_idx = frame_names.size();
   for (size_t i = 0; i < frame_names.size(); ++i) {
     // MultiBlock metadata also ends with the dataset-metadata suffix, and a
     // MultiBlock file has no single root dataset to append to. Refuse it
     // rather than misparse its metadata as a dataset's.
-    if (EndsWith(frame_names[i], kMultiblockKey)) return PVZ_E_FORMAT;
+    if (EndsWith(frame_names[i], kMultiblockKey)) return PVZSTD_E_FORMAT;
     if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataKey)) root_idx = i;
   }
-  if (root_idx == frame_names.size()) return PVZ_E_FORMAT;
-  if (frame_names[root_idx].size() < kUidNChar) return PVZ_E_FORMAT;
+  if (root_idx == frame_names.size()) return PVZSTD_E_FORMAT;
+  if (frame_names[root_idx].size() < kUidNChar) return PVZSTD_E_FORMAT;
   const std::string ds_id = frame_names[root_idx].substr(0, kUidNChar);
 
   // 2. The root dataset metadata, which is the document that grows.
   std::string ds_json;
   st = DecompressFrame(src.get(), frames, root_idx * 2 + 1, &ds_json);
-  if (st != PVZ_OK) return st;
+  if (st != PVZSTD_OK) return st;
 
   size_t fdk_open = 0;
   size_t fdk_past = 0;
-  if (!MemberObjectSpan(ds_json, "field_data_keys", &fdk_open, &fdk_past)) return PVZ_E_FORMAT;
+  if (!MemberObjectSpan(ds_json, "field_data_keys", &fdk_open, &fdk_past)) return PVZSTD_E_FORMAT;
   std::vector<std::string> existing;
-  if (!ObjectKeys(ds_json, fdk_open, &existing)) return PVZ_E_FORMAT;
+  if (!ObjectKeys(ds_json, fdk_open, &existing)) return PVZSTD_E_FORMAT;
   for (uint64_t k = 0; k < count; ++k) {
     for (const std::string &have : existing) {
       // Refused, not overwritten: the old block's bytes would stay in the file
       // with nothing pointing at them, and the reader would surface whichever
       // entry it happened to find first.
-      if (have == arrays[k].name) return PVZ_E_INVALID;
+      if (have == arrays[k].name) return PVZSTD_E_INVALID;
     }
     for (uint64_t j = 0; j < k; ++j) {
-      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZ_E_INVALID;
+      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZSTD_E_INVALID;
     }
   }
 
-  const int use_level = (level == PVZ_LEVEL_FROM_FILE) ? static_cast<int>(old_level) : level;
+  const int use_level = (level == PVZSTD_LEVEL_FROM_FILE) ? static_cast<int>(old_level) : level;
 
   // 3. Stage the new frames. Kept frames are recorded as offset ranges; only
   //    the new and regenerated ones are built in memory.
@@ -258,20 +258,20 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   bool any_shuffled = false;
   std::vector<std::vector<uint8_t>> plain;  // uncompressed payloads, in order
   for (uint64_t k = 0; k < count; ++k) {
-    const pvz_append_array &a = arrays[k];
+    const pvzstd_append_array &a = arrays[k];
     const std::string frame_name = ds_id + a.name + kFieldDataSuffix;
     const Dtype d = ParseDtype(a.dtype);
 
     bool use_shuffle = false;
-    if (shuffle != PVZ_SHUFFLE_NEVER && d.itemsize > 1) {
-      if (shuffle == PVZ_SHUFFLE_ALWAYS) {
+    if (shuffle != PVZSTD_SHUFFLE_NEVER && d.itemsize > 1) {
+      if (shuffle == PVZSTD_SHUFFLE_ALWAYS) {
         use_shuffle = true;
       } else if (d.kind == 'f' || d.kind == 'c') {
         use_shuffle = AutoShuffleBeneficial(static_cast<const uint8_t *>(a.data), a.nbytes,
                                             d.itemsize, use_level);
       }
     }
-    const uint8_t filter = use_shuffle ? PVZ_FILTER_SHUFFLE : PVZ_FILTER_NONE;
+    const uint8_t filter = use_shuffle ? PVZSTD_FILTER_SHUFFLE : PVZSTD_FILTER_NONE;
     any_shuffled = any_shuffled || use_shuffle;
 
     std::vector<uint64_t> shape(a.shape, a.shape + a.ndim);
@@ -288,7 +288,7 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
       }
       plain.push_back(std::move(payload));
     } catch (const std::bad_alloc &) {
-      return PVZ_E_NOMEM;
+      return PVZSTD_E_NOMEM;
     }
     final_names.push_back(frame_name);
 
@@ -319,12 +319,13 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   file_new += ",\"file_version\":" + std::to_string(new_version) + "}";
 
   try {
-    plain.push_back(PackArrayMetadata(ds_name, "|u1", {ds_new.size()}, PVZ_FILTER_NONE));
+    plain.push_back(PackArrayMetadata(ds_name, "|u1", {ds_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(ds_new.begin(), ds_new.end());
-    plain.push_back(PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZ_FILTER_NONE));
+    plain.push_back(
+        PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
 
   // 6. Compress. Single-threaded, matching the reference append -- which uses
@@ -333,7 +334,7 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
     StagedFrame frame;
     frame.decomp = payload.size();
     st = CompressFrame(payload.data(), payload.size(), use_level, 0, &frame.bytes);
-    if (st != PVZ_OK) return st;
+    if (st != PVZSTD_OK) return st;
     staged.push_back(std::move(frame));
   }
 
@@ -341,7 +342,7 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   //    append cannot damage blocks that were already committed.
   const std::string tmp_path = std::string(path) + ".append.tmp";
   ScopedFile out(std::fopen(tmp_path.c_str(), "wb"));
-  if (out.get() == nullptr) return PVZ_E_IO;
+  if (out.get() == nullptr) return PVZSTD_E_IO;
 
   std::vector<uint8_t> chunk;
   std::vector<uint8_t> trailer;
@@ -383,7 +384,7 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   out.reset(nullptr);
   if (!ok) {
     std::remove(tmp_path.c_str());
-    return PVZ_E_IO;
+    return PVZSTD_E_IO;
   }
 
   // Windows will not rename onto an open handle, and the source is still open.
@@ -392,10 +393,10 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
     // Some platforms refuse a rename onto an existing file.
     if (std::remove(path) != 0 || std::rename(tmp_path.c_str(), path) != 0) {
       std::remove(tmp_path.c_str());
-      return PVZ_E_IO;
+      return PVZSTD_E_IO;
     }
   }
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
 }  // extern "C"

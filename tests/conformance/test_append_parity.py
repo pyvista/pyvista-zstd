@@ -1,7 +1,7 @@
 """
 Hold the C++ append to byte-for-byte agreement with the reference append.
 
-Skipped unless ``PVZ_APPEND`` points at a built ``pvz_append`` binary.
+Skipped unless ``PVZSTD_APPEND`` points at a built ``pvzstd_append`` binary.
 
 Appending is a harder parity problem than writing, because most of the output
 is not produced at all -- it is copied verbatim from the source file -- and the
@@ -32,15 +32,15 @@ import ref_reader
 
 import pyvista_zstd as pz
 
-APPEND = os.environ.get("PVZ_APPEND")
+APPEND = os.environ.get("PVZSTD_APPEND")
 
 pytestmark = pytest.mark.skipif(
     not APPEND or not Path(APPEND).exists(),
-    reason="set PVZ_APPEND to a built cpp/ pvz_append binary to run append parity",
+    reason="set PVZSTD_APPEND to a built cpp/ pvzstd_append binary to run append parity",
 )
 
 SHUFFLE_CODE = {False: 0, True: 1, "auto": 2}
-# PVZ_LEVEL_FROM_FILE: makes the tool read the level out of the container, the
+# PVZSTD_LEVEL_FROM_FILE: makes the tool read the level out of the container, the
 # way ``level=None`` does on the reference side, rather than being handed the
 # resolved number.
 LEVEL_FROM_FILE = "-1000"

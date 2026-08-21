@@ -1,10 +1,10 @@
-// pvz_stream -- drive the streaming writer from spec files, for the gate.
+// pvzstd_stream -- drive the streaming writer from spec files, for the gate.
 //
 // A developer tool, not part of the shipped library. It takes one spec file
 // per commit, so a run reproduces exactly the sequence of appends the
 // reference side made, and the two files can be compared byte for byte.
 //
-// usage: pvz_stream [--expect=N] <container> <shuffle> <spec>...
+// usage: pvzstd_stream [--expect=N] <container> <shuffle> <spec>...
 //
 //   --expect  count to close with; defaults to the number of specs. Only a
 //             mismatching value is interesting, which is why it is settable:
@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
   argc -= first - 1;
 
   if (argc < 4) {
-    std::cerr << "usage: pvz_stream [--expect=N] <container> <shuffle> <spec>...\n";
+    std::cerr << "usage: pvzstd_stream [--expect=N] <container> <shuffle> <spec>...\n";
     return 2;
   }
   const int shuffle_code = std::atoi(argv[2]);
@@ -120,10 +120,10 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  pvz_stream *stream = nullptr;
-  pvz_status st = pvz_stream_open(argv[1], &stream);
-  if (st != PVZ_OK) {
-    std::cerr << "pvz_stream_open: " << pvz_status_message(st) << "\n";
+  pvzstd_stream *stream = nullptr;
+  pvzstd_status st = pvzstd_stream_open(argv[1], &stream);
+  if (st != PVZSTD_OK) {
+    std::cerr << "pvzstd_stream_open: " << pvzstd_status_message(st) << "\n";
     return 1;
   }
 
@@ -132,13 +132,13 @@ int main(int argc, char **argv) {
     std::vector<Spec> specs;
     if (!LoadSpec(argv[3 + c], &specs)) {
       std::cerr << "cannot read spec " << argv[3 + c] << "\n";
-      pvz_stream_free(stream);
+      pvzstd_stream_free(stream);
       return 2;
     }
-    std::vector<pvz_append_array> arrays;
+    std::vector<pvzstd_append_array> arrays;
     arrays.reserve(specs.size());
     for (const Spec &s : specs) {
-      pvz_append_array a;
+      pvzstd_append_array a;
       a.name = s.name.c_str();
       a.dtype = s.dtype.c_str();
       a.dtype_name = s.dtype_name.c_str();
@@ -152,23 +152,23 @@ int main(int argc, char **argv) {
     // commit, and process start-up would swamp it.
     const long long read0 = BytesRead();
     const auto t0 = std::chrono::steady_clock::now();
-    st = pvz_stream_append(stream, arrays.data(), arrays.size(),
-                           static_cast<pvz_shuffle_mode>(shuffle_code));
+    st = pvzstd_stream_append(stream, arrays.data(), arrays.size(),
+                              static_cast<pvzstd_shuffle_mode>(shuffle_code));
     const auto t1 = std::chrono::steady_clock::now();
     const long long read1 = BytesRead();
     std::fprintf(stderr, "commit %d %.6f %lld\n", c, std::chrono::duration<double>(t1 - t0).count(),
                  (read0 < 0 || read1 < 0) ? -1 : read1 - read0);
-    if (st != PVZ_OK) {
-      std::cerr << "pvz_stream_append: " << pvz_status_message(st) << "\n";
-      pvz_stream_free(stream);
+    if (st != PVZSTD_OK) {
+      std::cerr << "pvzstd_stream_append: " << pvzstd_status_message(st) << "\n";
+      pvzstd_stream_free(stream);
       return 1;
     }
   }
 
-  st = pvz_stream_close(stream, static_cast<uint64_t>(expect < 0 ? n_commits : expect));
-  pvz_stream_free(stream);
-  if (st != PVZ_OK) {
-    std::cerr << "pvz_stream_close: " << pvz_status_message(st) << "\n";
+  st = pvzstd_stream_close(stream, static_cast<uint64_t>(expect < 0 ? n_commits : expect));
+  pvzstd_stream_free(stream);
+  if (st != PVZSTD_OK) {
+    std::cerr << "pvzstd_stream_close: " << pvzstd_status_message(st) << "\n";
     return 1;
   }
   return 0;

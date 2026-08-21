@@ -1,7 +1,7 @@
 """
 Hold the streaming writer to the copying one: same bytes, flat cost.
 
-Skipped unless ``PVZ_STREAM`` points at a built ``pvz_stream`` binary.
+Skipped unless ``PVZSTD_STREAM`` points at a built ``pvzstd_stream`` binary.
 
 :func:`~pyvista_zstd.append_arrays` is handed a path and nothing else, so every
 call rediscovers the container: trailer, both metadata frames, and a copy of
@@ -93,11 +93,11 @@ import pyvista as pv
 
 import pyvista_zstd as pz
 
-STREAM = os.environ.get("PVZ_STREAM")
+STREAM = os.environ.get("PVZSTD_STREAM")
 
 pytestmark = pytest.mark.skipif(
     not STREAM or not Path(STREAM).exists(),
-    reason="set PVZ_STREAM to a built cpp/ pvz_stream binary to run stream parity",
+    reason="set PVZSTD_STREAM to a built cpp/ pvzstd_stream binary to run stream parity",
 )
 
 SHUFFLE_CODE = {False: "0", True: "1", "auto": "2"}
@@ -339,7 +339,7 @@ def test_close_refuses_a_stream_shorter_than_it_declared(tmp_path) -> None:
         check=False,
     )
     assert result.returncode != 0, "closing 1 commit against a declared 2 should fail"
-    assert "pvz_stream_close" in result.stderr
+    assert "pvzstd_stream_close" in result.stderr
     # The commit itself succeeded, so it is on disk: the refusal is about the
     # declared total, not about the write.
     assert "count out of range" in result.stderr

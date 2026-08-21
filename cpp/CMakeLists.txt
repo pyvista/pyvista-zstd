@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(pvzstd LANGUAGES CXX)
 
-option(PVZSTD_BUILD_TOOLS "Build the pvz_dump conformance tool" ON)
+option(PVZSTD_BUILD_TOOLS "Build the pvzstd_dump conformance tool" ON)
 option(PVZSTD_BUILD_SHARED "Build a shared library (needed for the ctypes binding)" ON)
 
 # Threads are how the library goes faster, not how it stays correct. Turning
@@ -12,8 +12,8 @@ option(PVZSTD_BUILD_SHARED "Build a shared library (needed for the ctypes bindin
 #          frames over workers; same frames, same bytes, one core.
 #   write  byte-identity above the reference rule's 2 MiB threshold, where
 #          that rule asks zstd for workers. A zstd without ZSTD_MULTITHREAD
-#          rejects a non-zero ZSTD_c_nbWorkers, so pvz_writer_write reports
-#          PVZ_E_ZSTD rather than emitting frames that would not match.
+#          rejects a non-zero ZSTD_c_nbWorkers, so pvzstd_writer_write reports
+#          PVZSTD_E_ZSTD rather than emitting frames that would not match.
 #          Passing 0 workers still writes a valid file. Reading, appending and
 #          streaming are unaffected -- those already compress single-threaded.
 #
@@ -192,15 +192,15 @@ else()
 endif()
 
 if(PVZSTD_BUILD_TOOLS)
-  add_executable(pvz_dump tools/pvz_dump.cpp)
-  target_link_libraries(pvz_dump PRIVATE pvzstd)
-  add_executable(pvz_rewrite tools/pvz_rewrite.cpp)
-  target_link_libraries(pvz_rewrite PRIVATE pvzstd)
-  add_executable(pvz_append tools/pvz_append.cpp)
-  target_link_libraries(pvz_append PRIVATE pvzstd)
+  add_executable(pvzstd_dump tools/pvzstd_dump.cpp)
+  target_link_libraries(pvzstd_dump PRIVATE pvzstd)
+  add_executable(pvzstd_rewrite tools/pvzstd_rewrite.cpp)
+  target_link_libraries(pvzstd_rewrite PRIVATE pvzstd)
+  add_executable(pvzstd_append tools/pvzstd_append.cpp)
+  target_link_libraries(pvzstd_append PRIVATE pvzstd)
 
-  add_executable(pvz_stream tools/pvz_stream.cpp)
-  target_link_libraries(pvz_stream PRIVATE pvzstd)
+  add_executable(pvzstd_stream tools/pvzstd_stream.cpp)
+  target_link_libraries(pvzstd_stream PRIVATE pvzstd)
 endif()
 
 include(GNUInstallDirs)

@@ -81,14 +81,20 @@ repos:
   - repo: local
     hooks:
       - id: forbid-pvz
-        name: Forbid 'pvz' alias (reserved for another project; use 'pvzstd')
+        name: Forbid the 'pvz' name and the 'pvz_'/'PVZ_' prefixes (use 'pvzstd')
+        # Three alternatives, not one. `\bpvz\b` alone cannot match `pvz_open`:
+        # `_` is a word character, so there is no word boundary after `pvz`,
+        # and the whole C ABI slipped past this hook while it reported green.
+        # `\bpvz_` and `\bPVZ_` are the prefixes, and neither can match the
+        # correct `pvzstd_`/`PVZSTD_` spellings -- the character after `pvz`
+        # there is `s`, not `_`.
         entry: |
           bash -c '
-            matches=$(grep -HnE "\bpvz\b" "$@" 2>/dev/null || true)
+            matches=$(grep -HnE "\bpvz\b|\bpvz_|\bPVZ_" "$@" 2>/dev/null || true)
             if [ -n "$matches" ]; then
               echo "$matches"
               echo
-              echo "'\''pvz'\'' is reserved — use \`import pyvista_zstd as pvzstd\` instead. (ask @banesullivan)"
+              echo "'\''pvz'\'' is reserved — use \`import pyvista_zstd as pvzstd\`, and spell C symbols \`pvzstd_\`/\`PVZSTD_\`. (ask @banesullivan)"
               exit 1
             fi
           ' --

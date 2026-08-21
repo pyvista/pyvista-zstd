@@ -1,7 +1,7 @@
 """
 Hold the streaming writer to the copying one: same bytes, flat cost.
 
-Skipped unless ``PVZSTD_STREAM`` points at a built ``pvzstd_stream`` binary.
+Skipped unless ``PVZ_STREAM`` points at a built ``pvz_stream`` binary.
 
 :func:`~pyvista_zstd.append_arrays` is handed a path and nothing else, so every
 call rediscovers the container: trailer, both metadata frames, and a copy of
@@ -93,17 +93,17 @@ import pyvista as pv
 
 import pyvista_zstd as pz
 
-STREAM = os.environ.get("PVZSTD_STREAM")
+STREAM = os.environ.get("PVZ_STREAM")
 
 pytestmark = pytest.mark.skipif(
     not STREAM or not Path(STREAM).exists(),
-    reason="set PVZSTD_STREAM to a built cpp/ pvzstd_stream binary to run stream parity",
+    reason="set PVZ_STREAM to a built cpp/ pvz_stream binary to run stream parity",
 )
 
 SHUFFLE_CODE = {False: "0", True: "1", "auto": "2"}
-# pvzstd_status; the tool reports codes rather than messages so the test can name
+# pvz_status; the tool reports codes rather than messages so the test can name
 # the one it means.
-PVZSTD_E_INVALID = 7
+PVZ_E_INVALID = 7
 # Enough commits that a per-commit cost proportional to the file shows itself.
 # How much depends on the machine -- 10.30x control growth on a workstation but
 # 2.52x on a Windows runner -- so nothing below is asserted against the control's
@@ -327,7 +327,7 @@ def test_close_refuses_a_stream_shorter_than_it_declared(tmp_path) -> None:
         check=False,
     )
     assert result.returncode != 0, "closing 1 commit against a declared 2 should fail"
-    assert "pvzstd_stream_close" in result.stderr
+    assert "pvz_stream_close" in result.stderr
     # The commit succeeded: the refusal is about the declared total.
     assert "count out of range" in result.stderr
 
@@ -392,11 +392,11 @@ def test_a_commit_that_failed_part_way_poisons_the_stream(tmp_path) -> None:
     reported = dict(line.split() for line in result.stdout.splitlines())
 
     assert reported["poison"] != "0", "an array of 2**60 bytes should not have been committed"
-    assert reported["append"] == str(PVZSTD_E_INVALID), (
+    assert reported["append"] == str(PVZ_E_INVALID), (
         f"a valid append on a poisoned stream returned {reported['append']}; "
         "the commit before it stopped part-way and left the frame list wrong"
     )
-    assert reported["close"] == str(PVZSTD_E_INVALID), (
+    assert reported["close"] == str(PVZ_E_INVALID), (
         f"closing a poisoned stream returned {reported['close']}; it cannot say where the failed commit stopped writing"
     )
     # Nothing was committed, so nothing may be counted.

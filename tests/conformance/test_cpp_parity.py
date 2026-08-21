@@ -1,7 +1,7 @@
 """
 Hold the C++ reader to the same oracle as the format spec.
 
-Skipped unless ``PVZSTD_DUMP`` points at a built ``pvzstd_dump`` binary, so the
+Skipped unless ``PVZ_DUMP`` points at a built ``pvz_dump`` binary, so the
 Python suite still runs on a checkout with no C++ toolchain. CI sets it after
 building ``cpp/``.
 
@@ -23,11 +23,11 @@ import ref_reader
 
 import pyvista_zstd as pz
 
-DUMP = os.environ.get("PVZSTD_DUMP")
+DUMP = os.environ.get("PVZ_DUMP")
 
 pytestmark = pytest.mark.skipif(
     not DUMP or not Path(DUMP).exists(),
-    reason="set PVZSTD_DUMP to a built cpp/ pvzstd_dump binary to run C++ parity",
+    reason="set PVZ_DUMP to a built cpp/ pvz_dump binary to run C++ parity",
 )
 
 FNV_OFFSET = 1469598103934665603

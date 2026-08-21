@@ -1,7 +1,7 @@
 """
 Hold the C++ writer to byte-for-byte agreement with the reference writer.
 
-Skipped unless ``PVZSTD_REWRITE`` points at a built ``pvzstd_rewrite`` binary. That
+Skipped unless ``PVZ_REWRITE`` points at a built ``pvz_rewrite`` binary. That
 tool reads a container with the C++ reader and writes it back with the C++
 writer, so one run exercises both halves and the comparison is against real
 reference bytes rather than against our own idea of what they should be.
@@ -26,16 +26,16 @@ import vtk
 
 import pyvista_zstd as pz
 
-REWRITE = os.environ.get("PVZSTD_REWRITE")
+REWRITE = os.environ.get("PVZ_REWRITE")
 
 pytestmark = pytest.mark.skipif(
     not REWRITE or not Path(REWRITE).exists(),
-    reason="set PVZSTD_REWRITE to a built cpp/ pvzstd_rewrite binary to run writer parity",
+    reason="set PVZ_REWRITE to a built cpp/ pvz_rewrite binary to run writer parity",
 )
 
 UID_N_CHAR = 16
 SHUFFLE_CODE = {False: 0, True: 1, "auto": 2}
-# PVZSTD_THREADS_AUTO: exercises our replication of the reference's worker-count
+# PVZ_THREADS_AUTO: exercises our replication of the reference's worker-count
 # rule rather than side-stepping it by passing the resolved number.
 THREADS_AUTO = "-2"
 

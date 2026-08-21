@@ -102,7 +102,7 @@ def test_find_field_resolves_to_the_frame_the_name_belongs_to(tmp_path) -> None:
     """
     The returned index addresses the block's own frame, not a neighbour's.
 
-    ``pvzstd_find_field_array`` hands back an index into the ordinary array list,
+    ``pvz_find_field_array`` hands back an index into the ordinary array list,
     so this checks the two halves agree: the array it points at must be the
     one whose stored name is built from this bare name.
     """

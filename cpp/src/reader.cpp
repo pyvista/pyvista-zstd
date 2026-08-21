@@ -113,45 +113,45 @@ class FileMapping {
   FileMapping(const FileMapping &) = delete;
   FileMapping &operator=(const FileMapping &) = delete;
 
-  pvzstd_status Open(const char *path) {
+  pvz_status Open(const char *path) {
     Reset();
 #if defined(_WIN32)
     handle_ = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                           FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (handle_ == INVALID_HANDLE_VALUE) return PVZSTD_E_IO;
+    if (handle_ == INVALID_HANDLE_VALUE) return PVZ_E_IO;
     LARGE_INTEGER li;
     if (GetFileSizeEx(handle_, &li) == 0 || li.QuadPart <= 0) {
       Reset();
-      return PVZSTD_E_IO;
+      return PVZ_E_IO;
     }
     size_ = static_cast<uint64_t>(li.QuadPart);
     mapping_ = CreateFileMappingA(handle_, nullptr, PAGE_READONLY, 0, 0, nullptr);
     if (mapping_ == nullptr) {
       Reset();
-      return PVZSTD_E_IO;
+      return PVZ_E_IO;
     }
     data_ = static_cast<const uint8_t *>(MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, 0));
     if (data_ == nullptr) {
       Reset();
-      return PVZSTD_E_IO;
+      return PVZ_E_IO;
     }
 #else
     fd_ = ::open(path, O_RDONLY);
-    if (fd_ < 0) return PVZSTD_E_IO;
+    if (fd_ < 0) return PVZ_E_IO;
     struct stat st{};
     if (::fstat(fd_, &st) != 0 || st.st_size <= 0) {
       Reset();
-      return PVZSTD_E_IO;
+      return PVZ_E_IO;
     }
     size_ = static_cast<uint64_t>(st.st_size);
     void *addr = ::mmap(nullptr, static_cast<size_t>(size_), PROT_READ, MAP_PRIVATE, fd_, 0);
     if (addr == MAP_FAILED) {
       Reset();
-      return PVZSTD_E_IO;
+      return PVZ_E_IO;
     }
     data_ = static_cast<const uint8_t *>(addr);
 #endif
-    return PVZSTD_OK;
+    return PVZ_OK;
   }
 
   const uint8_t *data() const { return data_; }
@@ -186,7 +186,7 @@ class FileMapping {
 
 }  // namespace
 
-struct pvzstd_reader {
+struct pvz_reader {
   FileMapping map;
   std::vector<ArrayEntry> arrays;
   std::string ds_metadata;
@@ -196,7 +196,7 @@ struct pvzstd_reader {
   // Root dataset's field-data blocks, in metadata order. Empty for MultiBlock.
   std::vector<std::string> field_names;
   std::vector<int64_t> field_indices;  // into `arrays`; -1 if the frame is gone
-  // Filled in by pvzstd_array_info_at so the caller sees stable pointers.
+  // Filled in by pvz_array_info_at so the caller sees stable pointers.
   mutable std::vector<uint64_t> scratch_shape;
 };
 
@@ -228,34 +228,34 @@ size_t DecompressInto(void *dst, size_t dst_capacity, const void *src, size_t sr
   return ZSTD_decompressDCtx(ctx, dst, dst_capacity, src, src_size);
 }
 
-pvzstd_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t expected,
-                              std::vector<uint8_t> *out) {
+pvz_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t expected,
+                           std::vector<uint8_t> *out) {
   try {
     out->resize(static_cast<size_t>(expected));
   } catch (const std::bad_alloc &) {
-    return PVZSTD_E_NOMEM;
+    return PVZ_E_NOMEM;
   }
-  if (expected == 0) return PVZSTD_OK;
+  if (expected == 0) return PVZ_OK;
   const size_t got = DecompressInto(out->data(), out->size(), src, static_cast<size_t>(src_size));
-  if (ZSTD_isError(got) != 0) return PVZSTD_E_ZSTD;
+  if (ZSTD_isError(got) != 0) return PVZ_E_ZSTD;
   // A mismatch is the signature of a misparsed index: every frame still
   // decompresses, but each yields a neighbour's payload.
-  if (got != expected) return PVZSTD_E_FORMAT;
-  return PVZSTD_OK;
+  if (got != expected) return PVZ_E_FORMAT;
+  return PVZ_OK;
 }
 
-pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
+pvz_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
   size_t off = 0;
-  if (buf.size() < 4) return PVZSTD_E_FORMAT;
+  if (buf.size() < 4) return PVZ_E_FORMAT;
   const uint32_t name_len = LoadU32(buf.data());
   off += 4;
-  if (buf.size() < off + name_len + 4) return PVZSTD_E_FORMAT;
+  if (buf.size() < off + name_len + 4) return PVZ_E_FORMAT;
   entry->name.assign(reinterpret_cast<const char *>(buf.data() + off), name_len);
   off += name_len;
 
   const uint32_t ndim = LoadU32(buf.data() + off);
   off += 4;
-  if (buf.size() < off + static_cast<size_t>(ndim) * 8 + PVZSTD_DTYPE_LEN) return PVZSTD_E_FORMAT;
+  if (buf.size() < off + static_cast<size_t>(ndim) * 8 + PVZSTD_DTYPE_LEN) return PVZ_E_FORMAT;
   entry->shape.clear();
   for (uint32_t i = 0; i < ndim; ++i) {
     entry->shape.push_back(LoadU64(buf.data() + off));
@@ -269,30 +269,30 @@ pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
   entry->dtype[dtype_len] = '\0';
   off += PVZSTD_DTYPE_LEN;
 
-  // Absent filter byte means PVZSTD_FILTER_NONE. Testing file_version instead
+  // Absent filter byte means PVZ_FILTER_NONE. Testing file_version instead
   // would mis-parse a shuffled version-2 file.
-  entry->filter_id = PVZSTD_FILTER_NONE;
+  entry->filter_id = PVZ_FILTER_NONE;
   if (off < buf.size()) {
     entry->filter_id = buf[off];
     off += 1;
   }
-  if (off != buf.size()) return PVZSTD_E_FORMAT;
-  return PVZSTD_OK;
+  if (off != buf.size()) return PVZ_E_FORMAT;
+  return PVZ_OK;
 }
 
 }  // namespace
 
 extern "C" {
 
-pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
-  if (path == nullptr || out == nullptr) return PVZSTD_E_INVALID;
+pvz_status pvz_open(const char *path, pvz_reader **out) try {
+  if (path == nullptr || out == nullptr) return PVZ_E_INVALID;
   *out = nullptr;
 
-  pvzstd_reader *reader = new (std::nothrow) pvzstd_reader();
-  if (reader == nullptr) return PVZSTD_E_NOMEM;
+  pvz_reader *reader = new (std::nothrow) pvz_reader();
+  if (reader == nullptr) return PVZ_E_NOMEM;
 
-  pvzstd_status st = reader->map.Open(path);
-  if (st != PVZSTD_OK) {
+  pvz_status st = reader->map.Open(path);
+  if (st != PVZ_OK) {
     delete reader;
     return st;
   }
@@ -300,19 +300,19 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
   const FileMapping &raw = reader->map;
   if (raw.size() < kTrailerCountBytes) {
     delete reader;
-    return PVZSTD_E_FORMAT;
+    return PVZ_E_FORMAT;
   }
 
   const uint64_t n_frames = LoadU64(raw.data() + raw.size() - kTrailerCountBytes);
   if (n_frames == 0 || (n_frames % 2) != 0) {
     delete reader;  // frames pair as (header, payload)
-    return PVZSTD_E_FORMAT;
+    return PVZ_E_FORMAT;
   }
   // Bounded by division: n_frames comes from the file and n_frames * 16
   // overflows for a large enough value, turning the size check into a pass.
   if (n_frames > (raw.size() - kTrailerCountBytes) / kIndexEntryBytes) {
     delete reader;
-    return PVZSTD_E_FORMAT;
+    return PVZ_E_FORMAT;
   }
   const uint64_t index_bytes = n_frames * kIndexEntryBytes;
   const uint64_t index_off = raw.size() - kTrailerCountBytes - index_bytes;
@@ -338,19 +338,19 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
     const uint64_t pay_end = ends[static_cast<size_t>(i + 1)];
     if (hdr_start > hdr_end || hdr_end > pay_end || pay_end > index_off) {
       delete reader;
-      return PVZSTD_E_FORMAT;
+      return PVZ_E_FORMAT;
     }
 
     st = DecompressFrame(raw.data() + hdr_start, hdr_end - hdr_start, sizes[static_cast<size_t>(i)],
                          &frame);
-    if (st != PVZSTD_OK) {
+    if (st != PVZ_OK) {
       delete reader;
       return st;
     }
 
     ArrayEntry entry;
     st = ParseHeader(frame, &entry);
-    if (st != PVZSTD_OK) {
+    if (st != PVZ_OK) {
       delete reader;
       return st;
     }
@@ -359,7 +359,7 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
     entry.payload_end = pay_end;
     if (!DeclaredSizeAgrees(entry.shape, entry.dtype, entry.nbytes)) {
       delete reader;
-      return PVZSTD_E_FORMAT;
+      return PVZ_E_FORMAT;
     }
 
     const bool is_ds = EndsWith(entry.name, kDsMetadataSuffix);
@@ -368,7 +368,7 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
       std::vector<uint8_t> payload;
       st = DecompressFrame(raw.data() + entry.payload_start,
                            entry.payload_end - entry.payload_start, entry.nbytes, &payload);
-      if (st != PVZSTD_OK) {
+      if (st != PVZ_OK) {
         delete reader;
         return st;
       }
@@ -417,15 +417,15 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
   }
 
   *out = reader;
-  return PVZSTD_OK;
+  return PVZ_OK;
 } catch (...) {
-  return PVZSTD_E_NOMEM;
+  return PVZ_E_NOMEM;
 }
 
-void pvzstd_close(pvzstd_reader *reader) try { delete reader; } catch (...) {
+void pvz_close(pvz_reader *reader) try { delete reader; } catch (...) {
 }
 
-uint64_t pvzstd_array_count(const pvzstd_reader *reader) try {
+uint64_t pvz_array_count(const pvz_reader *reader) try {
   return reader == nullptr ? 0 : static_cast<uint64_t>(reader->arrays.size());
 } catch (...) {
   return 0;
@@ -434,8 +434,8 @@ uint64_t pvzstd_array_count(const pvzstd_reader *reader) try {
 namespace {
 
 // Every pointer aliases storage the reader owns for its whole life, so the filled
-// struct stays valid until pvzstd_close().
-void FillArrayInfo(const ArrayEntry &e, pvzstd_array_info *out) {
+// struct stays valid until pvz_close().
+void FillArrayInfo(const ArrayEntry &e, pvz_array_info *out) {
   out->name = e.name.c_str();
   out->shape = e.shape.empty() ? nullptr : e.shape.data();
   out->ndim = static_cast<uint32_t>(e.shape.size());
@@ -446,48 +446,47 @@ void FillArrayInfo(const ArrayEntry &e, pvzstd_array_info *out) {
 
 }  // namespace
 
-pvzstd_status pvzstd_array_info_at(const pvzstd_reader *reader, uint64_t index,
-                                   pvzstd_array_info *out) try {
-  if (reader == nullptr || out == nullptr) return PVZSTD_E_INVALID;
-  if (index >= reader->arrays.size()) return PVZSTD_E_RANGE;
+pvz_status pvz_array_info_at(const pvz_reader *reader, uint64_t index, pvz_array_info *out) try {
+  if (reader == nullptr || out == nullptr) return PVZ_E_INVALID;
+  if (index >= reader->arrays.size()) return PVZ_E_RANGE;
   FillArrayInfo(reader->arrays[static_cast<size_t>(index)], out);
-  return PVZSTD_OK;
+  return PVZ_OK;
 } catch (...) {
-  return PVZSTD_E_NOMEM;
+  return PVZ_E_NOMEM;
 }
 
-pvzstd_status pvzstd_array_info_range(const pvzstd_reader *reader, uint64_t first, uint64_t count,
-                                      pvzstd_array_info *out) try {
-  if (reader == nullptr) return PVZSTD_E_INVALID;
-  if (count == 0) return PVZSTD_OK;
-  if (out == nullptr) return PVZSTD_E_INVALID;
+pvz_status pvz_array_info_range(const pvz_reader *reader, uint64_t first, uint64_t count,
+                                pvz_array_info *out) try {
+  if (reader == nullptr) return PVZ_E_INVALID;
+  if (count == 0) return PVZ_OK;
+  if (out == nullptr) return PVZ_E_INVALID;
 
   const uint64_t total = static_cast<uint64_t>(reader->arrays.size());
   // Against the remaining count, not first + count, which would wrap.
-  if (first > total || count > total - first) return PVZSTD_E_RANGE;
+  if (first > total || count > total - first) return PVZ_E_RANGE;
 
   for (uint64_t i = 0; i < count; ++i) {
     FillArrayInfo(reader->arrays[static_cast<size_t>(first + i)], &out[i]);
   }
-  return PVZSTD_OK;
+  return PVZ_OK;
 } catch (...) {
-  return PVZSTD_E_NOMEM;
+  return PVZ_E_NOMEM;
 }
 
-uint64_t pvzstd_field_array_count(const pvzstd_reader *reader) try {
+uint64_t pvz_field_array_count(const pvz_reader *reader) try {
   return reader == nullptr ? 0 : static_cast<uint64_t>(reader->field_names.size());
 } catch (...) {
   return 0;
 }
 
-const char *pvzstd_field_array_name_at(const pvzstd_reader *reader, uint64_t index) try {
+const char *pvz_field_array_name_at(const pvz_reader *reader, uint64_t index) try {
   if (reader == nullptr || index >= reader->field_names.size()) return nullptr;
   return reader->field_names[static_cast<size_t>(index)].c_str();
 } catch (...) {
   return nullptr;
 }
 
-int64_t pvzstd_find_field_array(const pvzstd_reader *reader, const char *name) try {
+int64_t pvz_find_field_array(const pvz_reader *reader, const char *name) try {
   if (reader == nullptr || name == nullptr) return -1;
   for (size_t i = 0; i < reader->field_names.size(); ++i) {
     if (reader->field_names[i] == name) return reader->field_indices[i];
@@ -497,7 +496,7 @@ int64_t pvzstd_find_field_array(const pvzstd_reader *reader, const char *name) t
   return -1;
 }
 
-int64_t pvzstd_find_array(const pvzstd_reader *reader, const char *name) try {
+int64_t pvz_find_array(const pvz_reader *reader, const char *name) try {
   if (reader == nullptr || name == nullptr) return -1;
   for (size_t i = 0; i < reader->arrays.size(); ++i) {
     if (reader->arrays[i].name == name) return static_cast<int64_t>(i);
@@ -507,48 +506,47 @@ int64_t pvzstd_find_array(const pvzstd_reader *reader, const char *name) try {
   return -1;
 }
 
-pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint64_t index, void *dst,
-                                   uint64_t dst_size) try {
-  if (reader == nullptr || dst == nullptr) return PVZSTD_E_INVALID;
-  if (index >= reader->arrays.size()) return PVZSTD_E_RANGE;
+pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index, void *dst,
+                             uint64_t dst_size) try {
+  if (reader == nullptr || dst == nullptr) return PVZ_E_INVALID;
+  if (index >= reader->arrays.size()) return PVZ_E_RANGE;
   const ArrayEntry &e = reader->arrays[static_cast<size_t>(index)];
-  if (dst_size < e.nbytes) return PVZSTD_E_RANGE;
-  if (e.nbytes == 0) return PVZSTD_OK;
+  if (dst_size < e.nbytes) return PVZ_E_RANGE;
+  if (e.nbytes == 0) return PVZ_OK;
 
   const uint8_t *src = reader->map.data() + e.payload_start;
   const uint64_t src_size = e.payload_end - e.payload_start;
 
-  if (e.filter_id == PVZSTD_FILTER_NONE) {
+  if (e.filter_id == PVZ_FILTER_NONE) {
     const size_t got =
         DecompressInto(dst, static_cast<size_t>(dst_size), src, static_cast<size_t>(src_size));
-    if (ZSTD_isError(got) != 0) return PVZSTD_E_ZSTD;
-    return got == e.nbytes ? PVZSTD_OK : PVZSTD_E_FORMAT;
+    if (ZSTD_isError(got) != 0) return PVZ_E_ZSTD;
+    return got == e.nbytes ? PVZ_OK : PVZ_E_FORMAT;
   }
 
-  if (e.filter_id != PVZSTD_FILTER_SHUFFLE) return PVZSTD_E_FILTER;
+  if (e.filter_id != PVZ_FILTER_SHUFFLE) return PVZ_E_FILTER;
 
   const uint64_t itemsize = DtypeItemsize(e.dtype);
-  if (itemsize == 0 || (e.nbytes % itemsize) != 0) return PVZSTD_E_FORMAT;
+  if (itemsize == 0 || (e.nbytes % itemsize) != 0) return PVZ_E_FORMAT;
 
   std::vector<uint8_t> filtered;
-  const pvzstd_status st = DecompressFrame(src, src_size, e.nbytes, &filtered);
-  if (st != PVZSTD_OK) return st;
+  const pvz_status st = DecompressFrame(src, src_size, e.nbytes, &filtered);
+  if (st != PVZ_OK) return st;
   Unshuffle(filtered.data(), static_cast<uint8_t *>(dst), e.nbytes, itemsize);
-  return PVZSTD_OK;
+  return PVZ_OK;
 } catch (...) {
-  return PVZSTD_E_NOMEM;
+  return PVZ_E_NOMEM;
 }
 
-pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *indices,
-                                 uint64_t count, void *const *dsts, const uint64_t *dst_sizes,
-                                 int n_threads) try {
+pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, uint64_t count,
+                           void *const *dsts, const uint64_t *dst_sizes, int n_threads) try {
   if (reader == nullptr || indices == nullptr || dsts == nullptr || dst_sizes == nullptr) {
-    return PVZSTD_E_INVALID;
+    return PVZ_E_INVALID;
   }
-  if (count == 0) return PVZSTD_OK;
+  if (count == 0) return PVZ_OK;
 
   int workers = n_threads;
-  if (workers == PVZSTD_THREADS_AUTO) {
+  if (workers == PVZ_THREADS_AUTO) {
     // Size enters the decision, not just frame count: deciding on count alone
     // spawned a thread per frame for a 10 KB file and ran 2.5x slower than inline.
     // AUTO asks for the fastest setting; an explicit n_threads is honoured.
@@ -562,65 +560,64 @@ pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *in
 
   if (workers <= 1) {
     for (uint64_t i = 0; i < count; ++i) {
-      const pvzstd_status st = pvzstd_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
-      if (st != PVZSTD_OK) return st;
+      const pvz_status st = pvz_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
+      if (st != PVZ_OK) return st;
     }
-    return PVZSTD_OK;
+    return PVZ_OK;
   }
 
   // Static striding rather than a work queue; each slot is written by one thread.
-  std::vector<pvzstd_status> results(static_cast<size_t>(count), PVZSTD_OK);
+  std::vector<pvz_status> results(static_cast<size_t>(count), PVZ_OK);
   pvzstd::detail::ParallelStride(workers, count, [&](uint64_t i) {
-    results[static_cast<size_t>(i)] =
-        pvzstd_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
+    results[static_cast<size_t>(i)] = pvz_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
   });
 
   for (uint64_t i = 0; i < count; ++i) {
-    if (results[static_cast<size_t>(i)] != PVZSTD_OK) return results[static_cast<size_t>(i)];
+    if (results[static_cast<size_t>(i)] != PVZ_OK) return results[static_cast<size_t>(i)];
   }
-  return PVZSTD_OK;
+  return PVZ_OK;
 } catch (...) {
-  return PVZSTD_E_NOMEM;
+  return PVZ_E_NOMEM;
 }
 
-const char *pvzstd_ds_metadata_json(const pvzstd_reader *reader) try {
+const char *pvz_ds_metadata_json(const pvz_reader *reader) try {
   if (reader == nullptr || !reader->has_ds_metadata) return nullptr;
   return reader->ds_metadata.c_str();
 } catch (...) {
   return nullptr;
 }
 
-const char *pvzstd_file_metadata_json(const pvzstd_reader *reader) try {
+const char *pvz_file_metadata_json(const pvz_reader *reader) try {
   if (reader == nullptr || !reader->has_file_metadata) return nullptr;
   return reader->file_metadata.c_str();
 } catch (...) {
   return nullptr;
 }
 
-const char *pvzstd_status_message(pvzstd_status status) {
+const char *pvz_status_message(pvz_status status) {
   switch (status) {
-    case PVZSTD_OK:
+    case PVZ_OK:
       return "ok";
-    case PVZSTD_E_IO:
+    case PVZ_E_IO:
       return "file missing, unreadable, or truncated";
-    case PVZSTD_E_FORMAT:
+    case PVZ_E_FORMAT:
       return "container did not parse as a .pv trailer-indexed file";
-    case PVZSTD_E_ZSTD:
+    case PVZ_E_ZSTD:
       // Both directions: the writer reports a rejected compression parameter
       // through this code too.
       return "zstd rejected a frame or a compression parameter";
-    case PVZSTD_E_RANGE:
+    case PVZ_E_RANGE:
       return "index or count out of range, or destination buffer too small";
-    case PVZSTD_E_NOMEM:
+    case PVZ_E_NOMEM:
       return "allocation failed";
-    case PVZSTD_E_FILTER:
+    case PVZ_E_FILTER:
       return "array uses a filter this build cannot reverse";
-    case PVZSTD_E_INVALID:
+    case PVZ_E_INVALID:
       return "invalid argument";
   }
   return "unknown status";
 }
 
-uint32_t pvzstd_abi_version(void) { return PVZSTD_ABI_VERSION; }
+uint32_t pvz_abi_version(void) { return PVZSTD_ABI_VERSION; }
 
 }  // extern "C"

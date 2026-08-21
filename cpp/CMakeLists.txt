@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 project(pvzstd LANGUAGES CXX)
 
-option(PVZSTD_BUILD_TOOLS "Build the pvzstd_dump conformance tool" ON)
+option(PVZSTD_BUILD_TOOLS "Build the pvz_dump conformance tool" ON)
 option(PVZSTD_BUILD_SHARED "Build a shared library (needed for the ctypes binding)" ON)
 
 # For targets with no thread runtime. Reads are unaffected; writes lose
 # byte-identity above the reference rule's 2 MiB threshold, reported as
-# PVZSTD_E_ZSTD rather than emitted as frames that would not match.
+# PVZ_E_ZSTD rather than emitted as frames that would not match.
 option(PVZSTD_THREADS "Use threads for batch decompression and zstd workers" ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -134,15 +134,15 @@ else()
 endif()
 
 if(PVZSTD_BUILD_TOOLS)
-  add_executable(pvzstd_dump tools/pvzstd_dump.cpp)
-  target_link_libraries(pvzstd_dump PRIVATE pvzstd)
-  add_executable(pvzstd_rewrite tools/pvzstd_rewrite.cpp)
-  target_link_libraries(pvzstd_rewrite PRIVATE pvzstd)
-  add_executable(pvzstd_append tools/pvzstd_append.cpp)
-  target_link_libraries(pvzstd_append PRIVATE pvzstd)
+  add_executable(pvz_dump tools/pvz_dump.cpp)
+  target_link_libraries(pvz_dump PRIVATE pvzstd)
+  add_executable(pvz_rewrite tools/pvz_rewrite.cpp)
+  target_link_libraries(pvz_rewrite PRIVATE pvzstd)
+  add_executable(pvz_append tools/pvz_append.cpp)
+  target_link_libraries(pvz_append PRIVATE pvzstd)
 
-  add_executable(pvzstd_stream tools/pvzstd_stream.cpp)
-  target_link_libraries(pvzstd_stream PRIVATE pvzstd)
+  add_executable(pvz_stream tools/pvz_stream.cpp)
+  target_link_libraries(pvz_stream PRIVATE pvzstd)
 endif()
 
 include(GNUInstallDirs)

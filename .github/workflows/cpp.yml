@@ -68,10 +68,10 @@ jobs:
           esac
           {
             echo "PVZSTD_LIBRARY=$(pwd)/$(find_one "$libname")"
-            echo "PVZSTD_DUMP=$(pwd)/$(find_one "pvzstd_dump$suffix")"
-            echo "PVZSTD_REWRITE=$(pwd)/$(find_one "pvzstd_rewrite$suffix")"
-            echo "PVZSTD_APPEND=$(pwd)/$(find_one "pvzstd_append$suffix")"
-            echo "PVZSTD_STREAM=$(pwd)/$(find_one "pvzstd_stream$suffix")"
+            echo "PVZ_DUMP=$(pwd)/$(find_one "pvz_dump$suffix")"
+            echo "PVZ_REWRITE=$(pwd)/$(find_one "pvz_rewrite$suffix")"
+            echo "PVZ_APPEND=$(pwd)/$(find_one "pvz_append$suffix")"
+            echo "PVZ_STREAM=$(pwd)/$(find_one "pvz_stream$suffix")"
           } >> "$GITHUB_ENV"
 
       - name: Install the package as pure Python
@@ -173,17 +173,17 @@ jobs:
         # The dump checksums every payload, so matching dumps mean matching bytes.
         run: |
           for name in sphere bulk; do
-            ./cpp/build-host/pvzstd_dump "$name.pv" > "$name.host.txt"
-            node cpp/build-wasm/pvzstd_dump.js "$name.pv" > "$name.wasm.txt"
+            ./cpp/build-host/pvz_dump "$name.pv" > "$name.host.txt"
+            node cpp/build-wasm/pvz_dump.js "$name.pv" > "$name.wasm.txt"
             diff "$name.host.txt" "$name.wasm.txt"
           done
 
       - name: The WASM writer must reproduce the reference writer's bytes
-        # -2 is PVZSTD_THREADS_AUTO: exercises the reference's worker-count rule.
+        # -2 is PVZ_THREADS_AUTO: exercises the reference's worker-count rule.
         run: |
           for name in sphere bulk; do
             read -r level fixed uid < "$name.args"
-            node cpp/build-wasm/pvzstd_rewrite.js \
+            node cpp/build-wasm/pvz_rewrite.js \
               "$name.pv" "$name.wasm.pv" "$level" -2 1 "$fixed" "$uid"
             cmp "$name.pv" "$name.wasm.pv"
           done

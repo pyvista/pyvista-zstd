@@ -1,7 +1,7 @@
-// pvzstd_append -- drive pvzstd_append_arrays from a spec file, for the gate.
+// pvz_append -- drive pvz_append_arrays from a spec file, for the gate.
 // A developer tool, not part of the shipped library.
 //
-// usage: pvzstd_append <container> <level> <shuffle> <spec>
+// usage: pvz_append <container> <level> <shuffle> <spec>
 //
 //   level    compression level, or -1000 to reuse the file's
 //   shuffle  0 never, 1 always, 2 auto
@@ -51,7 +51,7 @@ std::vector<std::string> Split(const std::string &s, char sep) {
 
 int main(int argc, char **argv) {
   if (argc != 5) {
-    std::cerr << "usage: pvzstd_append <container> <level> <shuffle> <spec>\n";
+    std::cerr << "usage: pvz_append <container> <level> <shuffle> <spec>\n";
     return 2;
   }
   const std::string container = argv[1];
@@ -93,10 +93,10 @@ int main(int argc, char **argv) {
     specs.push_back(std::move(s));
   }
 
-  std::vector<pvzstd_append_array> arrays;
+  std::vector<pvz_append_array> arrays;
   arrays.reserve(specs.size());
   for (const Spec &s : specs) {
-    pvzstd_append_array a;
+    pvz_append_array a;
     a.name = s.name.c_str();
     a.dtype = s.dtype.c_str();
     a.dtype_name = s.dtype_name.c_str();
@@ -107,11 +107,10 @@ int main(int argc, char **argv) {
     arrays.push_back(a);
   }
 
-  const pvzstd_status st =
-      pvzstd_append_arrays(container.c_str(), arrays.data(), arrays.size(), level,
-                           static_cast<pvzstd_shuffle_mode>(shuffle_code));
-  if (st != PVZSTD_OK) {
-    std::cerr << "pvzstd_append_arrays: " << pvzstd_status_message(st) << "\n";
+  const pvz_status st = pvz_append_arrays(container.c_str(), arrays.data(), arrays.size(), level,
+                                          static_cast<pvz_shuffle_mode>(shuffle_code));
+  if (st != PVZ_OK) {
+    std::cerr << "pvz_append_arrays: " << pvz_status_message(st) << "\n";
     return 1;
   }
   return 0;

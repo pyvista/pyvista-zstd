@@ -55,7 +55,7 @@ ABI_VERSION = 2
 
 DTYPE_LEN = 16
 
-# Mirrors PVZSTD_THREADS_AUTO: let the C++ core pick from hardware concurrency.
+# Mirrors PVZ_THREADS_AUTO: let the C++ core pick from hardware concurrency.
 THREADS_AUTO = -2
 
 # Names *which* library to load; every behavioural knob is a keyword argument.
@@ -159,36 +159,36 @@ _load_error: str | None = None
 
 def _bind(lib: ctypes.CDLL) -> None:
     """Declare every signature. ctypes defaults are wrong for 64-bit returns."""
-    lib.pvzstd_abi_version.restype = c_uint32
-    lib.pvzstd_abi_version.argtypes = []
+    lib.pvz_abi_version.restype = c_uint32
+    lib.pvz_abi_version.argtypes = []
 
-    lib.pvzstd_status_message.restype = c_char_p
-    lib.pvzstd_status_message.argtypes = [c_int]
+    lib.pvz_status_message.restype = c_char_p
+    lib.pvz_status_message.argtypes = [c_int]
 
-    lib.pvzstd_open.restype = c_int
-    lib.pvzstd_open.argtypes = [c_char_p, POINTER(c_void_p)]
+    lib.pvz_open.restype = c_int
+    lib.pvz_open.argtypes = [c_char_p, POINTER(c_void_p)]
 
-    lib.pvzstd_close.restype = None
-    lib.pvzstd_close.argtypes = [c_void_p]
+    lib.pvz_close.restype = None
+    lib.pvz_close.argtypes = [c_void_p]
 
     # Without an explicit restype ctypes truncates this to a C int.
-    lib.pvzstd_array_count.restype = c_uint64
-    lib.pvzstd_array_count.argtypes = [c_void_p]
+    lib.pvz_array_count.restype = c_uint64
+    lib.pvz_array_count.argtypes = [c_void_p]
 
-    lib.pvzstd_array_info_at.restype = c_int
-    lib.pvzstd_array_info_at.argtypes = [c_void_p, c_uint64, POINTER(_ArrayInfo)]
+    lib.pvz_array_info_at.restype = c_int
+    lib.pvz_array_info_at.argtypes = [c_void_p, c_uint64, POINTER(_ArrayInfo)]
 
-    lib.pvzstd_array_info_range.restype = c_int
-    lib.pvzstd_array_info_range.argtypes = [c_void_p, c_uint64, c_uint64, POINTER(_ArrayInfo)]
+    lib.pvz_array_info_range.restype = c_int
+    lib.pvz_array_info_range.argtypes = [c_void_p, c_uint64, c_uint64, POINTER(_ArrayInfo)]
 
-    lib.pvzstd_find_array.restype = c_int64
-    lib.pvzstd_find_array.argtypes = [c_void_p, c_char_p]
+    lib.pvz_find_array.restype = c_int64
+    lib.pvz_find_array.argtypes = [c_void_p, c_char_p]
 
-    lib.pvzstd_read_array_at.restype = c_int
-    lib.pvzstd_read_array_at.argtypes = [c_void_p, c_uint64, c_void_p, c_uint64]
+    lib.pvz_read_array_at.restype = c_int
+    lib.pvz_read_array_at.argtypes = [c_void_p, c_uint64, c_void_p, c_uint64]
 
-    lib.pvzstd_read_arrays.restype = c_int
-    lib.pvzstd_read_arrays.argtypes = [
+    lib.pvz_read_arrays.restype = c_int
+    lib.pvz_read_arrays.argtypes = [
         c_void_p,
         POINTER(c_uint64),
         c_uint64,
@@ -197,20 +197,20 @@ def _bind(lib: ctypes.CDLL) -> None:
         c_int,
     ]
 
-    lib.pvzstd_field_array_count.restype = c_uint64
-    lib.pvzstd_field_array_count.argtypes = [c_void_p]
+    lib.pvz_field_array_count.restype = c_uint64
+    lib.pvz_field_array_count.argtypes = [c_void_p]
 
-    lib.pvzstd_field_array_name_at.restype = c_char_p
-    lib.pvzstd_field_array_name_at.argtypes = [c_void_p, c_uint64]
+    lib.pvz_field_array_name_at.restype = c_char_p
+    lib.pvz_field_array_name_at.argtypes = [c_void_p, c_uint64]
 
-    lib.pvzstd_find_field_array.restype = c_int64
-    lib.pvzstd_find_field_array.argtypes = [c_void_p, c_char_p]
+    lib.pvz_find_field_array.restype = c_int64
+    lib.pvz_find_field_array.argtypes = [c_void_p, c_char_p]
 
-    lib.pvzstd_ds_metadata_json.restype = c_char_p
-    lib.pvzstd_ds_metadata_json.argtypes = [c_void_p]
+    lib.pvz_ds_metadata_json.restype = c_char_p
+    lib.pvz_ds_metadata_json.argtypes = [c_void_p]
 
-    lib.pvzstd_file_metadata_json.restype = c_char_p
-    lib.pvzstd_file_metadata_json.argtypes = [c_void_p]
+    lib.pvz_file_metadata_json.restype = c_char_p
+    lib.pvz_file_metadata_json.argtypes = [c_void_p]
 
 
 def _load() -> ctypes.CDLL:
@@ -230,7 +230,7 @@ def _load() -> ctypes.CDLL:
             continue
 
         _bind(lib)
-        found = int(lib.pvzstd_abi_version())
+        found = int(lib.pvz_abi_version())
         if found != ABI_VERSION:
             # Worse than a missing one: this module's struct layout would be read
             # against a different contract.
@@ -330,7 +330,7 @@ class CoreReader:
         self._handle: c_void_p | None = None
 
         handle = c_void_p()
-        status = lib.pvzstd_open(str(path).encode("utf-8"), byref(handle))
+        status = lib.pvz_open(str(path).encode("utf-8"), byref(handle))
         _check(status, str(path))
         self._handle = handle
 
@@ -346,7 +346,7 @@ class CoreReader:
     def close(self) -> None:
         """Release the C++ reader. Safe to call more than once."""
         if self._handle is not None:
-            self._lib.pvzstd_close(self._handle)
+            self._lib.pvz_close(self._handle)
             self._handle = None
 
     def __del__(self) -> None:
@@ -365,11 +365,11 @@ class CoreReader:
 
     def __len__(self) -> int:
         """Return the number of arrays, excluding the JSON metadata frames."""
-        return int(self._lib.pvzstd_array_count(self._live))
+        return int(self._lib.pvz_array_count(self._live))
 
     def _info(self, index: int) -> _ArrayInfo:
         info = _ArrayInfo()
-        _check(self._lib.pvzstd_array_info_at(self._live, c_uint64(index), byref(info)), f"index {index}")
+        _check(self._lib.pvz_array_info_at(self._live, c_uint64(index), byref(info)), f"index {index}")
         return info
 
     def names(self) -> list[str]:
@@ -409,7 +409,7 @@ class CoreReader:
             # size would authorise exactly what the core is about to produce, so a
             # payload larger than its announced shape would be written past the end
             # of this array rather than reported.
-            status = self._lib.pvzstd_read_array_at(
+            status = self._lib.pvz_read_array_at(
                 self._live,
                 c_uint64(index),
                 c_void_p(out.ctypes.data),
@@ -435,7 +435,7 @@ class CoreReader:
         int | None
 
         """
-        found = int(self._lib.pvzstd_find_array(self._live, name.encode("utf-8")))
+        found = int(self._lib.pvz_find_array(self._live, name.encode("utf-8")))
         return None if found < 0 else found
 
     def field_array_names(self) -> list[str]:
@@ -452,10 +452,10 @@ class CoreReader:
             Empty for a MultiBlock container, which has no single root dataset.
 
         """
-        count = int(self._lib.pvzstd_field_array_count(self._live))
+        count = int(self._lib.pvz_field_array_count(self._live))
         names = []
         for i in range(count):
-            raw = self._lib.pvzstd_field_array_name_at(self._live, c_uint64(i))
+            raw = self._lib.pvz_field_array_name_at(self._live, c_uint64(i))
             names.append(raw.decode("utf-8"))
         return names
 
@@ -474,7 +474,7 @@ class CoreReader:
             An index usable with :meth:`read_at`.
 
         """
-        found = int(self._lib.pvzstd_find_field_array(self._live, name.encode("utf-8")))
+        found = int(self._lib.pvz_find_field_array(self._live, name.encode("utf-8")))
         return None if found < 0 else found
 
     def read_arrays(self, keep: set[str] | None = None, n_threads: int = THREADS_AUTO) -> dict[str, NDArray[Any]]:
@@ -509,10 +509,10 @@ class CoreReader:
 
         # Every header in one crossing: a foreign call per array outweighed the
         # decompression it was preparing.
-        n_arrays = int(self._lib.pvzstd_array_count(handle))
+        n_arrays = int(self._lib.pvz_array_count(handle))
         infos = (_ArrayInfo * n_arrays)()
         if n_arrays:
-            _check(self._lib.pvzstd_array_info_range(handle, 0, n_arrays, infos))
+            _check(self._lib.pvz_array_info_range(handle, 0, n_arrays, infos))
 
         wanted: list[tuple[int, str, NDArray[Any]]] = []
         for index in range(n_arrays):
@@ -541,7 +541,7 @@ class CoreReader:
                 # C-contiguous, so the core writes straight into the final array.
                 dsts[slot] = arr.ctypes.data
                 sizes[slot] = arr.nbytes
-            status = self._lib.pvzstd_read_arrays(handle, indices, c_uint64(count), dsts, sizes, c_int(n_threads))
+            status = self._lib.pvz_read_arrays(handle, indices, c_uint64(count), dsts, sizes, c_int(n_threads))
             if status == _STATUS_FILTER:
                 self._raise_filter_error(payloads)
             _check(status)
@@ -553,7 +553,7 @@ class CoreReader:
         for index, name, arr in payloads:
             info = self._info(index)
             if (
-                self._lib.pvzstd_read_array_at(
+                self._lib.pvz_read_array_at(
                     self._live, c_uint64(index), c_void_p(arr.ctypes.data), c_uint64(arr.nbytes)
                 )
                 == _STATUS_FILTER
@@ -564,11 +564,11 @@ class CoreReader:
     @property
     def ds_metadata_json(self) -> str | None:
         """Return the dataset metadata JSON document, or None."""
-        raw = self._lib.pvzstd_ds_metadata_json(self._live)
+        raw = self._lib.pvz_ds_metadata_json(self._live)
         return None if raw is None else raw.decode("utf-8")
 
     @property
     def file_metadata_json(self) -> str | None:
         """Return the file metadata JSON document, or None."""
-        raw = self._lib.pvzstd_file_metadata_json(self._live)
+        raw = self._lib.pvz_file_metadata_json(self._live)
         return None if raw is None else raw.decode("utf-8")

@@ -122,6 +122,12 @@ PVZSTD_API int64_t pvzstd_find_field_array(const pvzstd_reader *reader, const ch
 PVZSTD_API const char *pvzstd_ds_metadata_json(const pvzstd_reader *reader);
 PVZSTD_API const char *pvzstd_file_metadata_json(const pvzstd_reader *reader);
 
+/* Every entry point below reports failure as a status code and never lets an
+ * exception cross this boundary: a caller reaching it through ctypes or another
+ * language has no way to catch one. Allocation failure surfaces as
+ * PVZSTD_E_NOMEM; the accessors returning a pointer or a count report it as NULL
+ * or as zero, which are the values they already use for "cannot answer". */
+
 /* A static, human-readable string for a status code. Never NULL. */
 PVZSTD_API const char *pvzstd_status_message(pvzstd_status status);
 

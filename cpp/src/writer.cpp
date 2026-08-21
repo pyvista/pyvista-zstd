@@ -42,41 +42,52 @@ struct pvzstd_writer {
 
 extern "C" {
 
-pvzstd_status pvzstd_writer_create(pvzstd_writer **out) {
+pvzstd_status pvzstd_writer_create(pvzstd_writer **out) try {
   if (out == nullptr) return PVZSTD_E_INVALID;
   *out = new (std::nothrow) pvzstd_writer();
   return *out == nullptr ? PVZSTD_E_NOMEM : PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-void pvzstd_writer_free(pvzstd_writer *writer) { delete writer; }
+void pvzstd_writer_free(pvzstd_writer *writer) try { delete writer; } catch (...) {
+}
 
-pvzstd_status pvzstd_writer_set_level(pvzstd_writer *writer, int level) {
+pvzstd_status pvzstd_writer_set_level(pvzstd_writer *writer, int level) try {
   if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->level = level;
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-pvzstd_status pvzstd_writer_set_threads(pvzstd_writer *writer, int n_threads) {
+pvzstd_status pvzstd_writer_set_threads(pvzstd_writer *writer, int n_threads) try {
   if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->threads = n_threads;
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-pvzstd_status pvzstd_writer_set_shuffle(pvzstd_writer *writer, pvzstd_shuffle_mode mode) {
+pvzstd_status pvzstd_writer_set_shuffle(pvzstd_writer *writer, pvzstd_shuffle_mode mode) try {
   if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->shuffle = mode;
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int enabled) {
+pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int enabled) try {
   if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->fixed_width_cells = enabled != 0;
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
 pvzstd_status pvzstd_writer_add_array(pvzstd_writer *writer, const char *name, const char *dtype,
                                       const uint64_t *shape, uint32_t ndim, const void *data,
-                                      uint64_t nbytes) {
+                                      uint64_t nbytes) try {
   if (writer == nullptr || name == nullptr || dtype == nullptr) return PVZSTD_E_INVALID;
   if (nbytes > 0 && data == nullptr) return PVZSTD_E_INVALID;
   if (ndim > 0 && shape == nullptr) return PVZSTD_E_INVALID;
@@ -95,10 +106,12 @@ pvzstd_status pvzstd_writer_add_array(pvzstd_writer *writer, const char *name, c
     return PVZSTD_E_NOMEM;
   }
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
 pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, const char *uid,
-                                            const char *json) {
+                                            const char *json) try {
   if (writer == nullptr || uid == nullptr || json == nullptr) return PVZSTD_E_INVALID;
   const uint64_t n = std::strlen(json);
   PendingArray entry;
@@ -113,9 +126,11 @@ pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, const char *u
     return PVZSTD_E_NOMEM;
   }
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
+pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   if (writer == nullptr || path == nullptr) return PVZSTD_E_INVALID;
   if (writer->arrays.empty()) return PVZSTD_E_INVALID;
 
@@ -251,6 +266,8 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
 
   if (std::fclose(fp) != 0 && st == PVZSTD_OK) st = PVZSTD_E_IO;
   return st;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
 }  // extern "C"

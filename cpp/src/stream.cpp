@@ -79,6 +79,11 @@ struct pvzstd_stream {
 
   uint64_t commits = 0;
   bool closed = false;
+  // Set once a commit has begun mutating state and then failed. The frame list,
+  // the name list and body_end are updated across several steps, so a failure
+  // part-way leaves them describing frames that are not where they say they are.
+  // Retrying on top of that writes a file that parses and gives wrong data.
+  bool failed = false;
 };
 
 namespace {
@@ -131,6 +136,8 @@ pvzstd_status WriteTail(pvzstd_stream *s) {
     return PVZSTD_E_NOMEM;
   }
 
+  // Plain statuses here: WriteTail is only reached from a commit, which poisons
+  // the stream on any non-OK return of its own.
   if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZSTD_E_IO;
   uint64_t offset = s->body_end;
   for (std::vector<uint8_t> &payload : plain) {
@@ -158,7 +165,7 @@ pvzstd_status WriteTail(pvzstd_stream *s) {
 
 extern "C" {
 
-pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) {
+pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) try {
   if (path == nullptr || out == nullptr) return PVZSTD_E_INVALID;
   *out = nullptr;
 
@@ -261,12 +268,22 @@ pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) {
 
   *out = s;
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
+}
+
+// Poison the stream and report why. Used only past the point where a commit has
+// started mutating state; validation failures before that leave it usable.
+static pvzstd_status Fail(pvzstd_stream *s, pvzstd_status status) {
+  s->failed = true;
+  return status;
 }
 
 pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *arrays,
-                                   uint64_t count, pvzstd_shuffle_mode shuffle) {
+                                   uint64_t count, pvzstd_shuffle_mode shuffle) try {
   if (s == nullptr) return PVZSTD_E_INVALID;
   if (s->closed) return PVZSTD_E_INVALID;
+  if (s->failed) return PVZSTD_E_INVALID;
   if (count == 0) return PVZSTD_OK;
   if (arrays == nullptr) return PVZSTD_E_INVALID;
 
@@ -296,7 +313,9 @@ pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *
   if (s->frames.size() < kTailFrames) return PVZSTD_E_FORMAT;
   s->frames.resize(s->frames.size() - kTailFrames);
 
-  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) return PVZSTD_E_IO;
+  if (SeekTo(s->fp, static_cast<int64_t>(s->body_end), SEEK_SET) != 0) {
+    return Fail(s, PVZSTD_E_IO);
+  }
   uint64_t offset = s->body_end;
   std::string fdk_addition;
 
@@ -334,14 +353,16 @@ pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *
       }
       pair.push_back(std::move(payload));
     } catch (const std::bad_alloc &) {
-      return PVZSTD_E_NOMEM;
+      return Fail(s, PVZSTD_E_NOMEM);
     }
 
     for (std::vector<uint8_t> &payload : pair) {
       std::vector<uint8_t> comp;
       const pvzstd_status st = CompressFrame(payload.data(), payload.size(), s->level, 0, &comp);
-      if (st != PVZSTD_OK) return st;
-      if (std::fwrite(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZSTD_E_IO;
+      if (st != PVZSTD_OK) return Fail(s, st);
+      if (std::fwrite(comp.data(), 1, comp.size(), s->fp) != comp.size()) {
+        return Fail(s, PVZSTD_E_IO);
+      }
       offset += comp.size();
       s->frames.push_back({offset, payload.size()});
     }
@@ -358,30 +379,42 @@ pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *
   s->ds_json.insert(fdk_past - 1, fdk_addition);
 
   const pvzstd_status st = WriteTail(s);
-  if (st != PVZSTD_OK) return st;
+  if (st != PVZSTD_OK) return Fail(s, st);
   ++s->commits;
   return PVZSTD_OK;
+} catch (...) {
+  return Fail(s, PVZSTD_E_NOMEM);
 }
 
-uint64_t pvzstd_stream_commit_count(const pvzstd_stream *s) {
+uint64_t pvzstd_stream_commit_count(const pvzstd_stream *s) try {
   return s == nullptr ? 0 : s->commits;
+} catch (...) {
+  return 0;
 }
 
-pvzstd_status pvzstd_stream_close(pvzstd_stream *s, uint64_t expected_commits) {
+pvzstd_status pvzstd_stream_close(pvzstd_stream *s, uint64_t expected_commits) try {
   if (s == nullptr) return PVZSTD_E_INVALID;
   if (s->closed) return PVZSTD_OK;
+  // Refused rather than closed: what is on disk past the last good commit is
+  // whatever the failed one left, and this cannot say where that ends.
+  if (s->failed) return PVZSTD_E_INVALID;
   // A short stream presented as complete reads back perfectly, with results
   // missing.
   if (s->commits != expected_commits) return PVZSTD_E_RANGE;
+  // Flushed before it counts as closed: marking it first would let a second call
+  // return OK for a stream whose last bytes never reached the file.
+  if (std::fflush(s->fp) != 0) return Fail(s, PVZSTD_E_IO);
   s->closed = true;
-  if (std::fflush(s->fp) != 0) return PVZSTD_E_IO;
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-void pvzstd_stream_free(pvzstd_stream *s) {
+void pvzstd_stream_free(pvzstd_stream *s) try {
   if (s == nullptr) return;
   if (s->fp != nullptr) std::fclose(s->fp);
   delete s;
+} catch (...) {
 }
 
 }  // extern "C"

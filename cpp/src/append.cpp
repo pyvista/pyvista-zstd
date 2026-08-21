@@ -136,7 +136,7 @@ struct StagedFrame {
 extern "C" {
 
 pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *arrays,
-                                   uint64_t count, int level, pvzstd_shuffle_mode shuffle) {
+                                   uint64_t count, int level, pvzstd_shuffle_mode shuffle) try {
   if (path == nullptr) return PVZSTD_E_INVALID;
   if (count == 0) return PVZSTD_OK;  // appending nothing is a no-op, not an error
   if (arrays == nullptr) return PVZSTD_E_INVALID;
@@ -370,6 +370,8 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     }
   }
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
 }  // extern "C"

@@ -284,7 +284,7 @@ pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
 
 extern "C" {
 
-pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) {
+pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
   if (path == nullptr || out == nullptr) return PVZSTD_E_INVALID;
   *out = nullptr;
 
@@ -418,12 +418,17 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) {
 
   *out = reader;
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-void pvzstd_close(pvzstd_reader *reader) { delete reader; }
+void pvzstd_close(pvzstd_reader *reader) try { delete reader; } catch (...) {
+}
 
-uint64_t pvzstd_array_count(const pvzstd_reader *reader) {
+uint64_t pvzstd_array_count(const pvzstd_reader *reader) try {
   return reader == nullptr ? 0 : static_cast<uint64_t>(reader->arrays.size());
+} catch (...) {
+  return 0;
 }
 
 namespace {
@@ -442,15 +447,17 @@ void FillArrayInfo(const ArrayEntry &e, pvzstd_array_info *out) {
 }  // namespace
 
 pvzstd_status pvzstd_array_info_at(const pvzstd_reader *reader, uint64_t index,
-                                   pvzstd_array_info *out) {
+                                   pvzstd_array_info *out) try {
   if (reader == nullptr || out == nullptr) return PVZSTD_E_INVALID;
   if (index >= reader->arrays.size()) return PVZSTD_E_RANGE;
   FillArrayInfo(reader->arrays[static_cast<size_t>(index)], out);
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
 pvzstd_status pvzstd_array_info_range(const pvzstd_reader *reader, uint64_t first, uint64_t count,
-                                      pvzstd_array_info *out) {
+                                      pvzstd_array_info *out) try {
   if (reader == nullptr) return PVZSTD_E_INVALID;
   if (count == 0) return PVZSTD_OK;
   if (out == nullptr) return PVZSTD_E_INVALID;
@@ -463,35 +470,45 @@ pvzstd_status pvzstd_array_info_range(const pvzstd_reader *reader, uint64_t firs
     FillArrayInfo(reader->arrays[static_cast<size_t>(first + i)], &out[i]);
   }
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-uint64_t pvzstd_field_array_count(const pvzstd_reader *reader) {
+uint64_t pvzstd_field_array_count(const pvzstd_reader *reader) try {
   return reader == nullptr ? 0 : static_cast<uint64_t>(reader->field_names.size());
+} catch (...) {
+  return 0;
 }
 
-const char *pvzstd_field_array_name_at(const pvzstd_reader *reader, uint64_t index) {
+const char *pvzstd_field_array_name_at(const pvzstd_reader *reader, uint64_t index) try {
   if (reader == nullptr || index >= reader->field_names.size()) return nullptr;
   return reader->field_names[static_cast<size_t>(index)].c_str();
+} catch (...) {
+  return nullptr;
 }
 
-int64_t pvzstd_find_field_array(const pvzstd_reader *reader, const char *name) {
+int64_t pvzstd_find_field_array(const pvzstd_reader *reader, const char *name) try {
   if (reader == nullptr || name == nullptr) return -1;
   for (size_t i = 0; i < reader->field_names.size(); ++i) {
     if (reader->field_names[i] == name) return reader->field_indices[i];
   }
   return -1;
+} catch (...) {
+  return -1;
 }
 
-int64_t pvzstd_find_array(const pvzstd_reader *reader, const char *name) {
+int64_t pvzstd_find_array(const pvzstd_reader *reader, const char *name) try {
   if (reader == nullptr || name == nullptr) return -1;
   for (size_t i = 0; i < reader->arrays.size(); ++i) {
     if (reader->arrays[i].name == name) return static_cast<int64_t>(i);
   }
   return -1;
+} catch (...) {
+  return -1;
 }
 
 pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint64_t index, void *dst,
-                                   uint64_t dst_size) {
+                                   uint64_t dst_size) try {
   if (reader == nullptr || dst == nullptr) return PVZSTD_E_INVALID;
   if (index >= reader->arrays.size()) return PVZSTD_E_RANGE;
   const ArrayEntry &e = reader->arrays[static_cast<size_t>(index)];
@@ -518,11 +535,13 @@ pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint64_t index, 
   if (st != PVZSTD_OK) return st;
   Unshuffle(filtered.data(), static_cast<uint8_t *>(dst), e.nbytes, itemsize);
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
 pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *indices,
                                  uint64_t count, void *const *dsts, const uint64_t *dst_sizes,
-                                 int n_threads) {
+                                 int n_threads) try {
   if (reader == nullptr || indices == nullptr || dsts == nullptr || dst_sizes == nullptr) {
     return PVZSTD_E_INVALID;
   }
@@ -560,16 +579,22 @@ pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *in
     if (results[static_cast<size_t>(i)] != PVZSTD_OK) return results[static_cast<size_t>(i)];
   }
   return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
 }
 
-const char *pvzstd_ds_metadata_json(const pvzstd_reader *reader) {
+const char *pvzstd_ds_metadata_json(const pvzstd_reader *reader) try {
   if (reader == nullptr || !reader->has_ds_metadata) return nullptr;
   return reader->ds_metadata.c_str();
+} catch (...) {
+  return nullptr;
 }
 
-const char *pvzstd_file_metadata_json(const pvzstd_reader *reader) {
+const char *pvzstd_file_metadata_json(const pvzstd_reader *reader) try {
   if (reader == nullptr || !reader->has_file_metadata) return nullptr;
   return reader->file_metadata.c_str();
+} catch (...) {
+  return nullptr;
 }
 
 const char *pvzstd_status_message(pvzstd_status status) {

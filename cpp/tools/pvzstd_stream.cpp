@@ -1,26 +1,18 @@
 // pvzstd_stream -- drive the streaming writer from spec files, for the gate.
-//
-// A developer tool, not part of the shipped library. It takes one spec file
-// per commit, so a run reproduces exactly the sequence of appends the
-// reference side made, and the two files can be compared byte for byte.
+// A developer tool, not part of the shipped library.
 //
 // usage: pvzstd_stream [--expect=N] <container> <shuffle> <spec>...
 //
-//   --expect  count to close with; defaults to the number of specs. Only a
-//             mismatching value is interesting, which is why it is settable:
-//             the close-time count check is otherwise unreachable from here.
+//   --expect  count to close with; defaults to the number of specs. Settable
+//             so the close-time count check is reachable from here.
 //   shuffle   0 never, 1 always, 2 auto
 //   spec      one per commit; each line is
 //             name <TAB> dtype <TAB> dtype_name <TAB> shape_csv <TAB> raw_path
 //
-// Each commit is reported to stderr as "commit <i> <seconds> <bytes_read>".
-//
-// The byte count is the delta in this process's rchar (/proc/self/io), or -1
-// where that is unavailable. It is there because wall time cannot gate what
-// this tool exists to check: a stream that wrongly re-reads the container on
-// every commit is served from page cache, which is too cheap to separate from
-// compression noise. Bytes read is the same property measured deterministically
-// -- reading a growing file grows it, holding state in memory does not.
+// Each commit reports "commit <i> <seconds> <bytes_read>" to stderr. The byte
+// count is this process's rchar delta (-1 where unavailable): a stream that
+// wrongly re-reads the container is served from page cache and so is too cheap
+// to catch on wall time, but reading a growing file still grows rchar.
 
 #include <chrono>
 #include <cstdio>

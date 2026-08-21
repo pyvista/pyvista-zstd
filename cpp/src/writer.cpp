@@ -1,18 +1,12 @@
 // Writer half of the .pv container. See doc/format/container-v2.md.
 //
-// The goal is byte-for-byte agreement with the reference Python writer, which
-// constrains more than the layout:
-//
-//   * frames are emitted as (header, payload) pairs, and the trailer records
-//     each frame's END offset;
-//   * the header's filter byte is written only when a filter is in use;
-//   * the file version is the highest optional encoding used -- 2 for
-//     fixed-width cells, else 1 if anything is shuffled, else 0 -- and the
-//     tiers are not cumulative;
-//   * every frame is compressed with the same level AND the same worker
-//     count, because zstd's multi-threaded mode produces different bytes than
-//     its single-threaded mode. Reproducing the layout but not the worker
-//     count yields a valid file that is not the same file.
+// Byte-for-byte agreement with the reference Python writer constrains more
+// than the layout: the file version is the highest optional encoding used
+// (2 fixed-width cells, else 1 if anything is shuffled, else 0; not
+// cumulative), and every frame needs the same level AND worker count, since
+// zstd's multi-threaded mode emits different bytes than its single-threaded
+// mode. Matching the layout but not the worker count yields a valid file that
+// is not the same file.
 
 #include <zstd.h>
 

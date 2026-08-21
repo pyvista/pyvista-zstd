@@ -1,40 +1,15 @@
 // Streaming append: the same file edit as pvzstd_append_arrays, held open.
 //
-// pvzstd_append_arrays is correct and self-contained -- it reads the trailer,
-// decompresses the two metadata frames, and copies the body to a temporary
-// file it renames into place. That makes every call cost the size of the
-// file. Measured on 40 single-block commits, the per-commit cost went from
-// 18.2 ms for the first five to 77.3 ms for the last five: 4.24x, and still
-// climbing. A result stream that commits one load step, mode, or frequency at
-// a time pays that curve on every step.
+// pvzstd_append_arrays copies the whole file per call, so cost grows with the
+// file: over 40 single-block commits the per-commit cost rose 4.24x. A stream
+// keeps the trailer, the metadata offset and the dataset-metadata document,
+// so a commit costs what it adds. Output is byte-identical -- same helpers,
+// same framing, and the metadata document is spliced rather than regenerated.
 //
-// Nothing about the format requires it. The frames already on disk are
-// immutable, and so are their trailer entries; only the two metadata frames
-// at the tail change. What forces the re-read is that the function is handed
-// a path and nothing else, so it has to rediscover the state it needs.
-//
-// A stream is that state, kept: the trailer table, the offset where the
-// metadata tail begins, and the dataset-metadata document itself. Committing
-// seeks to the tail, writes the new frames over it, re-emits the two metadata
-// frames after them, and rewrites the trailer -- work proportional to what is
-// being added plus the metadata, and independent of what is already there.
-//
-// Byte-identity with the copying path is not approximate. The dataset
-// metadata is spliced, not regenerated: the document is held as the string it
-// was read as, and each commit inserts into its "field_data_keys" object,
-// exactly as pvzstd_append_arrays does to the copy it decompressed. The frames
-// are built by the same helpers with the same single-threaded framing, so a
-// stream of N commits produces the file N separate appends would have.
-//
-// Crash behaviour differs from pvzstd_append_arrays and the difference is the
-// point of having both. That function commits by rename: an interrupted call
-// leaves the previous file untouched. A stream writes in place, so a commit
-// interrupted partway leaves the trailer describing frames that were not
-// fully written. What survives either way is every frame committed *before*
-// the one that was interrupted -- those bytes are never revisited -- but
-// recovering them from an interrupted stream means rebuilding the trailer,
-// which this library does not do. Callers that need a valid file after every
-// single commit should use pvzstd_append_arrays and pay the copy.
+// The tradeoff is crash behaviour: pvzstd_append_arrays commits by rename and
+// leaves the previous file intact, while a stream writes in place, so an
+// interrupted commit leaves a trailer describing frames that were not fully
+// written. Callers needing a valid file after every commit should pay the copy.
 
 #include <cstdio>
 #include <cstring>

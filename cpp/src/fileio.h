@@ -1,15 +1,9 @@
 // 64-bit file positioning.
 //
-// std::fseek and std::ftell take and return `long`, which is 32 bits on
-// Windows -- 64-bit Windows included -- and on every 32-bit target. A
-// container larger than 2 GiB cannot be addressed through them: the seek
-// offset wraps and the tell reports a truncated size, so the trailer is read
-// from the wrong place rather than reported as unreachable. These wrap the
-// platform's 64-bit equivalents so an offset stays an offset.
-//
-// The POSIX branch relies on _FILE_OFFSET_BITS=64, which cpp/CMakeLists.txt
-// defines; without it a 32-bit libc gives off_t only 32 bits and fseeko is no
-// better than fseek.
+// std::fseek and std::ftell use `long`, which is 32 bits on Windows and on
+// 32-bit targets, so past 2 GiB the offset wraps and the trailer is read from
+// the wrong place rather than reported as unreachable. The POSIX branch needs
+// _FILE_OFFSET_BITS=64, which cpp/CMakeLists.txt defines.
 
 #ifndef PVZSTD_FILEIO_H
 #define PVZSTD_FILEIO_H

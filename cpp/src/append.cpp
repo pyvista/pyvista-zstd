@@ -1,26 +1,11 @@
 // Append half of the .pv container. See doc/format/container-v2.md.
 //
-// Adding to an existing container is not "write it again with more arrays".
-// The frames already on disk are copied verbatim by offset -- never
-// decompressed, never recompressed -- and only the two frames that grow (the
-// dataset metadata and the trailing file metadata) are regenerated. That is
-// what makes the cost proportional to what is being added rather than to the
-// size of the file, and it is also why byte-identity here is a different
-// problem from byte-identity in the writer: most of the output is a copy, and
-// the part that is not has to agree exactly with what the reference append
-// would have produced.
-//
-// Two details decide most of that agreement:
-//
-//   * the reference append compresses with threads=0, so these frames are
-//     single-threaded -- unlike pvzstd_writer_write, which sizes a worker pool
-//     from the payload total. Same level, different framing;
-//   * the dataset-metadata JSON is edited by splicing into its
-//     "field_data_keys" object rather than by parsing and re-emitting the
-//     document. Re-emitting would have to reproduce another library's key
-//     order and number formatting for every field this format may ever carry;
-//     splicing only has to reproduce the entries actually being added, and
-//     leaves every other byte untouched by construction.
+// Existing frames are copied verbatim by offset -- never decompressed -- and
+// only the two frames that grow are regenerated, so cost tracks what is added
+// rather than the file size. Two details carry byte-identity: the reference
+// append compresses with threads=0 (unlike pvzstd_writer_write, which sizes a
+// pool from the payload total), and the dataset-metadata JSON is spliced
+// rather than re-emitted, so every byte we did not add is untouched.
 
 #include <zstd.h>
 

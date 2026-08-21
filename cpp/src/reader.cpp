@@ -1,17 +1,11 @@
 // Reader half of the .pv container. See doc/format/container-v2.md.
 //
-// The parsing rules that are easy to get wrong, and are therefore enforced
-// rather than assumed:
-//
-//   * index entries carry each frame's END offset, so starts are derived by
-//     shifting; frame 0 begins at byte 0 and there is no magic number;
-//   * frames pair as (header, payload), so the count is even;
-//   * the header's optional filter byte is present only when non-zero, which
-//     makes header length -- not the file version -- the signal.
-//
-// Each frame's declared decompressed size is checked against what zstd
-// actually produces. That check is what turns a misparsed index from silent
-// data corruption into an error.
+// Index entries carry each frame's END offset, so starts are derived by
+// shifting; frames pair as (header, payload); the header's filter byte is
+// present only when non-zero, so header length is the signal, not the file
+// version. Each declared decompressed size is checked against what zstd
+// produces, which turns a misparsed index into an error rather than silent
+// corruption.
 
 #include <zstd.h>
 

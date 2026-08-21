@@ -1,10 +1,6 @@
-// pvzstd_append -- drive pvzstd_append_arrays from a spec file, for the parity gate.
-//
-// A developer tool, not part of the shipped library. It exists so the
-// conformance suite can append exactly the arrays the reference append was
-// given and compare the two files byte for byte; the array bytes come from
-// files on disk rather than from anything this tool invents, because a tool
-// that generates its own data can only ever agree with itself.
+// pvzstd_append -- drive pvzstd_append_arrays from a spec file, for the gate.
+// A developer tool, not part of the shipped library. Array bytes come from
+// files on disk, not from anything this tool invents.
 //
 // usage: pvzstd_append <container> <level> <shuffle> <spec>
 //

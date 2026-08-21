@@ -1,15 +1,9 @@
 // Whether this build has a thread runtime, and how many workers it can use.
 //
-// Threads are how the library goes faster, not how it stays correct. A target
-// with no thread runtime to link against -- an embedded toolchain, a
-// single-threaded runtime -- would otherwise fail to build over an accelerator
-// it was never going to use, so PVZSTD_NO_THREADS (set by the PVZSTD_THREADS
-// CMake option) removes the pool and leaves the work inline. The results are
-// the same either way: the batch reader hands each frame to the same function,
-// and frames are independent.
-//
-// It is a compile-time answer rather than a runtime one because <thread> is
-// what pulls in the runtime, so the include itself has to be conditional.
+// PVZSTD_NO_THREADS (from the PVZSTD_THREADS CMake option) removes the pool
+// and runs the work inline, so a target with no thread runtime still builds.
+// Results are unchanged either way -- frames are independent. Compile-time
+// rather than runtime because <thread> is what pulls the runtime in.
 
 #ifndef PVZSTD_THREADS_H
 #define PVZSTD_THREADS_H

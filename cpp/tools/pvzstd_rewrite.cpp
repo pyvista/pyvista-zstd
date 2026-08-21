@@ -1,14 +1,10 @@
-// pvzstd_rewrite -- read a container with the C++ reader, write it back with the
-// C++ writer.
+// pvzstd_rewrite -- read a container with the C++ reader, write it back with
+// the C++ writer.
 //
-// This is the writer's conformance harness. The caller hands it a file the
-// reference Python writer produced and the settings that produced it; if the
-// output is not byte-identical to the input, the two writers disagree
-// somewhere, and the diff position says where.
-//
-// Reading first is deliberate: it means a single run exercises both halves and
-// the comparison is against real reference bytes rather than against our own
-// idea of what they should be.
+// The writer's conformance harness: given a file the reference Python writer
+// produced and the settings that produced it, the output must be byte-identical
+// to the input. Reading first means one run exercises both halves against real
+// reference bytes.
 
 #include <cstdio>
 #include <cstdlib>

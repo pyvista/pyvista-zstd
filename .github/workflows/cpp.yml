@@ -1,20 +1,5 @@
 name: C++ Core
 
-# The C++ core, the platforms it has to build on, and the wheels that carry it.
-#
-# Each job proves something the others cannot:
-#
-#   cmake   the library builds on every desktop platform and agrees with the
-#           pure-Python implementation bit for bit
-#   wasm    the same sources build and *run* under WebAssembly, checked by
-#           diffing a real container dump against the host build
-#   wheels  the shared object we ship actually loads on the target platform
-#   sdist   a source install can still reach the C++ core
-#
-# The parity suite lives in the cmake job rather than the wheel job on purpose:
-# the wheel test environments cannot install a rendering stack on every exotic
-# platform tag, and a test that gets skipped everywhere proves nothing.
-
 on:
   pull_request:
   workflow_dispatch:
@@ -53,14 +38,10 @@ jobs:
 
       - name: Configure
         shell: bash
+        # Vendored zstd, not the runner's: different zstd versions emit
+        # different frames for the same input, which breaks byte-identity
+        # against the reference writer.
         run: |
-          # Pinned zstd, not the distribution's. The byte-identity tests
-          # compare against a reference writer that carries its own copy of
-          # zstd, and different zstd versions emit different (equally valid)
-          # frames for the same input. Linking whatever the runner happened to
-          # have installed made those tests fail on Linux while the same
-          # commit passed on macOS and Windows, which have no system zstd to
-          # find -- a difference in the dependency, not in this writer.
           cmake -S cpp -B cpp/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DPVZSTD_BUILD_SHARED=ON \
@@ -73,14 +54,12 @@ jobs:
 
       - name: Locate the build artefacts
         shell: bash
+        # Multi-config generators put these under Release/.
         run: |
-          # Multi-config generators (Visual Studio) put these under Release/,
-          # single-config generators put them at the top of the build tree.
           find_one() {
             found=$(find cpp/build -name "$1" -type f | head -n 1)
             if [ -z "$found" ]; then
               echo "::error::did not find $1 in the build tree"
-              find cpp/build -type f \( -name 'pvzstd_*' -o -name '*pvzstd*' \)
               exit 1
             fi
             echo "$found"
@@ -100,9 +79,7 @@ jobs:
 
       - name: Install the package as pure Python
         shell: bash
-        # Deliberately pure: this job is testing the CMake build above, pointed
-        # at by PVZSTD_LIBRARY. Letting the install compile its own copy would
-        # mean the artefact under test was never the one exercised.
+        # Pure, so the artefact under test is the CMake build above.
         env:
           PVZSTD_BUILD_CORE: "0"
         run: |
@@ -149,10 +126,8 @@ jobs:
           cmake --build cpp/build-host --parallel
 
       - name: Build for WebAssembly
-        # pthreads are enabled so that zstd keeps its multithreaded mode. The
-        # writer refuses to run without it rather than silently emitting
-        # different bytes, so a single-threaded WASM build would not be the
-        # same library.
+        # pthreads so zstd keeps its multithreaded mode; without it the writer
+        # errors rather than emitting different bytes.
         run: |
           emcmake cmake -S cpp -B cpp/build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
@@ -174,35 +149,21 @@ jobs:
 
           import pyvista_zstd as pz
 
-          # Two fixtures, because they reach different code.
-          #
-          # `sphere` is a few tens of kilobytes: every frame compresses on the
-          # calling thread, so it isolates the format and the filter from the
-          # worker-count rule.
-          #
-          # `bulk` is 2 MiB of incompressible doubles, which is what it takes
-          # to make the writer ask zstd for a worker at all and to put a single
-          # frame over the megabyte above which zstd's threaded and unthreaded
-          # output stop being byte-identical. Without it the threading this
-          # build enables would never actually run, and a WebAssembly build
-          # that quietly lost its workers would still pass.
           rng = np.random.default_rng(7)
           sphere = pv.Sphere(theta_resolution=24, phi_resolution=24)
           sphere.point_data["scal_f64"] = rng.random(sphere.n_points)
           sphere.point_data["vec_f32"] = rng.random((sphere.n_points, 3)).astype(np.float32)
           sphere.cell_data["ids_i64"] = np.arange(sphere.n_cells, dtype=np.int64)
 
+          # 2 MiB, so the writer asks zstd for a worker and a frame clears the
+          # megabyte above which threaded and unthreaded output differ. The
+          # sphere alone never touches the thread pool this build enables.
           bulk = pv.ImageData(dimensions=(64, 64, 64))
           bulk.point_data["bulk_f64"] = np.random.default_rng(21).random(bulk.n_points)
 
-          # shuffle=True so the filter branch is exercised under WebAssembly.
-          # It is off by default, and a run that never enters the branch would
-          # not have tested it.
           for name, ds in (("sphere", sphere), ("bulk", bulk)):
               path = f"{name}.pv"
               pz.write(ds, path, shuffle=True, progress_bar=False)
-              # The settings that produced the file, so the rewrite below is
-              # asked for the same bytes rather than for bytes of its own.
               container = ref_reader.read(path)
               with open(f"{name}.args", "w") as fh:
                   fh.write(
@@ -216,39 +177,24 @@ jobs:
           PY
 
       - name: The WASM reader must agree with the host reader, byte for byte
+        # pvzstd_dump checksums every decompressed payload, so an identical
+        # dump means the bytes matched, not merely that the file parsed.
         run: |
           for name in sphere bulk; do
             ./cpp/build-host/pvzstd_dump "$name.pv" > "$name.host.txt"
             node cpp/build-wasm/pvzstd_dump.js "$name.pv" > "$name.wasm.txt"
-            # pvzstd_dump prints an FNV-1a checksum of every decompressed payload,
-            # so an identical dump means decompression and filter reversal both
-            # produced the same bytes -- not merely that the file parsed.
             diff "$name.host.txt" "$name.wasm.txt"
-            echo "== $name: WebAssembly read is identical to the host read"
-            cat "$name.wasm.txt"
           done
 
       - name: The WASM writer must reproduce the reference writer's bytes
-        # The step above only proves WebAssembly can *read* what someone else
-        # wrote. This one runs the writer: pvzstd_rewrite reads the container and
-        # writes it back, and the output has to equal the file the Python
-        # reference writer produced, byte for byte -- the same property the
-        # writer-parity suite gates natively, asked of the WASM build.
-        #
-        # -2 is PVZSTD_THREADS_AUTO: the worker count is resolved by our
-        # replication of the reference's rule, which is the part that a
-        # threadless WebAssembly build would get wrong.
+        # -2 is PVZSTD_THREADS_AUTO, so this exercises our replication of the
+        # reference's worker-count rule.
         run: |
           for name in sphere bulk; do
             read -r level fixed uid < "$name.args"
             node cpp/build-wasm/pvzstd_rewrite.js \
               "$name.pv" "$name.wasm.pv" "$level" -2 1 "$fixed" "$uid"
-            if ! cmp "$name.pv" "$name.wasm.pv"; then
-              echo "::error::the WASM writer's $name output differs from the reference writer's"
-              ls -l "$name.pv" "$name.wasm.pv"
-              exit 1
-            fi
-            echo "== $name: WebAssembly write is byte-identical to the reference writer"
+            cmp "$name.pv" "$name.wasm.pv"
           done
 
   wheels:
@@ -263,54 +209,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # setuptools-scm needs the tags to derive a version.
           fetch-depth: 0
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.2.0
         env:
-          # One wheel per platform, not one per interpreter: the bundled
-          # library is loaded through ctypes and carries no CPython ABI, and
-          # setup.py tags the wheel py3-none-<platform> to say so.
-          # Two Linux wheels, from two images: see [tool.cibuildwheel] in
-          # pyproject.toml for which image each of these gets and why. The
-          # 3.10 build exists to reach glibc 2.17, which 3.12 no longer can.
+          # Two Linux wheels from two manylinux images; see
+          # [tool.cibuildwheel] in pyproject.toml. The 3.10 build exists only
+          # to reach glibc 2.17.
           CIBW_BUILD: "cp310-* cp312-*"
-          # No musl wheels. The package requires a rendering stack that
-          # publishes none, so a musllinux wheel of this project could not be
-          # installed alongside its own dependencies -- cibuildwheel's install
-          # test proves it by failing to resolve them.
-          #
-          # And no second macOS or Windows wheel: the 3.10 build is only here
-          # for the older manylinux image, and since these wheels are tagged
-          # py3-none-<platform> rather than per-interpreter, building 3.10
-          # there would produce a file of exactly the same name as the 3.12
-          # one. The two Linux wheels differ because their platform tags do.
+          # No musl, and no second macOS or Windows wheel: these are tagged
+          # py3-none-<platform>, so a 3.10 build there would collide with the
+          # 3.12 one. The Linux pair differ by platform tag.
           CIBW_SKIP: "*-musllinux_* cp310-macosx_* cp310-win*"
-          # The 3.10 wheel is built but not install-tested, for the same
-          # reason musllinux is not built at all: on glibc 2.17 the rendering
-          # stack has no wheels to install. NumPy still resolves there -- 2.2.6
-          # is the last release with a cp310 manylinux2014 wheel and 3.10 can
-          # never ask for a newer one -- but Pillow has none, so pip compiles
-          # it and stops for want of jpeg headers the image does not carry.
-          #
-          # That is a fact about the dependencies, not about our wheel, and it
-          # is not worth dropping the wheel over: the shared object inside it
-          # is built from these sources by the same job, and the 3.12 wheel
-          # install-tests that it loads. What goes untested here is only
-          # whether a full environment can be assembled on glibc 2.17, which
-          # today it cannot, by anyone.
+          # Not install-tested: on glibc 2.17 Pillow has no wheel and builds
+          # from source without jpeg headers. That is the dependencies, not
+          # this wheel, and the 3.12 wheel still proves the library loads.
           CIBW_TEST_SKIP: "cp310-manylinux*"
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
-          # A wheel that quietly lost its C++ core is the failure mode this
-          # whole job exists to prevent, so make it fatal at build time.
+          # Fatal at build time: a wheel that silently lost its core is what
+          # this job exists to catch.
           CIBW_ENVIRONMENT: PVZSTD_BUILD_CORE=1
           CIBW_ENVIRONMENT_MACOS: PVZSTD_BUILD_CORE=1 MACOSX_DEPLOYMENT_TARGET=10.15
-          # Checks the property that only a wheel can have: that the shared
-          # object inside it loads on the machine the wheel targets. The
-          # correctness of that library is the cmake job's business.
           CIBW_TEST_COMMAND: >
             python -c
             "from pyvista_zstd import _capi;
@@ -342,8 +264,8 @@ jobs:
           python -m build --sdist
 
       - name: A source install must still reach the C++ core
-        # The sdist has to carry cpp/. If it does not, this install silently
-        # degrades to pure Python and the assertion below catches it.
+        # Catches an sdist that failed to carry cpp/ and degraded to pure
+        # Python.
         env:
           PVZSTD_BUILD_CORE: "1"
         run: |

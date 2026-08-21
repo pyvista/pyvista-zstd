@@ -1,8 +1,8 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-# cmake drives the C++ core in setup.py. It is listed here so a source
-# build does not depend on one being installed system-wide; when no C++
-# compiler is present the build still succeeds and falls back to pure Python.
+# cmake drives the C++ core in setup.py; listed so a source build does not need
+# one installed system-wide. Without a C++ compiler the build falls back to pure
+# Python rather than failing.
 requires = ["cmake>=3.16", "setuptools-scm>=8", "setuptools>=64"]
 
 [project]
@@ -96,10 +96,9 @@ required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.per-file-ignores]
 "doc/**" = ["INP001"]
-# A build script legitimately prints its progress and shells out to the build
-# tool it exists to drive; `cmake` is resolved from PATH on purpose, because
-# pinning an absolute path would break every environment that installs it
-# somewhere else (including the cmake wheel this build depends on).
+# A build script prints its progress and shells out to the tool it drives.
+# `cmake` comes from PATH on purpose: an absolute path would break the cmake
+# wheel this build depends on.
 "setup.py" = ["S603", "S607", "T201"]
 "tests/**" = ["ANN001", "INP001", "S101"]
 

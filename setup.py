@@ -107,17 +107,11 @@ def _build_cpp() -> Path | None:
         str(build_dir),
         "-DCMAKE_BUILD_TYPE=Release",
         "-DPVZSTD_BUILD_SHARED=ON",
-        # The conformance tools are developer utilities; a wheel has no use
-        # for them and building them only lengthens every wheel build.
+        # Developer utilities; building them only lengthens every wheel build.
         "-DPVZSTD_BUILD_TOOLS=OFF",
-        # Wheels must be self-contained. Vendoring zstd keeps the shared
-        # object free of a runtime dependency the target machine may not have.
-        #
-        # PROVIDER, not just VENDOR_ZSTD: the latter only says "fall back to
-        # the pinned source if nothing is installed", so a build machine that
-        # happens to have zstd links that one instead. On a macOS cross-build
-        # that is fatal rather than merely undesirable -- the host's zstd is
-        # arm64, the wheel is x86_64, and the link fails outright.
+        # PROVIDER, not just VENDOR_ZSTD: the latter falls back to the pinned
+        # source only if nothing is installed, so a build machine with zstd links
+        # that one -- fatal on a macOS cross-build, where the host's is arm64.
         "-DPVZSTD_ZSTD_PROVIDER=vendored",
         "-DPVZSTD_VENDOR_ZSTD=ON",
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
@@ -156,9 +150,8 @@ def _build_cpp() -> Path | None:
     return destination
 
 
-# Commands that put files into a wheel or an installed tree. Metadata-only
-# invocations (``dist_info``, ``egg_info``, ``sdist``) are deliberately absent:
-# compiling zstd just to answer a question about the version would be waste.
+# Commands that put files into a wheel or an installed tree. Metadata-only ones
+# are absent: compiling zstd to answer a version question would be waste.
 _BUILDING_COMMANDS = frozenset(
     {"bdist_wheel", "build", "build_py", "editable_wheel", "install"},
 )
@@ -169,11 +162,9 @@ def _is_a_build() -> bool:
     return any(arg in _BUILDING_COMMANDS for arg in sys.argv[1:])
 
 
-# Built here, at import time, rather than from inside build_py. bdist_wheel
-# decides the wheel's platform tag in finalize_options -- which runs before any
-# build command -- so the answer has to already exist by the time setup() is
-# called. Deferring it produced a wheel containing a Linux shared object and
-# tagged py3-none-any, which pip would happily hand to a Windows machine.
+# At import time, not from build_py: bdist_wheel decides the platform tag in
+# finalize_options, before any build command. Deferring it produced a wheel with a
+# Linux shared object tagged py3-none-any.
 _bundled: Path | None = _build_cpp() if _is_a_build() else None
 
 

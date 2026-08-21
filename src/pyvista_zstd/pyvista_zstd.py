@@ -83,12 +83,9 @@ FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
 FILE_VERSION_KEY = "FILE_VERSION"
-# Which implementation decodes a file. This is internal vocabulary: the reader
-# picks for itself, and callers are not asked. "auto" prefers the C++ core and
-# silently falls back, so an install without the shared library still reads
-# every file; "cpp" demands it and reports why it could not load; "python" pins
-# the original pure-Python path. The latter two exist for the conformance suite
-# and the parity harness, which have to name an arm to compare arms at all.
+# Internal vocabulary; callers are not asked. "auto" prefers the C++ core and
+# falls back silently, "cpp" demands it, "python" pins the pure-Python path. The
+# latter two exist for the conformance suite, which must name an arm to compare.
 _IMPLEMENTATIONS = frozenset({"auto", "cpp", "python"})
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
@@ -1386,21 +1383,11 @@ class Reader:
 
         self._frames = BufferWithSegments(self._mm, segments_bytes)
 
-        # Both metadata frames are decompressed by the core the moment it opens
-        # the file, so on the C++ core reading them here as well would be
-        # the same zstd work done twice. Taking them from the core instead costs
-        # only opening it, which this reader would otherwise pay on its first
-        # read anyway.
-        #
-        # Measured cold -- one open per process, because a warm loop cannot see
-        # a cost paid once per process and this one is mostly that. Opening is
-        # 172us on the pure-Python path and 354us here, and the whole 182us
-        # difference is arriving at the library rather than using it: ~220us of
-        # it is the deferred `import _capi` below and ~175us is dlopen plus
-        # binding the prototypes, both once per process, while the extra work
-        # this __init__ actually does -- parsing the trailer that the core also
-        # parses -- measures +6us. So the duplicate parse is not worth removing
-        # and the open is not where the C++ reader loses.
+        # The core decompresses both metadata frames at open, so reading them here
+        # too would be the same zstd work twice. Measured cold, the 182us the core
+        # adds to open is arriving at the library, not using it: ~220us deferred
+        # `import _capi` plus ~175us dlopen and prototype binding, both once per
+        # process, against +6us for the trailer parse this duplicates.
         core = self._core_reader() if self._use_cpp else None
 
         from_core = None if core is None else self._file_metadata_from_core(core)
@@ -1595,12 +1582,9 @@ class Reader:
         reader = self._core_reader()
         segments = reader.read_arrays(keep=keep - {meta_key})
 
-        # The C++ core has already decompressed this frame and parked it as
-        # JSON, so when it is the right one it can be taken from there instead
-        # of being pulled through zstd a second time. The core keeps a single
-        # slot, so that only holds for a file carrying one dataset -- a
-        # MultiBlock has one such frame per dataset and the slot cannot say
-        # which of them it is.
+        # Taken from the core's parked JSON rather than pulled through zstd again.
+        # The core keeps one slot, so this only holds for a single-dataset file --
+        # MultiBlock has one such frame per dataset.
         raw = reader.ds_metadata_json if self._holds_one_dataset() else None
 
         if raw is None:
@@ -1675,9 +1659,8 @@ class Reader:
             raise RuntimeError(msg)
 
         if self._use_cpp:
-            # Arrays that were not selected are never decompressed at all --
-            # the C++ reader is frame-addressed, so downselecting saves the
-            # whole frame rather than just the copy into the dataset.
+            # Frame-addressed, so downselecting skips the decompression too, not
+            # just the copy into the dataset.
             segments = self._read_ds_segments_cpp(ds_id, selected_frame_names)
             return self._segments_to_ds(ds_id, segments)
 

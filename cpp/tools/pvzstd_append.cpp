@@ -1,6 +1,5 @@
 // pvzstd_append -- drive pvzstd_append_arrays from a spec file, for the gate.
-// A developer tool, not part of the shipped library. Array bytes come from
-// files on disk, not from anything this tool invents.
+// A developer tool, not part of the shipped library.
 //
 // usage: pvzstd_append <container> <level> <shuffle> <spec>
 //

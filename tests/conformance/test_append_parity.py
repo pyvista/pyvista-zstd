@@ -75,11 +75,9 @@ def _payloads() -> dict[str, np.ndarray]:
     """Arrays chosen to exercise every branch of the filter decision."""
     rng = np.random.default_rng(17)
     return {
-        # Two multibyte floats that "auto" decides *differently*: measured, the
-        # probe declines the smooth ramp and accepts the noise. Whichever way
-        # round it goes, the point is that they disagree -- a cheaper heuristic
-        # that keyed on dtype alone would give both the same answer and still
-        # look green on a single-array fixture.
+        # Two multibyte floats "auto" decides differently -- the probe declines
+        # the ramp and accepts the noise. A heuristic keyed on dtype alone would
+        # give both the same answer and still look green on one array.
         "step_1_disp": np.linspace(-2.0, 5.0, 300).reshape(100, 3),
         "step_1_noise": rng.random(97).astype(np.float32),
         # integer: never a candidate under "auto", always one under True
@@ -89,11 +87,9 @@ def _payloads() -> dict[str, np.ndarray]:
         # empty multibyte: shuffling nothing is a no-op, but the header byte
         # that records it is not
         "step_1_empty": np.zeros(0, dtype=np.float64),
-        # Over 1 MiB, and that size is the whole point. Measured: zstd emits
-        # identical bytes with threads=0 and threads=1 for anything smaller, so
-        # a fixture of small arrays cannot tell the reference append's
-        # single-threaded framing from a worker pool. Without this array the
-        # suite stayed green when the worker count was deliberately broken.
+        # Over 1 MiB, which is the point: zstd emits identical bytes at threads=0
+        # and threads=1 below that, and without this array the suite stayed green
+        # when the worker count was deliberately broken.
         "step_1_bulk": rng.random(1 << 18),
     }
 
@@ -236,9 +232,7 @@ def test_kept_frames_are_copied_not_recompressed(tmp_path) -> None:
         (i for i, (a, b) in enumerate(zip(before, after, strict=False)) if a != b),
         min(len(before), len(after)),
     )
-    # The dataset-metadata frame is regenerated, and it is the last array
-    # before the file-metadata frame, so a large majority of the body has to be
-    # a verbatim prefix. Half is a floor, not a target.
+    # Half is a floor, not a target: only the two metadata frames are regenerated.
     assert shared > len(before) // 2, (
         f"only {shared} of {len(before)} bytes survived unchanged; kept frames are being rewritten rather than copied"
     )
@@ -261,6 +255,5 @@ def test_append_refuses_a_name_that_already_exists(tmp_path) -> None:
         check=False,
     )
     assert result.returncode != 0, "appending a duplicate name should fail"
-    # The refusal must also leave the container exactly as it was; a partial
-    # write that happened to fail late would be worse than the overwrite.
+    # A partial write that failed late would be worse than the overwrite.
     assert _digest(seed) == committed

@@ -152,17 +152,14 @@ def test_cpp_core_is_actually_used(tmp_path, monkeypatch) -> None:
         msg = "C++ read path deliberately broken"
         raise RuntimeError(msg)
 
-    # read_arrays, not read_at: the batch entry point is what the backend
-    # actually calls. This control caught its own staleness when the reader
-    # moved to batched decompression and the single-array patch stopped
-    # reddening -- which is the whole reason to keep a control that must fail.
+    # read_arrays, not read_at: the batch entry point is what the backend calls.
+    # This control caught its own staleness when the reader moved to batching.
     monkeypatch.setattr(_capi.CoreReader, "read_arrays", _sabotage)
 
     with pytest.raises(RuntimeError, match="deliberately broken"):
         pz.Reader(path, _impl="cpp").read()
 
-    # The pure-Python backend must be untouched by the sabotage, which is what
-    # proves the two paths are genuinely separate.
+    # Untouched by the sabotage, proving the two paths are separate.
     assert pz.Reader(path, _impl="python").read().n_points > 0
 
 

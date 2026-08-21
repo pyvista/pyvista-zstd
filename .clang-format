@@ -1,14 +1,9 @@
-# Chosen to match the C++ already in cpp/, not to impose a new style: the
-# sources are 2-space indented, put the & and * with the type name, and the
-# longest existing line is 99 columns.
+# Matches the C++ already in cpp/ rather than imposing a new style.
 #
-# The commit that added this file also carries a one-off reformat of cpp/.
-# It is not a no-op, and the honest reason is that "already conformant"
-# depends on which clang-format runs: a local 21.1.7 reported zero diffs
-# against these same settings, while the pinned hook rewrote include order
-# and the indentation of directives inside #if blocks. The pinned version is
-# the one that decides, so the tree is normalised to it here and later diffs
-# are real changes rather than version drift.
+# The commit adding this file also reformats cpp/, which is not a no-op: a local
+# clang-format 21.1.7 reported zero diffs against these settings while the pinned
+# hook rewrote include order and directive indentation inside #if blocks. The tree
+# is normalised to the pinned version so later diffs are real changes.
 ---
 Language: Cpp
 BasedOnStyle: Google

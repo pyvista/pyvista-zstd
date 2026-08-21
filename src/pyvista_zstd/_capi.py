@@ -58,9 +58,7 @@ DTYPE_LEN = 16
 # Mirrors PVZSTD_THREADS_AUTO: let the C++ core pick from hardware concurrency.
 THREADS_AUTO = -2
 
-# Discovery override for development and for unusual deployments. This names
-# *which* library to load; it does not change what the library does. Every
-# behavioural knob is a keyword argument.
+# Names *which* library to load; every behavioural knob is a keyword argument.
 _LIBRARY_ENV_VAR = "PVZSTD_LIBRARY"
 
 _STATUS_OK = 0
@@ -98,8 +96,7 @@ class UnsupportedFilterError(PvzstdError, ValueError):
     """
 
     def __init__(self, filter_id: int, name: str) -> None:
-        # Wording kept in step with the pure-Python reader, which is the
-        # published contract; the status code stays available on .status.
+        # Worded as the pure-Python reader does; the code stays on .status.
         super().__init__(
             _STATUS_FILTER,
             message=(
@@ -151,7 +148,7 @@ def _candidate_paths() -> Iterator[str]:
             if candidate.exists():
                 yield str(candidate)
 
-    # Last: let the platform loader search. Yields a bare name, not a path.
+    # Last: let the platform loader search.
     yield from _candidate_names()
 
 
@@ -174,8 +171,7 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.pvzstd_close.restype = None
     lib.pvzstd_close.argtypes = [c_void_p]
 
-    # Without an explicit restype ctypes truncates this to a C int, which
-    # silently corrupts any count above 2**31.
+    # Without an explicit restype ctypes truncates this to a C int.
     lib.pvzstd_array_count.restype = c_uint64
     lib.pvzstd_array_count.argtypes = [c_void_p]
 
@@ -236,8 +232,8 @@ def _load() -> ctypes.CDLL:
         _bind(lib)
         found = int(lib.pvzstd_abi_version())
         if found != ABI_VERSION:
-            # A mismatched ABI is worse than a missing one: the struct layout
-            # this module declares would be read against a different contract.
+            # Worse than a missing one: this module's struct layout would be read
+            # against a different contract.
             attempts.append(f"{candidate}: ABI version {found}, expected {ABI_VERSION}")
             continue
 
@@ -355,9 +351,8 @@ class CoreReader:
 
     def __del__(self) -> None:
         """Release the C++ reader if the caller forgot to."""
-        # A ctypes handle is not garbage-collected by the interpreter, so
-        # without this a dropped reader leaks the mapping until exit. Errors
-        # here are unreportable: the interpreter may already be tearing down.
+        # ctypes handles are not garbage-collected, so a dropped reader would leak
+        # the mapping until exit. Errors here are unreportable during teardown.
         with contextlib.suppress(Exception):
             self.close()
 
@@ -410,23 +405,17 @@ class CoreReader:
 
         out = np.empty(shape, dtype=dtype)
         if info.nbytes:
-            # The destination size is the destination's, not the file's. Handing
-            # over the declared payload size instead would authorise a write of
-            # exactly the length the header claimed -- which is the length the
-            # core is about to produce -- so a file whose payload is larger than
-            # the shape it announces would be written past the end of this
-            # array rather than reported. The core rejects that disagreement at
-            # open; this is the same refusal on the near side of the boundary,
-            # where the buffer being risked actually lives.
+            # The destination's size, not the file's: passing the declared payload
+            # size would authorise exactly what the core is about to produce, so a
+            # payload larger than its announced shape would be written past the end
+            # of this array rather than reported.
             status = self._lib.pvzstd_read_array_at(
                 self._live,
                 c_uint64(index),
                 c_void_p(out.ctypes.data),
                 c_uint64(out.nbytes),
             )
-            # The core decides whether a filter is reversible; this only
-            # restates its verdict in the exception the library has always
-            # raised for it.
+            # Restates the core's verdict as the exception this library raises.
             if status == _STATUS_FILTER:
                 raise UnsupportedFilterError(info.filter_id, info.name.decode("utf-8"))
             _check(status, info.name.decode("utf-8"))
@@ -512,19 +501,14 @@ class CoreReader:
         dict[str, numpy.ndarray]
 
         """
-        # Everything below is hoisted out of the loop on purpose. This loop runs
-        # once per array on every single read, and profiling it on an idle
-        # machine put more time in this Python body than in the C++
-        # decompression it wraps -- the per-array property lookups, attribute
-        # resolutions and np.dtype construction dominated a small file entirely.
+        # Hoisted out of the loop on purpose: profiling put more time in this
+        # Python body than in the C++ decompression it wraps.
         handle = self._live
         dtypes: dict[bytes, np.dtype[Any]] = {}
         empty = np.empty
 
-        # Every header in one crossing. Asking for them one at a time cost a
-        # foreign call per array, and that call is dear relative to the few
-        # hundred bytes it returns -- for a file of a dozen arrays the calls
-        # outweighed the decompression they were preparing.
+        # Every header in one crossing: a foreign call per array outweighed the
+        # decompression it was preparing.
         n_arrays = int(self._lib.pvzstd_array_count(handle))
         infos = (_ArrayInfo * n_arrays)()
         if n_arrays:
@@ -541,24 +525,20 @@ class CoreReader:
             if dtype is None:
                 dtype = np.dtype(raw_dtype.decode("utf-8"))
                 dtypes[raw_dtype] = dtype
-            # Slicing the ctypes array converts the dimensions in one C-level
-            # step. Indexing it per dimension inside a generator unboxed them
-            # one at a time and built a generator per array to do it.
+            # Slicing converts the dimensions in one C-level step.
             shape = tuple(info.shape[: info.ndim])
             wanted.append((index, name, empty(shape, dtype=dtype)))
 
         payloads = [(i, n, a) for i, n, a in wanted if a.nbytes]
         if payloads:
             count = len(payloads)
-            # Built in a single pass: three generator expressions over the same
-            # list walked it three times for no gain.
+            # One pass: three generator expressions walked the list three times.
             indices = (c_uint64 * count)()
             dsts = (c_void_p * count)()
             sizes = (c_uint64 * count)()
             for slot, (i, _, arr) in enumerate(payloads):
                 indices[slot] = i
-                # np.empty is C-contiguous, so .ctypes.data addresses the whole
-                # payload and the core writes straight into the final array.
+                # C-contiguous, so the core writes straight into the final array.
                 dsts[slot] = arr.ctypes.data
                 sizes[slot] = arr.nbytes
             status = self._lib.pvzstd_read_arrays(handle, indices, c_uint64(count), dsts, sizes, c_int(n_threads))

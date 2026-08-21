@@ -1,9 +1,8 @@
 // Whether this build has a thread runtime, and how many workers it can use.
 //
-// PVZSTD_NO_THREADS (from the PVZSTD_THREADS CMake option) removes the pool
-// and runs the work inline, so a target with no thread runtime still builds.
-// Results are unchanged either way -- frames are independent. Compile-time
-// rather than runtime because <thread> is what pulls the runtime in.
+// PVZSTD_NO_THREADS (from the PVZSTD_THREADS CMake option) runs the work inline
+// so a target without a thread runtime still builds; results are unchanged either
+// way. Compile-time because <thread> is what pulls the runtime in.
 
 #ifndef PVZSTD_THREADS_H
 #define PVZSTD_THREADS_H
@@ -23,8 +22,7 @@ constexpr bool kHasThreads = false;
 constexpr bool kHasThreads = true;
 #endif
 
-// Workers this build can actually run in parallel: 1 without a thread runtime,
-// otherwise the hardware concurrency (1 when that cannot be determined).
+// Workers this build can run in parallel; 1 without a thread runtime.
 inline int HardwareWorkers() {
 #ifdef PVZSTD_NO_THREADS
   return 1;
@@ -34,9 +32,7 @@ inline int HardwareWorkers() {
 #endif
 }
 
-// Call fn(i) for every i in [0, count), striding the indices over `workers`
-// threads so each one is visited by exactly one. Runs them in order and on
-// this thread when the build has no thread runtime.
+// Call fn(i) for every i in [0, count), striding indices over `workers` threads.
 template <typename Fn>
 inline void ParallelStride(int workers, uint64_t count, Fn fn) {
 #ifdef PVZSTD_NO_THREADS

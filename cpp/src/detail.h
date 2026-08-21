@@ -1,11 +1,9 @@
 // Primitives shared by the translation units that touch array bytes.
 //
-// These were the writer's private helpers until the append path needed the
-// same ones, and the reader needs the dtype rule. They are byte-level
-// reproductions of specific reference-writer behaviours, not general
-// utilities: the shuffle decision, the worker count, the dtype width and the
-// JSON escaping all decide what ends up on disk, so a second implementation of
-// any of them would be a second chance to disagree.
+// Byte-level reproductions of specific reference-writer behaviours, not general
+// utilities: the shuffle decision, the worker count, the dtype width and the JSON
+// escaping each decide what ends up on disk, so a second implementation of any of
+// them would be a second chance to disagree.
 
 #ifndef PVZSTD_DETAIL_H
 #define PVZSTD_DETAIL_H
@@ -51,9 +49,8 @@ struct Dtype {
   bool valid = false;
 };
 
-// Byte width of a numpy dtype string such as "<f8", "|u1" or "<U8". Anything
-// that is not "<byteorder><kind><decimal>" -- "<M8[ns]", say -- is reported
-// invalid rather than guessed at.
+// Byte width of a numpy dtype string such as "<f8". Anything that is not
+// "<byteorder><kind><decimal>" is invalid rather than guessed at.
 inline Dtype ParseDtype(const char *s) {
   Dtype d;
   if (s == nullptr) return d;
@@ -67,10 +64,8 @@ inline Dtype ParseDtype(const char *s) {
     width = width * 10 + static_cast<uint64_t>(s[i] - '0');
   }
   if (width == 0) return d;
-  // A "<U8" is eight 4-byte code points, so for that one kind the tag's number
-  // is an element count and not a byte width -- numpy reports itemsize 32.
-  // Reading it as 8 would shuffle and unshuffle such an array on the wrong
-  // stride, which is silent corruption rather than an error.
+  // "<U8" is eight 4-byte code points -- an element count, not a byte width, so
+  // numpy reports itemsize 32. Reading it as 8 shuffles on the wrong stride.
   if (d.kind == 'U') width *= 4;
   d.itemsize = width;
   d.valid = true;
@@ -95,9 +90,8 @@ inline size_t CompressedSize(const uint8_t *src, uint64_t n, int level) {
 }
 
 // Mirrors _auto_shuffle_beneficial: trial-compress a centred sample raw and
-// shuffled, keep shuffle only when strictly smaller. Reproducing this exactly
-// matters -- the decision is recorded on disk, so a cheaper heuristic would
-// change the bytes.
+// shuffled, keep shuffle only when strictly smaller. The decision is recorded on
+// disk, so a cheaper heuristic would change the bytes.
 inline bool AutoShuffleBeneficial(const uint8_t *data, uint64_t nbytes, uint64_t itemsize,
                                   int level) {
   const uint64_t n_elem = nbytes / itemsize;
@@ -159,8 +153,7 @@ inline pvzstd_status CompressFrame(const uint8_t *src, uint64_t n, int level, in
   return PVZSTD_OK;
 }
 
-// JSON string escaping sufficient for the identifiers this format carries,
-// matching json.dumps' default (ensure_ascii, minimal separators).
+// Matches json.dumps' default (ensure_ascii, minimal separators).
 inline void AppendJsonString(std::string *out, const std::string &s) {
   out->push_back('"');
   for (const char c : s) {
@@ -193,8 +186,7 @@ inline void AppendJsonString(std::string *out, const std::string &s) {
   out->push_back('"');
 }
 
-// One "<name>":{"shape":[...],"dtype":"..."} entry, in the reference
-// dataclass's field order and with json.dumps' compact separators.
+// One entry, in the reference dataclass's field order.
 inline void AppendFieldEntry(std::string *out, const std::string &name,
                              const std::string &dtype_name, const uint64_t *shape, uint32_t ndim) {
   AppendJsonString(out, name);
@@ -208,9 +200,8 @@ inline void AppendFieldEntry(std::string *out, const std::string &name,
   out->push_back('}');
 }
 
-// The array-metadata frame payload: name, shape, dtype, and -- only when a
-// filter is in use -- the filter byte. Omitting the byte when it would be zero
-// is what the reference writer does, and readers key on the payload length.
+// Array-metadata frame payload. The filter byte is omitted when zero, as the
+// reference writer does -- readers key on the payload length.
 inline std::vector<uint8_t> PackArrayMetadata(const std::string &name, const std::string &dtype,
                                               const std::vector<uint64_t> &shape,
                                               uint8_t filter_id) {

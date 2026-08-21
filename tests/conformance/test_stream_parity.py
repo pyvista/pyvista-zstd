@@ -101,34 +101,25 @@ pytestmark = pytest.mark.skipif(
 )
 
 SHUFFLE_CODE = {False: "0", True: "1", "auto": "2"}
-# Enough commits that a per-commit cost proportional to the file has room to
-# show itself. How much room depends on the machine: this fixture produced 10.30x
-# control growth on a workstation but only 2.52x on a Windows CI runner, which is
-# why nothing below is asserted against how long the control took.
+# Enough commits that a per-commit cost proportional to the file shows itself.
+# How much depends on the machine -- 10.30x control growth on a workstation but
+# 2.52x on a Windows runner -- so nothing below is asserted against the control's
+# wall time.
 N_COMMITS = 24
-# Which of these may be an absolute number is not a matter of taste. A bound on
-# the arm that is supposed to stay flat is a statement about this code, and
-# transfers. A bound on how large the *control* gets -- or on any ratio the
-# control dominates -- is a statement about the machine's storage, and does not.
-# Both kinds were absolute here at first and CI reddened on each in turn, and a
-# ratio with a clamped denominator turned out to be the second kind in disguise.
+# A bound on the arm that should stay flat is a statement about this code and
+# transfers; a bound on the control, or on a ratio it dominates, is a statement
+# about the machine's storage and does not. Both were absolute here at first and
+# CI reddened on each in turn.
 #
-# Statement about the code: the stream must not be meaningfully slower at the
-# end than at the start. Measured 0.97x; 3.0 leaves room for a loaded runner.
+# About the code: the stream must not be meaningfully slower at the end than at
+# the start. Measured 0.97x; 3.0 leaves room for a loaded runner.
 MAX_STREAM_GROWTH = 3.0
-# Statement about the fixture, which is the same everywhere. The copying path
-# reads and rewrites the whole container on every call, so how much work it is
-# made to repeat is fixed by how much the container grows -- 0.81 MB to 14.82 MB
-# over these commits, a last-HEAD-to-first-HEAD ratio of 6.70x. The block is
-# incompressible random data under a fixed seed, so that ratio is arithmetic and
-# not a measurement; 3.0 is well clear of it. Below this the fixture has stopped
-# exercising what the comparison is about, and the test says so rather than
-# passing quietly.
+# About the fixture, which is the same everywhere: the container grows 0.81 MB to
+# 14.82 MB, a ratio of 6.70x that is arithmetic under a fixed seed rather than a
+# measurement. Below this the fixture has stopped posing the problem.
 MIN_CONTROL_CONTAINER_GROWTH = 3.0
-# The claim here is only that streaming beats the copying path -- faster, not
-# merely equal. The *magnitude* is machine-dependent and belongs in the docs,
-# not in a bound: measured 87.6x on a workstation and 4.39x on a Linux CI
-# runner, and an earlier floor of 5.0 reddened CI for exactly that reason.
+# Only that streaming is faster, not by how much: measured 87.6x on a workstation
+# and 4.39x on a Linux runner, and an earlier floor of 5.0 reddened CI.
 MIN_TOTAL_SPEEDUP = 1.5
 HEAD = 5
 
@@ -150,8 +141,7 @@ def _commits() -> list[dict[str, np.ndarray]]:
         {"step_2_noise": rng.random(97).astype(np.float32), "step_2_flags": np.ones(11, np.uint8)},
         # Shuffling nothing is a no-op, but the header byte recording it is not.
         {"step_3_empty": np.zeros(0, np.float64)},
-        # Over 1 MiB: below that, zstd emits the same bytes threaded or not, so
-        # a fixture of small arrays cannot tell the framing apart.
+        # Over 1 MiB: below that zstd emits the same bytes threaded or not.
         {"step_4_bulk": rng.random(1 << 18)},
     ]
 
@@ -281,14 +271,11 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     control_growth = sum(control_times[-HEAD:]) / sum(control_times[:HEAD])
     stream_growth = sum(stream_times[-HEAD:]) / sum(stream_times[:HEAD])
     speedup = sum(control_times) / sum(stream_times)
-    # How much more container the copying path is made to re-read at the end of
-    # the run than at the start. Measured, not timed: the question this answers
-    # is whether the fixture still poses the problem, and that is settled by how
-    # big the file got, which no amount of page cache can flatter.
+    # Measured, not timed: whether the fixture still poses the problem is settled
+    # by how big the file got, which page cache cannot flatter.
     container_growth = sum(control_sizes[-HEAD:]) / sum(control_sizes[:HEAD])
-    # Every failure below carries all four numbers. The first CI failure here
-    # reported only the one that tripped, which was not enough to say whether
-    # the stream had regressed or the runner was merely slow.
+    # All four numbers on every failure: the first CI failure reported only the one
+    # that tripped, which could not say whether the stream or the runner was slow.
     measured = (
         f"[control growth {control_growth:.2f}x, stream growth {stream_growth:.2f}x, "
         f"container growth {container_growth:.2f}x, total speedup {speedup:.2f}x] "
@@ -304,10 +291,8 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     )
     assert speedup > MIN_TOTAL_SPEEDUP, f"{measured}streaming did not beat {N_COMMITS} separate appends"
 
-    # The assertion that actually holds the line. A stream that re-reads the
-    # container still passes every timing bound above, because the re-read is
-    # served from page cache and disappears into compression noise -- measured,
-    # not assumed. Bytes read does not disappear.
+    # The assertion that holds the line: a stream that re-reads the container
+    # passes every timing bound above, because page cache hides it. Bytes do not.
     if all(b >= 0 for b in stream_reads):
         total_read = sum(stream_reads)
         produced = streamed.stat().st_size
@@ -340,8 +325,7 @@ def test_close_refuses_a_stream_shorter_than_it_declared(tmp_path) -> None:
     )
     assert result.returncode != 0, "closing 1 commit against a declared 2 should fail"
     assert "pvzstd_stream_close" in result.stderr
-    # The commit itself succeeded, so it is on disk: the refusal is about the
-    # declared total, not about the write.
+    # The commit succeeded: the refusal is about the declared total.
     assert "count out of range" in result.stderr
 
 

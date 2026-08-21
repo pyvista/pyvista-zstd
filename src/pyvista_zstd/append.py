@@ -584,8 +584,8 @@ class AppendReader:
             capi = _capi_module()
             if self._impl != "cpp" and not capi.available():
                 return None
-            # "cpp" falls through without the availability check so the
-            # load failure itself is what gets raised, with its diagnostics.
+            # "cpp" skips the availability check so the load failure itself is
+            # what gets raised, with its diagnostics.
             self._core = capi.CoreReader(self._path)
         return self._core
 
@@ -600,10 +600,8 @@ class AppendReader:
             index = cpp.find_field(name)
             if index is not None:
                 return cpp.read_at(index)
-            # The C++ core looked and did not find it. Falling back to the
-            # Python path here would paper over a disagreement between the two
-            # about what the file contains, which is exactly what the parity
-            # gate exists to catch.
+            # Falling back here would paper over a disagreement between the two
+            # about what the file contains.
             msg = f"frame for field array {name!r} not found in frame index."
             raise KeyError(msg)
 

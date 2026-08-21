@@ -1,11 +1,9 @@
 // Append half of the .pv container. See doc/format/container-v2.md.
 //
-// Existing frames are copied verbatim by offset -- never decompressed -- and
-// only the two frames that grow are regenerated, so cost tracks what is added
-// rather than the file size. Two details carry byte-identity: the reference
-// append compresses with threads=0 (unlike pvzstd_writer_write, which sizes a
-// pool from the payload total), and the dataset-metadata JSON is spliced
-// rather than re-emitted, so every byte we did not add is untouched.
+// Existing frames are copied verbatim by offset and only the two that grow are
+// regenerated. Two details carry byte-identity: the reference append compresses
+// with threads=0 (unlike pvzstd_writer_write, which sizes a pool from the payload
+// total), and the dataset-metadata JSON is spliced rather than re-emitted.
 
 #include <zstd.h>
 
@@ -33,8 +31,6 @@ constexpr size_t kUidNChar = 16;
 constexpr size_t kCopyChunk = 8u << 20;
 constexpr int kFileVersionShuffle = 1;
 
-// Closes on every exit path, including the error ones, of which this file has
-// a great many.
 class ScopedFile {
  public:
   explicit ScopedFile(std::FILE *fp) : fp_(fp) {}
@@ -78,8 +74,7 @@ pvzstd_status ReadFooter(std::FILE *fp, std::vector<FrameEntry> *frames, uint64_
   std::vector<uint8_t> buf;
   if (!ReadAt(fp, size - 8, 8, &buf)) return PVZSTD_E_IO;
   const uint64_t n_frames = LoadU64(buf.data());
-  // An empty or odd frame count cannot be a (header, payload) pairing, and a
-  // count that does not fit in the file is a truncation, not a container.
+  // An empty or odd count cannot be a (header, payload) pairing.
   if (n_frames < 4 || (n_frames % 2) != 0) return PVZSTD_E_FORMAT;
   if (n_frames > (size - 8) / 16) return PVZSTD_E_FORMAT;
 
@@ -117,8 +112,7 @@ pvzstd_status DecompressFrame(std::FILE *fp, const std::vector<FrameEntry> &fram
   }
   const size_t got = ZSTD_decompress(plain.data(), plain.size(), raw.data(), raw.size());
   if (ZSTD_isError(got) != 0) return PVZSTD_E_ZSTD;
-  // A frame that decompressed to a different length than the trailer declared
-  // means the trailer and the body disagree; trusting either would be a guess.
+  // Trailer and body disagreeing: trusting either would be a guess.
   if (got != plain.size()) return PVZSTD_E_FORMAT;
   *out = std::move(plain);
   return PVZSTD_OK;
@@ -181,16 +175,14 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
       !MemberString(file_meta_json, "compression", &compression)) {
     return PVZSTD_E_FORMAT;
   }
-  // The trailing file-metadata array's own name is deliberately absent from
-  // frame_names; if the counts disagree the pairing we are about to rebuild
-  // would silently shift every name onto the wrong frame.
+  // The file-metadata array's own name is absent from frame_names; disagreeing
+  // counts would shift every name onto the wrong frame.
   if (frame_names.size() != n_arrays - 1) return PVZSTD_E_FORMAT;
 
   size_t root_idx = frame_names.size();
   for (size_t i = 0; i < frame_names.size(); ++i) {
-    // MultiBlock metadata also ends with the dataset-metadata suffix, and a
-    // MultiBlock file has no single root dataset to append to. Refuse it
-    // rather than misparse its metadata as a dataset's.
+    // MultiBlock metadata ends with the same suffix but has no root dataset to
+    // append to; refuse rather than misparse it as a dataset's.
     if (EndsWith(frame_names[i], kMultiblockKey)) return PVZSTD_E_FORMAT;
     if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataKey)) root_idx = i;
   }
@@ -210,9 +202,8 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
   if (!ObjectKeys(ds_json, fdk_open, &existing)) return PVZSTD_E_FORMAT;
   for (uint64_t k = 0; k < count; ++k) {
     for (const std::string &have : existing) {
-      // Refused, not overwritten: the old block's bytes would stay in the file
-      // with nothing pointing at them, and the reader would surface whichever
-      // entry it happened to find first.
+      // Refused, not overwritten: the old bytes would stay with nothing pointing
+      // at them and the reader would surface whichever entry it found first.
       if (have == arrays[k].name) return PVZSTD_E_INVALID;
     }
     for (uint64_t j = 0; j < k; ++j) {
@@ -288,8 +279,7 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
   const std::string ds_name = ds_id + kDsMetadataKey;
   final_names.push_back(ds_name);
 
-  // 5. Regenerate the file metadata. Field order matches the reference
-  //    dataclass; separators are json.dumps(separators=(",", ":")).
+  // 5. Regenerate the file metadata, in the reference dataclass's field order.
   const long long new_version =
       any_shuffled ? (old_version > kFileVersionShuffle ? old_version : kFileVersionShuffle)
                    : old_version;
@@ -313,8 +303,7 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     return PVZSTD_E_NOMEM;
   }
 
-  // 6. Compress. Single-threaded, matching the reference append -- which uses
-  //    threads=0, unlike the writer, which sizes a pool from the payload total.
+  // 6. Compress single-threaded, matching the reference append's threads=0.
   for (std::vector<uint8_t> &payload : plain) {
     StagedFrame frame;
     frame.decomp = payload.size();
@@ -323,8 +312,7 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     staged.push_back(std::move(frame));
   }
 
-  // 7. Write beside the original and commit by rename, so an interrupted
-  //    append cannot damage blocks that were already committed.
+  // 7. Commit by rename, so an interrupted append cannot damage what was there.
   const std::string tmp_path = std::string(path) + ".append.tmp";
   ScopedFile out(std::fopen(tmp_path.c_str(), "wb"));
   if (out.get() == nullptr) return PVZSTD_E_IO;

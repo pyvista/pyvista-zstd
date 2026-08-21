@@ -35,8 +35,6 @@ jobs:
         run: pip install uv
 
       - name: Install pytest-pyvista with test dependencies
-        # The documentation build does not exercise the C++ core, so skip
-        # compiling it rather than paying for a zstd build on every doc run.
         env:
           PVZSTD_BUILD_CORE: "0"
         run: uv pip install --system .[docs]
@@ -90,18 +88,12 @@ jobs:
         run: uv pip install --system vtk==${{ matrix.vtk-version }}
 
       - name: Install with test dependencies
-        # The install compiles the C++ core and bundles it into the
-        # package. Required, not best-effort: without it the C++ core is
-        # never exercised here, and a silent fallback would leave most of
-        # _capi.py untested while the suite still passed.
         env:
           PVZSTD_BUILD_CORE: "1"
         run: uv pip install --system .[tests]
 
       - name: Confirm the C++ core is present
-        # `backend="auto"` falls back to pure Python by design, so nothing in
-        # the suite below fails just because the C++ core went missing.
-        # Assert it separately or this job cannot tell the two apart.
+        # The core falls back to pure Python by design, so no test below fails if it is missing.
         run: |
           python -c "
           from pyvista_zstd import _capi
@@ -138,16 +130,8 @@ jobs:
           python-version: 3.13
 
       - name: Build distributions
-        # Deliberately pure Python, which is what this job has always
-        # published. This runner is Linux, so building the C++ core here
-        # would produce a single linux_x86_64 wheel and publish it as the
-        # package's only wheel -- worse for macOS and Windows users than the
-        # portable pure-Python one they get today.
-        #
-        # Per-platform wheels are built and tested by the C++ Core
-        # workflow. Publishing those instead is a deliberate follow-up: it
-        # needs a second trusted publisher registered for that workflow file,
-        # which is a repository setting rather than a change to this file.
+        # Pure Python: this Linux runner would otherwise publish a linux_x86_64 wheel
+        # as the only wheel. Per-platform wheels come from the C++ Core workflow.
         env:
           PVZSTD_BUILD_CORE: "0"
         run: |

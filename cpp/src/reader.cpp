@@ -1,11 +1,8 @@
 // Reader half of the .pv container. See doc/format/container-v2.md.
 //
-// Index entries carry each frame's END offset, so starts are derived by
-// shifting; frames pair as (header, payload); the header's filter byte is
-// present only when non-zero, so header length is the signal, not the file
-// version. Each declared decompressed size is checked against what zstd
-// produces, which turns a misparsed index into an error rather than silent
-// corruption.
+// Index entries carry each frame's END offset, so starts are derived by shifting;
+// frames pair as (header, payload); the header's filter byte is present only when
+// non-zero, so header length is the signal, not the file version.
 
 #include <zstd.h>
 
@@ -66,8 +63,7 @@ struct ArrayEntry {
   uint64_t payload_end;
 };
 
-// Invert the byte-plane split applied by the shuffle filter: the on-disk form
-// is itemsize planes of n_elem bytes, and the array wants them interleaved.
+// Invert the shuffle filter: on disk it is itemsize planes of n_elem bytes.
 void Unshuffle(const uint8_t *src, uint8_t *dst, uint64_t nbytes, uint64_t itemsize) {
   const uint64_t n_elem = nbytes / itemsize;
   for (uint64_t plane = 0; plane < itemsize; ++plane) {
@@ -77,26 +73,20 @@ void Unshuffle(const uint8_t *src, uint8_t *dst, uint64_t nbytes, uint64_t items
   }
 }
 
-// Byte width implied by a numpy dtype string such as "<f8" or "|u1", or 0 when
-// this build cannot read one off the tag. Shared with the writer so the two
-// halves cannot disagree about a stride.
+// Byte width implied by a numpy dtype string, or 0 when it cannot be read off the
+// tag. Shared with the writer so the two halves cannot disagree about a stride.
 uint64_t DtypeItemsize(const char *dtype) {
   const pvzstd::detail::Dtype d = pvzstd::detail::ParseDtype(dtype);
   return d.valid ? d.itemsize : 0;
 }
 
-// Whether the payload size the trailer declares agrees with the shape and
-// dtype the header announces.
+// Whether the declared payload size agrees with the header's shape and dtype.
 //
-// Nothing else checks this. pvzstd_read_array_at honours the declared payload
-// size, while a caller sizes its destination from the shape and dtype, so a
-// header saying "10 float64" over a payload declaring 8000 bytes writes 8000
-// bytes into an 80-byte destination. That is a buffer overrun produced by a
-// file, which makes refusing it the reader's job and not the caller's.
-//
-// A dtype whose width cannot be read off the tag is left unchecked rather than
-// rejected: the format carries whatever numpy spelled, and refusing a
-// spelling this build does not recognise would reject a valid file.
+// Nothing else checks this, and the mismatch is a buffer overrun produced by a
+// file: reads honour the declared payload size while callers size destinations
+// from shape and dtype, so a "10 float64" header over an 8000-byte payload writes
+// 8000 bytes into 80. An unrecognised dtype spelling is left unchecked rather than
+// rejected, since the format carries whatever numpy spelled.
 bool DeclaredSizeAgrees(const std::vector<uint64_t> &shape, const char *dtype, uint64_t nbytes) {
   uint64_t n = DtypeItemsize(dtype);
   if (n == 0) return true;
@@ -107,25 +97,15 @@ bool DeclaredSizeAgrees(const std::vector<uint64_t> &shape, const char *dtype, u
   return n == nbytes;
 }
 
-// Total decompressed bytes below which AUTO decompresses inline instead of
-// spawning workers.
-//
-// This is a floor, not a tuned optimum. Thread-spawn cost is a property of the
-// machine, so the exact crossover moves; what does not move is that below some
-// size the spawn dominates, and that picking workers from frame *count* alone
-// ignores this entirely. Measured here: a 10 KB / 11-frame file ran 2.5x
-// slower with one thread per frame than inline, while a 2.7 MB file was
-// faster threaded. 4 MiB sits above the observed crossover with margin, so
-// the branch errs toward inline only where the work is demonstrably tiny.
+// Total decompressed bytes below which AUTO stays inline. A floor, not a tuned
+// optimum -- the crossover is machine-dependent. Measured here: a 10 KB/11-frame
+// file ran 2.5x slower with one thread per frame than inline, a 2.7 MB file was
+// faster threaded.
 constexpr uint64_t kParallelDecompressFloor = 4ull << 20;
 
-// A read-only view of the file.
-//
-// Mapping rather than reading matters more than it looks: the reference
-// reader mmaps, and copying the file into a buffer at open cost 7.85 ms on a
-// 21 MB container here -- enough to turn a decompression win into an
-// end-to-end loss. Pages are also faulted in only for the frames actually
-// read, so a selective read never touches the rest of the file.
+// A read-only view of the file. Mapping rather than copying: reading a 21 MB
+// container into a buffer at open cost 7.85 ms here, and mapping faults in only
+// the frames actually read.
 class FileMapping {
  public:
   FileMapping() = default;
@@ -213,8 +193,7 @@ struct pvzstd_reader {
   std::string file_metadata;
   bool has_ds_metadata = false;
   bool has_file_metadata = false;
-  // Field-data blocks of the root dataset, in the order the dataset metadata
-  // lists them. Empty for a MultiBlock container, which has no single root.
+  // Root dataset's field-data blocks, in metadata order. Empty for MultiBlock.
   std::vector<std::string> field_names;
   std::vector<int64_t> field_indices;  // into `arrays`; -1 if the frame is gone
   // Filled in by pvzstd_array_info_at so the caller sees stable pointers.
@@ -223,20 +202,11 @@ struct pvzstd_reader {
 
 namespace {
 
-// A decompression context owned by, and reused across every frame decompressed
-// on, the calling thread.
-//
-// zstd's own guidance: "When decompressing many times, it is recommended to
-// allocate a context only once, and reuse it for each successive compression
-// operation" and "Use one context per thread for parallel execution."
-// `thread_local` satisfies both without putting a context handle in the C ABI,
-// which matters because the ABI is the part we cannot revise later.
-//
-// A container is many small frames, so the one-shot ZSTD_decompress() this
-// replaces was paying context setup per frame rather than per read.
-//
-// Returns nullptr if the context could not be allocated; callers fall back to
-// the one-shot entry point, which is correct, just slower.
+// One decompression context per thread, reused across frames -- zstd asks for a
+// context allocated once and one per thread, and `thread_local` gives both without
+// putting a handle in the ABI we cannot revise later. A container is many small
+// frames, so one-shot ZSTD_decompress() paid setup per frame. nullptr if it could
+// not be allocated; callers fall back to the one-shot entry point.
 ZSTD_DCtx *ThreadDCtx() {
   struct Holder {
     ZSTD_DCtx *ctx = ZSTD_createDCtx();
@@ -251,8 +221,7 @@ ZSTD_DCtx *ThreadDCtx() {
   return holder.ctx;
 }
 
-// ZSTD_decompressDCtx on the thread's context, falling back to the one-shot
-// call when no context is available. Same result either way.
+// Falls back to the one-shot call when no context is available; same result.
 size_t DecompressInto(void *dst, size_t dst_capacity, const void *src, size_t src_size) {
   ZSTD_DCtx *const ctx = ThreadDCtx();
   if (ctx == nullptr) return ZSTD_decompress(dst, dst_capacity, src, src_size);
@@ -269,8 +238,8 @@ pvzstd_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t ex
   if (expected == 0) return PVZSTD_OK;
   const size_t got = DecompressInto(out->data(), out->size(), src, static_cast<size_t>(src_size));
   if (ZSTD_isError(got) != 0) return PVZSTD_E_ZSTD;
-  // A mismatch here is the signature of a misparsed index: every frame still
-  // decompresses, but each one yields a neighbour's payload.
+  // A mismatch is the signature of a misparsed index: every frame still
+  // decompresses, but each yields a neighbour's payload.
   if (got != expected) return PVZSTD_E_FORMAT;
   return PVZSTD_OK;
 }
@@ -300,9 +269,8 @@ pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
   entry->dtype[dtype_len] = '\0';
   off += PVZSTD_DTYPE_LEN;
 
-  // The filter byte is written only when a filter is in use, so its absence
-  // means PVZSTD_FILTER_NONE. Testing file_version here instead would mis-parse
-  // a shuffled version-2 file.
+  // Absent filter byte means PVZSTD_FILTER_NONE. Testing file_version instead
+  // would mis-parse a shuffled version-2 file.
   entry->filter_id = PVZSTD_FILTER_NONE;
   if (off < buf.size()) {
     entry->filter_id = buf[off];
@@ -340,11 +308,8 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) {
     delete reader;  // frames pair as (header, payload)
     return PVZSTD_E_FORMAT;
   }
-  // Bounded by division rather than by comparing against n_frames * 16: the
-  // count is read from the file, and the product overflows for a large enough
-  // value, which turns a size check into a pass. The vectors below are sized
-  // from this count, so an unchecked one is an allocation the file never
-  // justified -- pvzstd_append_arrays already guards this way.
+  // Bounded by division: n_frames comes from the file and n_frames * 16
+  // overflows for a large enough value, turning the size check into a pass.
   if (n_frames > (raw.size() - kTrailerCountBytes) / kIndexEntryBytes) {
     delete reader;
     return PVZSTD_E_FORMAT;
@@ -360,9 +325,8 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) {
     sizes[static_cast<size_t>(i)] = LoadU64(p + 8);
   }
 
-  // The root dataset's UID and metadata, recorded as the frames go past. A
-  // MultiBlock container has no single root, so seeing its metadata frame
-  // abandons the field-array index rather than guessing which block owns it.
+  // MultiBlock has no single root, so its metadata frame abandons the field-array
+  // index rather than guessing which block owns it.
   std::string ds_id;
   std::string root_ds_json;
   bool multiblock = false;
@@ -427,10 +391,8 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) {
     reader->arrays.push_back(entry);
   }
 
-  // The field-array index. Its names come from the dataset metadata rather
-  // than from the frame names, because that document is what defines which
-  // blocks are field data and in which order -- a frame-name scan would also
-  // pick up an array whose name merely happens to end the same way.
+  // Names come from the dataset metadata, not the frame names: a frame-name scan
+  // would also pick up an array whose name merely ends the same way.
   if (!multiblock && !ds_id.empty()) {
     size_t fdk_open = 0;
     size_t fdk_past = 0;
@@ -446,9 +408,8 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) {
             break;
           }
         }
-        // A key with no frame is kept, not dropped: the reference reader lists
-        // it too, and refuses only when it is actually read. Reporting a
-        // shorter list here would hide the desync instead of surfacing it.
+        // Kept, not dropped: the reference reader lists it too and refuses only
+        // on read, and a shorter list here would hide the desync.
         reader->field_names.push_back(key);
         reader->field_indices.push_back(found);
       }
@@ -467,9 +428,8 @@ uint64_t pvzstd_array_count(const pvzstd_reader *reader) {
 
 namespace {
 
-// Every pointer here aliases storage the reader owns for its whole life, so
-// the filled struct stays valid until pvzstd_close() -- nothing is copied but the
-// dtype tag, which is a fixed-size array inside the struct.
+// Every pointer aliases storage the reader owns for its whole life, so the filled
+// struct stays valid until pvzstd_close().
 void FillArrayInfo(const ArrayEntry &e, pvzstd_array_info *out) {
   out->name = e.name.c_str();
   out->shape = e.shape.empty() ? nullptr : e.shape.data();
@@ -496,8 +456,7 @@ pvzstd_status pvzstd_array_info_range(const pvzstd_reader *reader, uint64_t firs
   if (out == nullptr) return PVZSTD_E_INVALID;
 
   const uint64_t total = static_cast<uint64_t>(reader->arrays.size());
-  // Checked against the remaining count rather than as first + count, which
-  // would wrap for a large first and silently accept an out-of-range span.
+  // Against the remaining count, not first + count, which would wrap.
   if (first > total || count > total - first) return PVZSTD_E_RANGE;
 
   for (uint64_t i = 0; i < count; ++i) {
@@ -571,21 +530,15 @@ pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *in
 
   int workers = n_threads;
   if (workers == PVZSTD_THREADS_AUTO) {
-    // Spawning a thread costs more than decompressing a small frame. Deciding
-    // on frame *count* alone spawned one thread per frame for a 10 KB file and
-    // measured 2.5x slower than doing the same work inline -- so the size of
-    // the work has to enter the decision, not just how many pieces it is in.
-    //
-    // AUTO is a request for the fastest setting, not for maximum parallelism;
-    // an explicit n_threads is still honoured verbatim.
+    // Size enters the decision, not just frame count: deciding on count alone
+    // spawned a thread per frame for a 10 KB file and ran 2.5x slower than inline.
+    // AUTO asks for the fastest setting; an explicit n_threads is honoured.
     uint64_t total = 0;
     for (uint64_t i = 0; i < count; ++i) total += dst_sizes[i];
     workers = total < kParallelDecompressFloor ? 1 : pvzstd::detail::HardwareWorkers();
   }
   if (workers > static_cast<int>(count)) workers = static_cast<int>(count);
-  // A build with no thread runtime has no pool to spread over. Doing the work
-  // inline is the same work in the same order, so this is a speed difference
-  // and not a behavioural one -- which is why it is a clamp and not an error.
+  // Same work in the same order, so a clamp rather than an error.
   if (!pvzstd::detail::kHasThreads) workers = 1;
 
   if (workers <= 1) {
@@ -596,9 +549,7 @@ pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *in
     return PVZSTD_OK;
   }
 
-  // Static striding rather than a work queue: frames vary in size but there
-  // is no shared state to contend on, so the simplest partition that keeps
-  // every worker busy is enough. Each slot is written by exactly one thread.
+  // Static striding rather than a work queue; each slot is written by one thread.
   std::vector<pvzstd_status> results(static_cast<size_t>(count), PVZSTD_OK);
   pvzstd::detail::ParallelStride(workers, count, [&](uint64_t i) {
     results[static_cast<size_t>(i)] =
@@ -631,8 +582,7 @@ const char *pvzstd_status_message(pvzstd_status status) {
       return "container did not parse as a .pv trailer-indexed file";
     case PVZSTD_E_ZSTD:
       // Both directions: the writer reports a rejected compression parameter
-      // through the same code, and "failed to decompress" reads as a damaged
-      // file when the cause was a request this zstd build cannot serve.
+      // through this code too.
       return "zstd rejected a frame or a compression parameter";
     case PVZSTD_E_RANGE:
       return "index or count out of range, or destination buffer too small";

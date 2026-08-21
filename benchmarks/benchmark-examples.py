@@ -45,10 +45,8 @@ def timed_read_write(ds: pv.DataSet | pv.MultiBlock, n_try: int = 5) -> tuple[fl
     elif isinstance(ds, pv.UnstructuredGrid):
         suffix = ".vtu"
     elif isinstance(ds, pv.ExplicitStructuredGrid):
-        # Not a subclass of UnstructuredGrid, so it needs its own branch even
-        # though it shares the extension. XML has no explicit-structured
-        # format, and .save() accepts only .vtu/.vtk here; it reads back as an
-        # UnstructuredGrid, which is fine when the comparison is size and time.
+        # Not an UnstructuredGrid subclass, and XML has no explicit-structured
+        # format; it reads back as one, which is fine for size and time.
         suffix = ".vtu"
     elif isinstance(ds, pv.RectilinearGrid):
         suffix = ".vtr"
@@ -97,8 +95,7 @@ for name in tqdm(dir(examples)):
         ds = func()  # get dataset
     except Exception as err:
         print(f"skipping '{name}' due to:\n\n{err}")
-        # Without this the loop falls through holding the *previous* dataset
-        # and benchmarks it a second time under this name.
+        # Or the loop falls through holding the previous dataset.
         continue
 
     if not isinstance(ds, allowed):

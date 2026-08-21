@@ -1,5 +1,4 @@
-# The sdist has to carry the C++ sources, or `pip install pyvista-zstd`
-# from source can only ever produce the pure-Python fallback.
+# Without the C++ sources a source install can only be the pure-Python fallback.
 graft cpp
 include LICENSE
 include README.rst

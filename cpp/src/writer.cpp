@@ -1,12 +1,10 @@
 // Writer half of the .pv container. See doc/format/container-v2.md.
 //
-// Byte-for-byte agreement with the reference Python writer constrains more
-// than the layout: the file version is the highest optional encoding used
-// (2 fixed-width cells, else 1 if anything is shuffled, else 0; not
-// cumulative), and every frame needs the same level AND worker count, since
-// zstd's multi-threaded mode emits different bytes than its single-threaded
-// mode. Matching the layout but not the worker count yields a valid file that
-// is not the same file.
+// Byte-for-byte agreement with the reference writer constrains more than the
+// layout: the file version is the highest optional encoding used (2 fixed-width
+// cells, else 1 if anything is shuffled, else 0; not cumulative), and every frame
+// needs the same level AND worker count, since zstd's multi-threaded mode emits
+// different bytes.
 
 #include <zstd.h>
 
@@ -20,8 +18,6 @@
 #include "detail.h"
 #include "pvzstd/pvzstd.h"
 
-// The primitives below moved to detail.h when the append path came to need the
-// same ones; this brings them back into scope unqualified.
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
 
 namespace {
@@ -130,9 +126,8 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
     const PendingArray &a = writer->arrays[i];
     const Dtype d = ParseDtype(a.dtype.c_str());
     bool use = false;
-    // Note the absent emptiness check: the reference decides from dtype, so an
-    // empty multibyte array under shuffle=True is still *recorded* as
-    // filtered. Shuffling nothing is a no-op, but the header byte is not.
+    // No emptiness check: the reference decides from dtype, so an empty multibyte
+    // array under shuffle=True is still recorded as filtered.
     if (writer->shuffle != PVZSTD_SHUFFLE_NEVER && d.itemsize > 1) {
       if (writer->shuffle == PVZSTD_SHUFFLE_ALWAYS) {
         use = true;
@@ -154,8 +149,7 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
     file_version = 1;
   }
 
-  // 3. Build the trailing file-metadata frame. Field order matches the
-  //    reference dataclass, and separators are json.dumps(separators=(",", ":")).
+  // 3. Trailing file-metadata frame, in the reference dataclass's field order.
   std::string meta = "{\"frame_names\":[";
   for (size_t i = 0; i < writer->arrays.size(); ++i) {
     if (i != 0) meta.push_back(',');
@@ -165,11 +159,9 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
   meta += ",\"compression\":\"zstandard\"";
   meta += ",\"file_version\":" + std::to_string(file_version) + "}";
 
-  // The reference writer sizes its worker pool from the arrays only -- it
-  // computes the total before appending this metadata frame -- so the total is
-  // taken here, before the push below. The frame is a few hundred bytes and
-  // the threshold is in MiB, but the two rules differ exactly at a boundary,
-  // which is where a "close enough" version would diverge.
+  // Total taken before the push: the reference sizes its pool from the arrays
+  // only. The frame is small and the threshold is in MiB, but the two rules
+  // differ exactly at a boundary.
   uint64_t total_bytes = 0;
   for (const PendingArray &a : writer->arrays) total_bytes += a.data.size();
 
@@ -183,9 +175,8 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
   } catch (const std::bad_alloc &) {
     return PVZSTD_E_NOMEM;
   }
-  // Appended to a local list rather than to the writer's own, so writing the
-  // same writer to a second path emits one metadata frame and not two. The
-  // frame is generated per write because it names every frame in the file.
+  // Local list, not the writer's own, so writing to a second path emits one
+  // metadata frame and not two.
   std::vector<const PendingArray *> emit;
   emit.reserve(writer->arrays.size() + 1);
   for (const PendingArray &a : writer->arrays) emit.push_back(&a);
@@ -219,8 +210,8 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) {
     for (size_t k = 0; k < PVZSTD_DTYPE_LEN; ++k) {
       header.push_back(k < a.dtype.size() ? static_cast<uint8_t>(a.dtype[k]) : ' ');
     }
-    // Written only when a filter is in use: absence means PVZSTD_FILTER_NONE and
-    // keeps unfiltered frames byte-identical to the legacy layout.
+    // Only when a filter is in use, keeping unfiltered frames byte-identical to
+    // the legacy layout.
     if (filters[i] != PVZSTD_FILTER_NONE) header.push_back(filters[i]);
 
     const uint8_t *payload_ptr = a.data.data();

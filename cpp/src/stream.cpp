@@ -1,15 +1,12 @@
 // Streaming append: the same file edit as pvzstd_append_arrays, held open.
 //
-// pvzstd_append_arrays copies the whole file per call, so cost grows with the
-// file: over 40 single-block commits the per-commit cost rose 4.24x. A stream
-// keeps the trailer, the metadata offset and the dataset-metadata document,
-// so a commit costs what it adds. Output is byte-identical -- same helpers,
-// same framing, and the metadata document is spliced rather than regenerated.
+// pvzstd_append_arrays copies the whole file per call, so cost grows with it: over
+// 40 commits the per-commit cost rose 4.24x. A stream keeps the trailer, metadata
+// offset and dataset-metadata document, so a commit costs what it adds. Output is
+// byte-identical.
 //
-// The tradeoff is crash behaviour: pvzstd_append_arrays commits by rename and
-// leaves the previous file intact, while a stream writes in place, so an
-// interrupted commit leaves a trailer describing frames that were not fully
-// written. Callers needing a valid file after every commit should pay the copy.
+// The tradeoff is crash behaviour: a stream writes in place, so an interrupted
+// commit leaves a trailer describing frames that were not fully written.
 
 #include <cstdio>
 #include <cstring>
@@ -67,11 +64,9 @@ struct pvzstd_stream {
   std::FILE *fp = nullptr;
   std::string path;
 
-  // Every frame currently on disk, in file order. The last four are the
-  // metadata tail and are dropped and rebuilt by each commit.
+  // Frames in file order; the last four are the tail each commit rebuilds.
   std::vector<FrameEntry> frames;
-  // One name per *array* (frame pair), data arrays only -- the two metadata
-  // names are added when the tail is emitted.
+  // One name per array, data arrays only; metadata names are added with the tail.
   std::vector<std::string> names;
   uint64_t body_end = 0;  // where the metadata tail begins
 
@@ -109,8 +104,7 @@ pvzstd_status ReadFrame(pvzstd_stream *s, const std::vector<uint64_t> &ends,
   return PVZSTD_OK;
 }
 
-// Emit the metadata tail (dataset + file metadata) at body_end, write the
-// trailer, and cut the file to exactly what was written. The tail can shrink,
+// Emit the tail at body_end, write the trailer, and truncate: the tail can shrink,
 // and a stale suffix would leave the trailer no longer at the end.
 pvzstd_status WriteTail(pvzstd_stream *s) {
   std::vector<std::string> final_names = s->names;
@@ -141,8 +135,7 @@ pvzstd_status WriteTail(pvzstd_stream *s) {
   uint64_t offset = s->body_end;
   for (std::vector<uint8_t> &payload : plain) {
     std::vector<uint8_t> comp;
-    // Single-threaded, matching the reference append: same level, different
-    // framing from the writer's worker pool.
+    // Single-threaded, matching the reference append.
     const pvzstd_status st = CompressFrame(payload.data(), payload.size(), s->level, 0, &comp);
     if (st != PVZSTD_OK) return st;
     if (std::fwrite(comp.data(), 1, comp.size(), s->fp) != comp.size()) return PVZSTD_E_IO;
@@ -194,11 +187,8 @@ pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) {
   if (std::fread(count_buf, 1, 8, s->fp) != 8) return fail(PVZSTD_E_IO);
   const uint64_t n_frames = LoadU64(count_buf);
   if (n_frames < kTailFrames || (n_frames % 2) != 0) return fail(PVZSTD_E_FORMAT);
-  // Bounded by division rather than by comparing against n_frames * 16: the
-  // count is read from the file, and the product overflows for a large enough
-  // value. Everything below is sized from this count, so an unchecked one is
-  // an allocation the file never justified -- pvzstd_append_arrays already guards
-  // this way.
+  // Bounded by division: n_frames comes from the file and n_frames * 16 overflows
+  // for a large enough value.
   if (n_frames > (static_cast<uint64_t>(file_size) - 8) / 16) return fail(PVZSTD_E_FORMAT);
 
   std::vector<uint64_t> ends(static_cast<size_t>(n_frames));
@@ -250,8 +240,7 @@ pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) {
   }
   if (root_idx == frame_names.size()) return fail(PVZSTD_E_FORMAT);
   if (frame_names[root_idx].size() < kUidNChar) return fail(PVZSTD_E_FORMAT);
-  // Streaming rewrites the tail in place, which requires the two metadata
-  // arrays to *be* the tail. They are, in every file this library writes.
+  // Rewriting the tail in place requires the two metadata arrays to be the tail.
   if (root_idx != n_arrays - 2) return fail(PVZSTD_E_FORMAT);
   s->ds_id = frame_names[root_idx].substr(0, kUidNChar);
   s->ds_name = frame_names[root_idx];
@@ -294,8 +283,8 @@ pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *
       return PVZSTD_E_INVALID;
     }
     for (const std::string &have : existing) {
-      // Refused, not overwritten: the old block's bytes would stay in the
-      // file with nothing pointing at them.
+      // Refused, not overwritten: the old bytes would stay with nothing pointing
+      // at them.
       if (have == arrays[k].name) return PVZSTD_E_INVALID;
     }
     for (uint64_t j = 0; j < k; ++j) {
@@ -365,8 +354,7 @@ pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *
 
   s->body_end = offset;
   // Splice, never regenerate: every byte outside field_data_keys stays as the
-  // writer left it, which is what keeps this byte-identical to the copying
-  // path without having to reproduce another library's key order.
+  // writer left it, so we need not reproduce another library's key order.
   s->ds_json.insert(fdk_past - 1, fdk_addition);
 
   const pvzstd_status st = WriteTail(s);
@@ -382,8 +370,8 @@ uint64_t pvzstd_stream_commit_count(const pvzstd_stream *s) {
 pvzstd_status pvzstd_stream_close(pvzstd_stream *s, uint64_t expected_commits) {
   if (s == nullptr) return PVZSTD_E_INVALID;
   if (s->closed) return PVZSTD_OK;
-  // A short stream presented as a complete one is worse than an error: the
-  // file reads back perfectly, with results missing.
+  // A short stream presented as complete reads back perfectly, with results
+  // missing.
   if (s->commits != expected_commits) return PVZSTD_E_RANGE;
   s->closed = true;
   if (std::fflush(s->fp) != 0) return PVZSTD_E_IO;

@@ -46,11 +46,8 @@ pytestmark = pytest.mark.skipif(
 UID_N_CHAR = 16
 FIELD_DATA_SUFFIX = "__field_data"
 
-# A field-array name that itself ends in the frame suffix, so its frame is
-# "{uid}odd__field_data__field_data". Nothing here distinguishes the two ways
-# of building the index -- measured, both handle it -- but it is a name a user
-# can really choose, and an implementation that mangles it fails the list
-# comparison below.
+# A name ending in the frame suffix, so its frame is doubled. Both index-building
+# strategies handle it, but a user can really choose this name.
 TRAP_NAME = "odd__field_data"
 
 
@@ -83,8 +80,7 @@ def test_cpp_lists_the_same_field_arrays_in_the_same_order(tmp_path) -> None:
     with _capi.CoreReader(path) as reader:
         assert reader.field_array_names() == expected
 
-    # Guard the fixture: if the trap name ever stops being written, the
-    # discriminating case is gone and the assertion above weakens silently.
+    # If the trap name stops being written the case above weakens silently.
     assert TRAP_NAME in expected
 
 
@@ -146,7 +142,5 @@ def test_read_array_helper_uses_the_cpp_core(tmp_path) -> None:
     want = AppendReader(path, _impl="python").read_array("step_1_u")
     got = AppendReader(path, _impl="cpp").read_array("step_1_u")
     assert np.array_equal(got, want)
-    # The helper picks for itself; whichever it picked has to land on the
-    # same bytes, which is only a statement worth making because the two
-    # arms above were just shown to agree.
+    # Whichever the helper picked has to land on the same bytes.
     assert np.array_equal(pz.read_array(path, "step_1_u"), want)

@@ -1,11 +1,6 @@
-// A small reader for the two JSON metadata documents this format carries.
-//
-// Deliberately small: it reads members of documents emitted by a compact
-// json.dumps, and it is not a general JSON parser. It lives in a header because
-// both the append path (which splices into the dataset metadata) and the read
-// path (which enumerates field arrays out of it) have to agree about what a
-// member of those documents *is* -- and two readers would be two chances to
-// disagree about a document that decides what ends up on disk.
+// A reader for the two JSON metadata documents this format carries -- members of
+// a compact json.dumps, not a general JSON parser. In a header because the append
+// and read paths must agree on what a member of those documents is.
 
 #ifndef PVZSTD_JSON_READ_H
 #define PVZSTD_JSON_READ_H
@@ -62,9 +57,8 @@ inline bool ReadJsonString(const std::string &s, size_t *i, std::string *out) {
           out->push_back('\f');
           break;
         case 'u': {
-          // Only the escapes json.dumps emits for the identifiers this format
-          // carries; a real code point outside Latin-1 would need UTF-8
-          // re-encoding, which no name in this format uses.
+          // Only the escapes json.dumps emits for these identifiers; a code point
+          // outside Latin-1 would need UTF-8 re-encoding, which none use.
           if (*i + 5 >= s.size()) return false;
           unsigned code = 0;
           for (int k = 0; k < 4; ++k) {
@@ -130,10 +124,8 @@ inline bool SkipValue(const std::string &s, size_t *i) {
   return true;
 }
 
-// Position of the value of a top-level member, or npos. Scans members rather
-// than searching for the literal `"key":`, so a member whose *value* happens to
-// contain that text -- a user-supplied array name, say -- cannot be mistaken
-// for the member itself.
+// Position of a top-level member's value, or npos. Scans members rather than
+// searching for `"key":`, which a user-supplied array name could contain.
 inline size_t FindMember(const std::string &s, const char *key) {
   size_t i = 0;
   if (!SkipWs(s, &i) || s[i] != '{') return std::string::npos;
@@ -206,9 +198,8 @@ inline bool MemberObjectSpan(const std::string &s, const char *key, size_t *open
   return true;
 }
 
-// Keys of the object opening at `open`, in document order -- which is the order
-// the reference reader reports them in, because it builds a dict from the same
-// document.
+// Keys of the object opening at `open`, in document order -- the order the
+// reference reader reports, building a dict from the same document.
 inline bool ObjectKeys(const std::string &s, size_t open, std::vector<std::string> *out) {
   size_t i = open;
   if (i >= s.size() || s[i] != '{') return false;

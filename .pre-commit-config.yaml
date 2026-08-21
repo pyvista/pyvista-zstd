@@ -1,7 +1,5 @@
 ci:
-  # The C++ core arrived with this branch, and clang-format is the one hook
-  # here whose fixes are purely mechanical -- so let the service push them
-  # rather than bouncing a PR over brace placement.
+  # clang-format's fixes are mechanical; let the service push them.
   autofix_prs: true
   autofix_commit_msg: "style: pre-commit.ci auto fixes"
   autoupdate_schedule: quarterly
@@ -12,9 +10,7 @@ repos:
     hooks:
       - id: clang-format
         types_or: [c, c++]
-        # Only our own sources. cpp/third_party carries a vendored zstd that
-        # must stay byte-identical to its upstream release: reformatting it
-        # would make the pinned-tarball checksum meaningless.
+        # The vendored zstd must stay byte-identical to its upstream release.
         exclude: ^cpp/third_party/
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.2
@@ -82,12 +78,9 @@ repos:
     hooks:
       - id: forbid-pvz
         name: Forbid the 'pvz' name and the 'pvz_'/'PVZ_' prefixes (use 'pvzstd')
-        # Three alternatives, not one. `\bpvz\b` alone cannot match `pvz_open`:
-        # `_` is a word character, so there is no word boundary after `pvz`,
-        # and the whole C ABI slipped past this hook while it reported green.
-        # `\bpvz_` and `\bPVZ_` are the prefixes, and neither can match the
-        # correct `pvzstd_`/`PVZSTD_` spellings -- the character after `pvz`
-        # there is `s`, not `_`.
+        # Three alternatives, not one: `\bpvz\b` cannot match `pvz_open` because
+        # `_` is a word character, and the whole C ABI slipped past this hook
+        # while it reported green.
         entry: |
           bash -c '
             matches=$(grep -HnE "\bpvz\b|\bpvz_|\bPVZ_" "$@" 2>/dev/null || true)

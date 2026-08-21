@@ -10,9 +10,8 @@
 //             name <TAB> dtype <TAB> dtype_name <TAB> shape_csv <TAB> raw_path
 //
 // Each commit reports "commit <i> <seconds> <bytes_read>" to stderr. The byte
-// count is this process's rchar delta (-1 where unavailable): a stream that
-// wrongly re-reads the container is served from page cache and so is too cheap
-// to catch on wall time, but reading a growing file still grows rchar.
+// count is this process's rchar delta (-1 where unavailable): a wrongly re-read
+// container is served from page cache and too cheap to catch on wall time.
 
 #include <chrono>
 #include <cstdio>
@@ -44,9 +43,8 @@ bool ReadWholeFile(const std::string &path, std::vector<uint8_t> *out) {
   return n == 0 || static_cast<bool>(f.read(reinterpret_cast<char *>(out->data()), n));
 }
 
-// Bytes this process has read, page cache included -- rchar, not read_bytes,
-// because a re-read served entirely from cache is exactly the mistake being
-// watched for and never reaches the device. Returns -1 where unavailable.
+// rchar, not read_bytes: the mistake being watched for never reaches the device.
+// Returns -1 where unavailable.
 long long BytesRead() {
   std::ifstream io("/proc/self/io");
   if (!io) return -1;
@@ -140,8 +138,7 @@ int main(int argc, char **argv) {
       a.nbytes = s.data.size();
       arrays.push_back(a);
     }
-    // Timed here rather than around the process: the gate is the cost of a
-    // commit, and process start-up would swamp it.
+    // Around the commit, not the process, whose start-up would swamp it.
     const long long read0 = BytesRead();
     const auto t0 = std::chrono::steady_clock::now();
     st = pvzstd_stream_append(stream, arrays.data(), arrays.size(),

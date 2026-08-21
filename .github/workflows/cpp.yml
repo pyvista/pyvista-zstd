@@ -38,9 +38,7 @@ jobs:
 
       - name: Configure
         shell: bash
-        # Vendored zstd, not the runner's: different zstd versions emit
-        # different frames for the same input, which breaks byte-identity
-        # against the reference writer.
+        # Vendored zstd: another version emits different frames for the same input.
         run: |
           cmake -S cpp -B cpp/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -54,7 +52,6 @@ jobs:
 
       - name: Locate the build artefacts
         shell: bash
-        # Multi-config generators put these under Release/.
         run: |
           find_one() {
             found=$(find cpp/build -name "$1" -type f | head -n 1)
@@ -79,7 +76,6 @@ jobs:
 
       - name: Install the package as pure Python
         shell: bash
-        # Pure, so the artefact under test is the CMake build above.
         env:
           PVZSTD_BUILD_CORE: "0"
         run: |
@@ -126,8 +122,7 @@ jobs:
           cmake --build cpp/build-host --parallel
 
       - name: Build for WebAssembly
-        # pthreads so zstd keeps its multithreaded mode; without it the writer
-        # errors rather than emitting different bytes.
+        # pthreads, or zstd loses multithreaded mode and the writer errors out.
         run: |
           emcmake cmake -S cpp -B cpp/build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
@@ -155,9 +150,7 @@ jobs:
           sphere.point_data["vec_f32"] = rng.random((sphere.n_points, 3)).astype(np.float32)
           sphere.cell_data["ids_i64"] = np.arange(sphere.n_cells, dtype=np.int64)
 
-          # 2 MiB, so the writer asks zstd for a worker and a frame clears the
-          # megabyte above which threaded and unthreaded output differ. The
-          # sphere alone never touches the thread pool this build enables.
+          # 2 MiB, above the threshold where threaded and unthreaded output differ.
           bulk = pv.ImageData(dimensions=(64, 64, 64))
           bulk.point_data["bulk_f64"] = np.random.default_rng(21).random(bulk.n_points)
 
@@ -177,8 +170,7 @@ jobs:
           PY
 
       - name: The WASM reader must agree with the host reader, byte for byte
-        # pvzstd_dump checksums every decompressed payload, so an identical
-        # dump means the bytes matched, not merely that the file parsed.
+        # The dump checksums every payload, so matching dumps mean matching bytes.
         run: |
           for name in sphere bulk; do
             ./cpp/build-host/pvzstd_dump "$name.pv" > "$name.host.txt"
@@ -187,8 +179,7 @@ jobs:
           done
 
       - name: The WASM writer must reproduce the reference writer's bytes
-        # -2 is PVZSTD_THREADS_AUTO, so this exercises our replication of the
-        # reference's worker-count rule.
+        # -2 is PVZSTD_THREADS_AUTO: exercises the reference's worker-count rule.
         run: |
           for name in sphere bulk; do
             read -r level fixed uid < "$name.args"
@@ -214,23 +205,15 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.2.0
         env:
-          # Two Linux wheels from two manylinux images; see
-          # [tool.cibuildwheel] in pyproject.toml. The 3.10 build exists only
-          # to reach glibc 2.17.
+          # cp310 exists only to reach glibc 2.17; see [tool.cibuildwheel] in pyproject.toml.
+          # Wheels are py3-none-<platform>, so a second macOS/Windows build would collide.
           CIBW_BUILD: "cp310-* cp312-*"
-          # No musl, and no second macOS or Windows wheel: these are tagged
-          # py3-none-<platform>, so a 3.10 build there would collide with the
-          # 3.12 one. The Linux pair differ by platform tag.
           CIBW_SKIP: "*-musllinux_* cp310-macosx_* cp310-win*"
-          # Not install-tested: on glibc 2.17 Pillow has no wheel and builds
-          # from source without jpeg headers. That is the dependencies, not
-          # this wheel, and the 3.12 wheel still proves the library loads.
+          # glibc 2.17 has no Pillow wheel; the cp312 wheel still proves the library loads.
           CIBW_TEST_SKIP: "cp310-manylinux*"
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
-          # Fatal at build time: a wheel that silently lost its core is what
-          # this job exists to catch.
           CIBW_ENVIRONMENT: PVZSTD_BUILD_CORE=1
           CIBW_ENVIRONMENT_MACOS: PVZSTD_BUILD_CORE=1 MACOSX_DEPLOYMENT_TARGET=10.15
           CIBW_TEST_COMMAND: >
@@ -264,8 +247,6 @@ jobs:
           python -m build --sdist
 
       - name: A source install must still reach the C++ core
-        # Catches an sdist that failed to carry cpp/ and degraded to pure
-        # Python.
         env:
           PVZSTD_BUILD_CORE: "1"
         run: |

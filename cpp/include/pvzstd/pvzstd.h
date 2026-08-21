@@ -238,6 +238,11 @@ PVZSTD_API pvz_status pvz_append_arrays(const char *path, const pvz_append_array
  * page cache). A stream of N commits produces the same bytes as N separate
  * pvz_append_arrays calls.
  *
+ * Flat is with respect to container size, not to the number of field arrays: the
+ * dataset-metadata document is re-scanned and re-emitted per commit, so cost is
+ * still linear in how many are already committed. At 40 commits that does not
+ * show; at 10,000 it would.
+ *
  * The trade is crash behaviour, which is why both exist: append_arrays commits
  * by rename, whereas an interrupted stream commit leaves a trailer describing
  * frames that were not fully written. Use pvz_append_arrays when every commit

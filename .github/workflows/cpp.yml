@@ -163,37 +163,93 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-pthread -sPTHREAD_POOL_SIZE=4 -sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1"
           cmake --build cpp/build-wasm --parallel
 
-      - name: Write a container to read back
+      - name: Write the containers to read back
         run: |
           python -m pip install --upgrade pip
           PVZSTD_BUILD_CORE=0 pip install .[tests]
-          python - <<'PY'
+          PYTHONPATH=tests/conformance python - <<'PY'
           import numpy as np
           import pyvista as pv
+          import ref_reader
 
           import pyvista_zstd as pz
 
+          # Two fixtures, because they reach different code.
+          #
+          # `sphere` is a few tens of kilobytes: every frame compresses on the
+          # calling thread, so it isolates the format and the filter from the
+          # worker-count rule.
+          #
+          # `bulk` is 2 MiB of incompressible doubles, which is what it takes
+          # to make the writer ask zstd for a worker at all and to put a single
+          # frame over the megabyte above which zstd's threaded and unthreaded
+          # output stop being byte-identical. Without it the threading this
+          # build enables would never actually run, and a WebAssembly build
+          # that quietly lost its workers would still pass.
           rng = np.random.default_rng(7)
-          ds = pv.Sphere(theta_resolution=24, phi_resolution=24)
-          ds.point_data["scal_f64"] = rng.random(ds.n_points)
-          ds.point_data["vec_f32"] = rng.random((ds.n_points, 3)).astype(np.float32)
-          ds.cell_data["ids_i64"] = np.arange(ds.n_cells, dtype=np.int64)
+          sphere = pv.Sphere(theta_resolution=24, phi_resolution=24)
+          sphere.point_data["scal_f64"] = rng.random(sphere.n_points)
+          sphere.point_data["vec_f32"] = rng.random((sphere.n_points, 3)).astype(np.float32)
+          sphere.cell_data["ids_i64"] = np.arange(sphere.n_cells, dtype=np.int64)
+
+          bulk = pv.ImageData(dimensions=(64, 64, 64))
+          bulk.point_data["bulk_f64"] = np.random.default_rng(21).random(bulk.n_points)
+
           # shuffle=True so the filter branch is exercised under WebAssembly.
           # It is off by default, and a run that never enters the branch would
           # not have tested it.
-          pz.write(ds, "sample.pv", shuffle=True, progress_bar=False)
+          for name, ds in (("sphere", sphere), ("bulk", bulk)):
+              path = f"{name}.pv"
+              pz.write(ds, path, shuffle=True, progress_bar=False)
+              # The settings that produced the file, so the rewrite below is
+              # asked for the same bytes rather than for bytes of its own.
+              container = ref_reader.read(path)
+              with open(f"{name}.args", "w") as fh:
+                  fh.write(
+                      "%s %s %s\n"
+                      % (
+                          container.file_metadata["compression_level"],
+                          "1" if container.ds_metadata.get("fixed_cell_sizes") else "0",
+                          container.file_metadata["frame_names"][0][:16],
+                      )
+                  )
           PY
 
-      - name: The WASM build must agree with the host build, byte for byte
+      - name: The WASM reader must agree with the host reader, byte for byte
         run: |
-          ./cpp/build-host/pvz_dump sample.pv > host.txt
-          node cpp/build-wasm/pvz_dump.js sample.pv > wasm.txt
-          # pvz_dump prints an FNV-1a checksum of every decompressed payload,
-          # so an identical dump means decompression and filter reversal both
-          # produced the same bytes -- not merely that the file parsed.
-          diff host.txt wasm.txt
-          echo "WebAssembly output is identical to the host build:"
-          cat wasm.txt
+          for name in sphere bulk; do
+            ./cpp/build-host/pvz_dump "$name.pv" > "$name.host.txt"
+            node cpp/build-wasm/pvz_dump.js "$name.pv" > "$name.wasm.txt"
+            # pvz_dump prints an FNV-1a checksum of every decompressed payload,
+            # so an identical dump means decompression and filter reversal both
+            # produced the same bytes -- not merely that the file parsed.
+            diff "$name.host.txt" "$name.wasm.txt"
+            echo "== $name: WebAssembly read is identical to the host read"
+            cat "$name.wasm.txt"
+          done
+
+      - name: The WASM writer must reproduce the reference writer's bytes
+        # The step above only proves WebAssembly can *read* what someone else
+        # wrote. This one runs the writer: pvz_rewrite reads the container and
+        # writes it back, and the output has to equal the file the Python
+        # reference writer produced, byte for byte -- the same property the
+        # writer-parity suite gates natively, asked of the WASM build.
+        #
+        # -2 is PVZ_THREADS_AUTO: the worker count is resolved by our
+        # replication of the reference's rule, which is the part that a
+        # threadless WebAssembly build would get wrong.
+        run: |
+          for name in sphere bulk; do
+            read -r level fixed uid < "$name.args"
+            node cpp/build-wasm/pvz_rewrite.js \
+              "$name.pv" "$name.wasm.pv" "$level" -2 1 "$fixed" "$uid"
+            if ! cmp "$name.pv" "$name.wasm.pv"; then
+              echo "::error::the WASM writer's $name output differs from the reference writer's"
+              ls -l "$name.pv" "$name.wasm.pv"
+              exit 1
+            fi
+            echo "== $name: WebAssembly write is byte-identical to the reference writer"
+          done
 
   wheels:
     name: Wheels (${{ matrix.os }})

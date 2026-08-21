@@ -93,7 +93,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     from numpy.typing import NDArray
 
-    from pyvista_zstd._capi import NativeReader
+    from pyvista_zstd._capi import CoreReader
     from pyvista_zstd.pyvista_zstd import ShuffleSpec
 
 __all__ = [
@@ -481,10 +481,10 @@ def read_array(
         Field-array name (the key passed to :func:`append_arrays`, or any
         field-data key present in the file).
     backend : str, optional
-        Deprecated and ignored. The native C-ABI core is used when this
-        install has it and the pure-Python path otherwise; the two produce
-        byte-identical results, so there is nothing to select between.
-        Passing this raises a :class:`DeprecationWarning`.
+        Deprecated and ignored. The C++ core is used when this install has
+        it and the pure-Python path otherwise; the two produce byte-identical
+        results, so there is nothing to select between. Passing this raises a
+        :class:`DeprecationWarning`.
 
     Returns
     -------
@@ -510,10 +510,10 @@ class AppendReader:
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
     backend : str, optional
-        Deprecated and ignored. The native C-ABI core is used when this
-        install has it and the pure-Python path otherwise; the two produce
-        byte-identical results, so there is nothing to select between.
-        Passing this raises a :class:`DeprecationWarning`.
+        Deprecated and ignored. The C++ core is used when this install has
+        it and the pure-Python path otherwise; the two produce byte-identical
+        results, so there is nothing to select between. Passing this raises a
+        :class:`DeprecationWarning`.
 
     Examples
     --------
@@ -543,7 +543,7 @@ class AppendReader:
             msg = f"_impl must be one of {sorted(_IMPLEMENTATIONS)}, not {_impl!r}"
             raise ValueError(msg)
         self._impl = _impl
-        self._native: NativeReader | None = None
+        self._core: CoreReader | None = None
         self._path = Path(filename)
         if self._path.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._path.suffix}'"
@@ -570,9 +570,9 @@ class AppendReader:
         return name in self._ds_meta.field_data_keys
 
     @property
-    def _native_reader(self) -> NativeReader | None:
+    def _core_reader(self) -> CoreReader | None:
         """
-        The native reader to serve reads from, or None to stay in Python.
+        The C++ reader to serve reads from, or None to stay in Python.
 
         Opened once and kept, because the mapping it holds is what makes a
         second single-block read cheap. Resolved lazily so constructing a
@@ -580,14 +580,14 @@ class AppendReader:
         """
         if self._impl == "python":
             return None
-        if self._native is None:
+        if self._core is None:
             capi = _capi_module()
-            if self._impl != "native" and not capi.available():
+            if self._impl != "cpp" and not capi.available():
                 return None
-            # "native" falls through without the availability check so the
+            # "cpp" falls through without the availability check so the
             # load failure itself is what gets raised, with its diagnostics.
-            self._native = capi.NativeReader(self._path)
-        return self._native
+            self._core = capi.CoreReader(self._path)
+        return self._core
 
     def read_array(self, name: str) -> NDArray:
         """Decompress and return the single field array ``name``."""
@@ -595,12 +595,12 @@ class AppendReader:
             msg = f"field array {name!r} not found; available: {sorted(self._ds_meta.field_data_keys)}"
             raise KeyError(msg)
 
-        native = self._native_reader
-        if native is not None:
-            index = native.find_field(name)
+        cpp = self._core_reader
+        if cpp is not None:
+            index = cpp.find_field(name)
             if index is not None:
-                return native.read_at(index)
-            # The native core looked and did not find it. Falling back to the
+                return cpp.read_at(index)
+            # The C++ core looked and did not find it. Falling back to the
             # Python path here would paper over a disagreement between the two
             # about what the file contains, which is exactly what the parity
             # gate exists to catch.

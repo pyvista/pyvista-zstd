@@ -1,4 +1,4 @@
-name: Native Core
+name: C++ Core
 
 # The C++ core, the platforms it has to build on, and the wheels that carry it.
 #
@@ -7,9 +7,9 @@ name: Native Core
 #   cmake   the library builds on every desktop platform and agrees with the
 #           pure-Python implementation bit for bit
 #   wasm    the same sources build and *run* under WebAssembly, checked by
-#           diffing a real container dump against the native build
+#           diffing a real container dump against the host build
 #   wheels  the shared object we ship actually loads on the target platform
-#   sdist   a source install can still reach the native core
+#   sdist   a source install can still reach the C++ core
 #
 # The parity suite lives in the cmake job rather than the wheel job on purpose:
 # the wheel test environments cannot install a rendering stack on every exotic
@@ -104,7 +104,7 @@ jobs:
         # at by PVZSTD_LIBRARY. Letting the install compile its own copy would
         # mean the artefact under test was never the one exercised.
         env:
-          PVZSTD_BUILD_NATIVE: "0"
+          PVZSTD_BUILD_CORE: "0"
         run: |
           python -m pip install --upgrade pip
           pip install .[tests]
@@ -117,7 +117,7 @@ jobs:
           from pyvista_zstd import _capi
 
           expected = os.environ["PVZSTD_LIBRARY"]
-          assert _capi.available(), f"native core did not load: {_capi.load_error()}"
+          assert _capi.available(), f"C++ core did not load: {_capi.load_error()}"
           actual = _capi.library_path()
           assert actual == expected, f"loaded {actual}, expected {expected}"
           print(f"ABI {_capi.ABI_VERSION} from {actual}")
@@ -166,7 +166,7 @@ jobs:
       - name: Write a container to read back
         run: |
           python -m pip install --upgrade pip
-          PVZSTD_BUILD_NATIVE=0 pip install .[tests]
+          PVZSTD_BUILD_CORE=0 pip install .[tests]
           python - <<'PY'
           import numpy as np
           import pyvista as pv
@@ -184,15 +184,15 @@ jobs:
           pz.write(ds, "sample.pv", shuffle=True, progress_bar=False)
           PY
 
-      - name: The WASM build must agree with the native one, byte for byte
+      - name: The WASM build must agree with the host build, byte for byte
         run: |
-          ./cpp/build-host/pvz_dump sample.pv > native.txt
+          ./cpp/build-host/pvz_dump sample.pv > host.txt
           node cpp/build-wasm/pvz_dump.js sample.pv > wasm.txt
           # pvz_dump prints an FNV-1a checksum of every decompressed payload,
           # so an identical dump means decompression and filter reversal both
           # produced the same bytes -- not merely that the file parsed.
-          diff native.txt wasm.txt
-          echo "WebAssembly output is identical to native:"
+          diff host.txt wasm.txt
+          echo "WebAssembly output is identical to the host build:"
           cat wasm.txt
 
   wheels:
@@ -248,10 +248,10 @@ jobs:
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
-          # A wheel that quietly lost its native core is the failure mode this
+          # A wheel that quietly lost its C++ core is the failure mode this
           # whole job exists to prevent, so make it fatal at build time.
-          CIBW_ENVIRONMENT: PVZSTD_BUILD_NATIVE=1
-          CIBW_ENVIRONMENT_MACOS: PVZSTD_BUILD_NATIVE=1 MACOSX_DEPLOYMENT_TARGET=10.15
+          CIBW_ENVIRONMENT: PVZSTD_BUILD_CORE=1
+          CIBW_ENVIRONMENT_MACOS: PVZSTD_BUILD_CORE=1 MACOSX_DEPLOYMENT_TARGET=10.15
           # Checks the property that only a wheel can have: that the shared
           # object inside it loads on the machine the wheel targets. The
           # correctness of that library is the cmake job's business.
@@ -259,7 +259,7 @@ jobs:
             python -c
             "from pyvista_zstd import _capi;
             assert _capi.available(), _capi.load_error();
-            print('native core loaded from', _capi.library_path())"
+            print('C++ core loaded from', _capi.library_path())"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -285,18 +285,18 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build --sdist
 
-      - name: A source install must still reach the native core
+      - name: A source install must still reach the C++ core
         # The sdist has to carry cpp/. If it does not, this install silently
         # degrades to pure Python and the assertion below catches it.
         env:
-          PVZSTD_BUILD_NATIVE: "1"
+          PVZSTD_BUILD_CORE: "1"
         run: |
           pip install dist/*.tar.gz
           cd "$(mktemp -d)"
           python -c "
           from pyvista_zstd import _capi
           assert _capi.available(), _capi.load_error()
-          print('native core built from sdist:', _capi.library_path())"
+          print('C++ core built from sdist:', _capi.library_path())"
 
       - uses: actions/upload-artifact@v4
         with:

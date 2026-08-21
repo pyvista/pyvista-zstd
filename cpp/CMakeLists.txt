@@ -136,7 +136,7 @@ else()
     # Timing loops that read the same file repeatedly do NOT reproduce this,
     # and they disagree with each other. Reading a container leaves pages
     # behind that the next read reuses, so in a loop each arm inherits its
-    # neighbour's state: the native reader measured 12.11 ms following a
+    # neighbour's state: the C++ reader measured 12.11 ms following a
     # Python read and 15.39 ms going first, same build, same core, same file.
     # Any fixed arm order silently books that difference against one arm.
     # Hence one read per process -- an ordering effect larger than the thing

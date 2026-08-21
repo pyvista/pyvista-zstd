@@ -92,7 +92,7 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 ### 1.1 Consequences that bind the implementation
 
 - **A writer must be able to seek.** The index and count can only be written
-  once every frame length is known. This is why the in-tree native writer
+  once every frame length is known. This is why the in-tree C++ writer
   reopens with `r+b` to rewrite its tail. A write-only, forward-only sink is
   not sufficient for this format.
 - **A reader must have the tail before it can read anything.** There is no

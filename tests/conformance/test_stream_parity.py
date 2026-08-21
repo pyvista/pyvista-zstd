@@ -195,18 +195,18 @@ def test_stream_matches_separate_appends_byte_for_byte(tmp_path, shuffle) -> Non
     seed = tmp_path / "seed.pv"
     _seed(seed)
     reference = tmp_path / "reference.pv"
-    native = tmp_path / "native.pv"
+    cpp = tmp_path / "cpp.pv"
     shutil.copyfile(seed, reference)
-    shutil.copyfile(seed, native)
+    shutil.copyfile(seed, cpp)
 
     specs = []
     for i, arrays in enumerate(_commits()):
         pz.append_arrays(reference, arrays, shuffle=shuffle)
         specs.append(_write_spec(tmp_path, f"c{i}", arrays))
-    _run_stream(native, specs, shuffle=shuffle)
+    _run_stream(cpp, specs, shuffle=shuffle)
 
     expected = reference.read_bytes()
-    actual = native.read_bytes()
+    actual = cpp.read_bytes()
     if expected != actual:  # pragma: no cover - failure path
         first = next(
             (i for i, (a, b) in enumerate(zip(expected, actual, strict=False)) if a != b),

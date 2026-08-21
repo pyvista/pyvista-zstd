@@ -134,16 +134,16 @@ def test_cpp_append_is_byte_identical(tmp_path, label, shuffle) -> None:
     pz.write(DATASETS[label](), seed, progress_bar=False)
 
     reference = tmp_path / "reference.pv"
-    native = tmp_path / "native.pv"
+    cpp = tmp_path / "cpp.pv"
     shutil.copyfile(seed, reference)
-    shutil.copyfile(seed, native)
+    shutil.copyfile(seed, cpp)
 
     arrays = _payloads()
     pz.append_arrays(reference, arrays, shuffle=shuffle)
-    _cpp_append(native, _write_spec(tmp_path, arrays), shuffle=shuffle)
+    _cpp_append(cpp, _write_spec(tmp_path, arrays), shuffle=shuffle)
 
     expected = reference.read_bytes()
-    actual = native.read_bytes()
+    actual = cpp.read_bytes()
     if expected != actual:  # pragma: no cover - failure path
         first = next(
             (i for i, (a, b) in enumerate(zip(expected, actual, strict=False)) if a != b),
@@ -169,17 +169,17 @@ def test_the_parity_gate_can_fail(tmp_path) -> None:
     pz.write(_sphere(), seed, progress_bar=False)
 
     reference = tmp_path / "reference.pv"
-    native = tmp_path / "native.pv"
+    cpp = tmp_path / "cpp.pv"
     shutil.copyfile(seed, reference)
-    shutil.copyfile(seed, native)
+    shutil.copyfile(seed, cpp)
 
     arrays = {"step_1_disp": np.linspace(0.0, 1.0, 90).reshape(30, 3)}
     pz.append_arrays(reference, arrays)
     # "f8" is a real numpy dtype spelling -- just not the one str() produces.
     wrong = _write_spec(tmp_path, arrays, dtype_names={"step_1_disp": "f8"})
-    _cpp_append(native, wrong, shuffle=False)
+    _cpp_append(cpp, wrong, shuffle=False)
 
-    assert _digest(reference) != _digest(native), (
+    assert _digest(reference) != _digest(cpp), (
         "the wrong dtype name produced an identical file; the parity gate is not comparing the dataset metadata"
     )
 
@@ -196,17 +196,17 @@ def test_auto_shuffle_actually_probes(tmp_path) -> None:
     """
     seed = tmp_path / "seed.pv"
     pz.write(_sphere(), seed, progress_bar=False)
-    native = tmp_path / "native.pv"
-    shutil.copyfile(seed, native)
+    cpp = tmp_path / "cpp.pv"
+    shutil.copyfile(seed, cpp)
 
     rng = np.random.default_rng(17)
     arrays = {
         "step_1_disp": np.linspace(-2.0, 5.0, 300).reshape(100, 3),
         "step_1_noise": rng.random(97).astype(np.float32),
     }
-    _cpp_append(native, _write_spec(tmp_path, arrays), shuffle="auto")
+    _cpp_append(cpp, _write_spec(tmp_path, arrays), shuffle="auto")
 
-    filters = {h.name: h.filter_id for h in ref_reader.read(native).headers if "__field_data" in h.name}
+    filters = {h.name: h.filter_id for h in ref_reader.read(cpp).headers if "__field_data" in h.name}
     assert len(filters) == len(arrays)
     assert len(set(filters.values())) == DISTINCT_FILTER_DECISIONS, (
         f"both appended floats got the same filter decision ({filters}); 'auto' is not running the trial compression"
@@ -224,13 +224,13 @@ def test_kept_frames_are_copied_not_recompressed(tmp_path) -> None:
     """
     seed = tmp_path / "seed.pv"
     pz.write(_unstructured(), seed, progress_bar=False)
-    native = tmp_path / "native.pv"
-    shutil.copyfile(seed, native)
+    cpp = tmp_path / "cpp.pv"
+    shutil.copyfile(seed, cpp)
 
     before = seed.read_bytes()
     arrays = {"step_1_ids": np.arange(32, dtype=np.int64)}
-    _cpp_append(native, _write_spec(tmp_path, arrays), shuffle=False)
-    after = native.read_bytes()
+    _cpp_append(cpp, _write_spec(tmp_path, arrays), shuffle=False)
+    after = cpp.read_bytes()
 
     shared = next(
         (i for i, (a, b) in enumerate(zip(before, after, strict=False)) if a != b),

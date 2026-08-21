@@ -1,17 +1,17 @@
 """
-Build the native pvzstd core and bundle it into the wheel.
+Build the pvzstd C++ core and bundle it into the wheel.
 
 The package works with or without this library: ``pyvista_zstd`` falls back to
-its pure-Python reader whenever the native one cannot be loaded, so a build on
+its pure-Python reader whenever the C++ one cannot be loaded, so a build on
 a machine with no C++ toolchain still produces a working (pure-Python) wheel.
 That is the point of the default below being best-effort rather than required.
 
 Release builds must not rely on that leniency, because a wheel that quietly
 lost its accelerator looks exactly like one that never had it. Set
-``PVZSTD_BUILD_NATIVE=1`` and a failed native build fails the whole build.
+``PVZSTD_BUILD_CORE=1`` and a failed C++ build fails the whole build.
 
   unset  best effort -- build it if we can, carry on as pure Python if not
-  1      required    -- a native build failure is a build failure
+  1      required    -- a C++ build failure is a build failure
   0      skipped     -- never invoke CMake at all
 """
 
@@ -31,7 +31,7 @@ HERE = Path(__file__).parent.resolve()
 CPP_DIR = HERE / "cpp"
 PACKAGE_LIB_DIR = HERE / "src" / "pyvista_zstd" / "lib"
 
-_MODE = os.environ.get("PVZSTD_BUILD_NATIVE", "").strip()
+_MODE = os.environ.get("PVZSTD_BUILD_CORE", "").strip()
 _REQUIRED = _MODE == "1"
 _SKIPPED = _MODE == "0"
 
@@ -86,15 +86,15 @@ def _macos_architectures() -> str:
     return ";".join(dict.fromkeys(found))
 
 
-def _build_native() -> Path | None:
+def _build_cpp() -> Path | None:
     """Configure, build, and return the path to the bundled shared library."""
     if _SKIPPED:
-        print("pvzstd: PVZSTD_BUILD_NATIVE=0, skipping the native build")
+        print("pvzstd: PVZSTD_BUILD_CORE=0, skipping the C++ build")
         return None
     if not (CPP_DIR / "CMakeLists.txt").is_file():
         # An sdist that omitted cpp/, or a source tree in an odd state.
         if _REQUIRED:
-            msg = f"PVZSTD_BUILD_NATIVE=1 but no CMake project at {CPP_DIR}"
+            msg = f"PVZSTD_BUILD_CORE=1 but no CMake project at {CPP_DIR}"
             raise SystemExit(msg)
         return None
 
@@ -135,9 +135,9 @@ def _build_native() -> Path | None:
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         if _REQUIRED:
-            msg = f"pvzstd: native build failed and PVZSTD_BUILD_NATIVE=1: {exc}"
+            msg = f"pvzstd: C++ build failed and PVZSTD_BUILD_CORE=1: {exc}"
             raise SystemExit(msg) from exc
-        print(f"pvzstd: native build unavailable ({exc}); shipping pure Python")
+        print(f"pvzstd: C++ build unavailable ({exc}); shipping pure Python")
         return None
 
     built = _find_built_library(build_dir)
@@ -174,10 +174,10 @@ def _is_a_build() -> bool:
 # build command -- so the answer has to already exist by the time setup() is
 # called. Deferring it produced a wheel containing a Linux shared object and
 # tagged py3-none-any, which pip would happily hand to a Windows machine.
-_bundled: Path | None = _build_native() if _is_a_build() else None
+_bundled: Path | None = _build_cpp() if _is_a_build() else None
 
 
-class NativeDistribution(Distribution):
+class CoreDistribution(Distribution):
     """
     Tag the wheel for this platform once a compiled library is inside it.
 
@@ -227,7 +227,7 @@ if bdist_wheel is not None:
 
 
 setup(
-    distclass=NativeDistribution,
+    distclass=CoreDistribution,
     cmdclass=_cmdclass,
     package_data={"pyvista_zstd": ["lib/*"]},
 )

@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-# cmake drives the native core in setup.py. It is listed here so a source
+# cmake drives the C++ core in setup.py. It is listed here so a source
 # build does not depend on one being installed system-wide; when no C++
 # compiler is present the build still succeeds and falls back to pure Python.
 requires = ["cmake>=3.16", "setuptools-scm>=8", "setuptools>=64"]

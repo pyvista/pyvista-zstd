@@ -1,12 +1,12 @@
 """
-Hold the native reader backend to agreement with the pure-Python one.
+Hold the C++ reader backend to agreement with the pure-Python one.
 
 Skipped unless ``PVZSTD_LIBRARY`` points at a built shared library, or one is
-installed beside the package. The comparison is exact: the native path is a
+installed beside the package. The comparison is exact: the C++ path is a
 different implementation of the same format, not an approximation of it, so
 any difference in a value is a defect rather than a tolerance question.
 
-The tests also assert that the native path was actually *taken*. Selection
+The tests also assert that the C++ path was actually *taken*. Selection
 falls back silently by design, which is right for users and dangerous for a
 test suite -- a green run proves nothing if every case quietly ran the Python
 implementation. That is why these tests reach for the private ``_impl``
@@ -28,7 +28,7 @@ from pyvista_zstd import _capi
 
 pytestmark = pytest.mark.skipif(
     not _capi.available(),
-    reason="set PVZSTD_LIBRARY to a built libpvzstd to run native backend parity",
+    reason="set PVZSTD_LIBRARY to a built libpvzstd to run C++ core parity",
 )
 
 HEX = 8
@@ -128,19 +128,19 @@ def _assert_same_dataset(a: pv.DataSet, b: pv.DataSet) -> int:
 
 @pytest.mark.parametrize("label", sorted(DATASETS))
 @pytest.mark.parametrize("shuffle", [False, True, "auto"])
-def test_native_matches_python(tmp_path, label, shuffle) -> None:
+def test_cpp_matches_python(tmp_path, label, shuffle) -> None:
     """Both backends reconstruct exactly the same dataset."""
     path = tmp_path / f"{label}.pv"
     pz.write(DATASETS[label](), path, shuffle=shuffle, progress_bar=False)
 
     from_python = pz.Reader(path, _impl="python").read()
-    from_native = pz.Reader(path, _impl="native").read()
-    assert _assert_same_dataset(from_python, from_native) > 0
+    from_cpp = pz.Reader(path, _impl="cpp").read()
+    assert _assert_same_dataset(from_python, from_cpp) > 0
 
 
-def test_native_backend_is_actually_used(tmp_path, monkeypatch) -> None:
+def test_cpp_core_is_actually_used(tmp_path, monkeypatch) -> None:
     """
-    Control: crippling the native path must break the native backend.
+    Control: crippling the C++ path must break the C++ core.
 
     Without this the parity tests above could all be running the pure-Python
     implementation twice and passing for the wrong reason.
@@ -149,26 +149,26 @@ def test_native_backend_is_actually_used(tmp_path, monkeypatch) -> None:
     pz.write(_sphere(), path, shuffle=True, progress_bar=False)
 
     def _sabotage(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202, ARG001
-        msg = "native read path deliberately broken"
+        msg = "C++ read path deliberately broken"
         raise RuntimeError(msg)
 
     # read_arrays, not read_at: the batch entry point is what the backend
     # actually calls. This control caught its own staleness when the reader
     # moved to batched decompression and the single-array patch stopped
     # reddening -- which is the whole reason to keep a control that must fail.
-    monkeypatch.setattr(_capi.NativeReader, "read_arrays", _sabotage)
+    monkeypatch.setattr(_capi.CoreReader, "read_arrays", _sabotage)
 
     with pytest.raises(RuntimeError, match="deliberately broken"):
-        pz.Reader(path, _impl="native").read()
+        pz.Reader(path, _impl="cpp").read()
 
     # The pure-Python backend must be untouched by the sabotage, which is what
     # proves the two paths are genuinely separate.
     assert pz.Reader(path, _impl="python").read().n_points > 0
 
 
-def test_shuffle_filter_is_exercised_natively(tmp_path) -> None:
+def test_shuffle_filter_is_exercised_in_cpp(tmp_path) -> None:
     """
-    Control: the native unshuffle branch must actually run.
+    Control: the C++ unshuffle branch must actually run.
 
     ``shuffle`` defaults to off, so a parity test over default files never
     enters the filter branch at all.
@@ -176,7 +176,7 @@ def test_shuffle_filter_is_exercised_natively(tmp_path) -> None:
     path = tmp_path / "filtered.pv"
     pz.write(_sphere(), path, shuffle=True, progress_bar=False)
 
-    with _capi.NativeReader(path) as reader:
+    with _capi.CoreReader(path) as reader:
         filters = [reader._info(i).filter_id for i in range(len(reader))]  # noqa: SLF001
 
     assert any(f == 1 for f in filters), "no array carried the shuffle filter"
@@ -206,7 +206,7 @@ def _call_discarding_result(fn, path) -> None:
     "call",
     [
         pytest.param(lambda p: pz.read(p, backend="python"), id="read"),
-        pytest.param(lambda p: pz.Reader(p, backend="native"), id="Reader"),
+        pytest.param(lambda p: pz.Reader(p, backend="cpp"), id="Reader"),
         pytest.param(lambda p: pz.read_array(p, "nope", backend="auto"), id="read_array"),
         pytest.param(lambda p: pz.AppendReader(p, backend="auto"), id="AppendReader"),
     ],
@@ -236,27 +236,27 @@ def test_array_downselection_matches(tmp_path) -> None:
         reader.selected_cell_arrays = set()
         return reader.read()
 
-    native, python = _read("native"), _read("python")
-    assert set(native.point_data.keys()) == {"scal_f64"}
-    _assert_same_dataset(python, native)
+    cpp, python = _read("cpp"), _read("python")
+    assert set(cpp.point_data.keys()) == {"scal_f64"}
+    _assert_same_dataset(python, cpp)
 
 
-def test_native_reader_survives_close_and_reports_it(tmp_path) -> None:
+def test_cpp_reader_survives_close_and_reports_it(tmp_path) -> None:
     """Using a closed reader raises rather than reading freed memory."""
     path = tmp_path / "closed.pv"
     pz.write(_sphere(), path, progress_bar=False)
 
-    reader = _capi.NativeReader(path)
+    reader = _capi.CoreReader(path)
     reader.close()
     reader.close()  # idempotent
-    with pytest.raises(ValueError, match="closed NativeReader"):
+    with pytest.raises(ValueError, match="closed CoreReader"):
         reader.names()
 
 
 def test_missing_file_reports_io_not_crash(tmp_path) -> None:
-    """A missing file is a clean error from the native core."""
+    """A missing file is a clean error from the C++ core."""
     with pytest.raises(_capi.PvzstdError, match="I/O error"):
-        _capi.NativeReader(tmp_path / "nope.pv")
+        _capi.CoreReader(tmp_path / "nope.pv")
 
 
 def _esgrid() -> pv.DataSet:
@@ -294,9 +294,9 @@ def test_explicit_structured_grid_round_trips(tmp_path) -> None:
     pz.write(ds, path, progress_bar=False)
 
     from_python = pz.Reader(path, _impl="python").read()
-    from_native = pz.Reader(path, _impl="native").read()
+    from_cpp = pz.Reader(path, _impl="cpp").read()
 
     assert type(from_python) is type(ds), "round-trip changed the dataset type"
-    assert _assert_same_dataset(from_python, from_native) > 0
+    assert _assert_same_dataset(from_python, from_cpp) > 0
     for key in ("BLOCK_I", "BLOCK_J", "BLOCK_K", "payload"):
         assert np.array_equal(from_python.cell_data[key], ds.cell_data[key]), key

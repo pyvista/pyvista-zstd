@@ -68,7 +68,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
-    from pyvista_zstd._capi import NativeReader
+    from pyvista_zstd._capi import CoreReader
 
 # Highest on-disk format version this library can READ. Version 1 added the
 # optional byte-shuffle pre-filter (see ``_FILTER_*`` below), and version 2
@@ -84,13 +84,12 @@ FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
 FILE_VERSION_KEY = "FILE_VERSION"
 # Which implementation decodes a file. This is internal vocabulary: the reader
-# picks for itself, and callers are not asked. "auto" prefers the native C-ABI
-# core and silently falls back, so an install without the shared library still
-# reads every file; "native" demands it and reports why it could not load;
-# "python" pins the original pure-Python path. The latter two exist for the
-# conformance suite and the parity harness, which have to name an arm to
-# compare arms at all.
-_IMPLEMENTATIONS = frozenset({"auto", "native", "python"})
+# picks for itself, and callers are not asked. "auto" prefers the C++ core and
+# silently falls back, so an install without the shared library still reads
+# every file; "cpp" demands it and reports why it could not load; "python" pins
+# the original pure-Python path. The latter two exist for the conformance suite
+# and the parity harness, which have to name an arm to compare arms at all.
+_IMPLEMENTATIONS = frozenset({"auto", "cpp", "python"})
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
@@ -413,7 +412,7 @@ def _capi_module() -> ModuleType:
     Import the ctypes binding lazily.
 
     Deferred so that importing ``pyvista_zstd`` costs nothing on a machine
-    with no native library, and so the pure-Python path has no import-time
+    with no C++ library, and so the pure-Python path has no import-time
     dependency on it at all.
     """
     from pyvista_zstd import _capi  # noqa: PLC0415 - deliberately deferred
@@ -1122,7 +1121,7 @@ def _warn_backend_deprecated(backend: object) -> None:
     """
     Warn that ``backend=`` is deprecated, and ignore it.
 
-    The selector existed so a caller could avoid the native core if it read
+    The selector existed so a caller could avoid the C++ core if it read
     files differently from the Python implementation. It does not: over every
     downloadable PyVista example that round-trips -- 155 datasets, covering all
     eight supported types -- the two implementations return byte-identical
@@ -1134,7 +1133,7 @@ def _warn_backend_deprecated(backend: object) -> None:
         return
     msg = (
         "The 'backend' argument is deprecated and no longer has any effect. "
-        "The native core is used when it is available and the pure-Python "
+        "The C++ core is used when it is available and the pure-Python "
         "implementation when it is not; the two produce byte-identical "
         "results, so there is nothing to select between. Remove the argument."
     )
@@ -1159,13 +1158,13 @@ def read(
         Path to the file.
     n_threads : None | int, optional
         Number of threads to use. If omitted, the best number of threads to
-        decompress the file will be used. Ignored by the native backend, which
+        decompress the file will be used. Ignored by the C++ core, which
         decompresses frames on demand rather than in one threaded batch.
     backend : str, optional
-        Deprecated and ignored. The native C-ABI core is used when it is
-        installed and the pure-Python implementation when it is not; the two
-        produce byte-identical results, so there is nothing to select
-        between. Passing this raises a :class:`DeprecationWarning`.
+        Deprecated and ignored. The C++ core is used when it is installed
+        and the pure-Python implementation when it is not; the two produce
+        byte-identical results, so there is nothing to select between. Passing
+        this raises a :class:`DeprecationWarning`.
 
     Returns
     -------
@@ -1341,7 +1340,7 @@ class Reader:
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
         self._one_dataset: bool | None = None
-        self._native: NativeReader | None = None
+        self._core: CoreReader | None = None
 
         if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
@@ -1388,7 +1387,7 @@ class Reader:
         self._frames = BufferWithSegments(self._mm, segments_bytes)
 
         # Both metadata frames are decompressed by the core the moment it opens
-        # the file, so on the native backend reading them here as well would be
+        # the file, so on the C++ core reading them here as well would be
         # the same zstd work done twice. Taking them from the core instead costs
         # only opening it, which this reader would otherwise pay on its first
         # read anyway.
@@ -1401,8 +1400,8 @@ class Reader:
         # binding the prototypes, both once per process, while the extra work
         # this __init__ actually does -- parsing the trailer that the core also
         # parses -- measures +6us. So the duplicate parse is not worth removing
-        # and the open is not where the native reader loses.
-        core = self._native_reader() if self._use_native else None
+        # and the open is not where the C++ reader loses.
+        core = self._core_reader() if self._use_cpp else None
 
         from_core = None if core is None else self._file_metadata_from_core(core)
         self._metadata = self._load_file_metadata() if from_core is None else from_core
@@ -1529,7 +1528,7 @@ class Reader:
 
         return metadata
 
-    def _file_metadata_from_core(self, core: NativeReader) -> ZstdFileMetadata | None:
+    def _file_metadata_from_core(self, core: CoreReader) -> ZstdFileMetadata | None:
         """
         Return the file metadata the core already decompressed, if it has it.
 
@@ -1542,7 +1541,7 @@ class Reader:
         raw = core.file_metadata_json
         return None if raw is None else self._checked_file_metadata(raw)
 
-    def _root_ds_meta_from_core(self, core: NativeReader) -> DataSetMetadata | MultiBlockMetadata | None:
+    def _root_ds_meta_from_core(self, core: CoreReader) -> DataSetMetadata | MultiBlockMetadata | None:
         """
         Return the root dataset metadata the core already decompressed, if it is the root.
 
@@ -1567,36 +1566,36 @@ class Reader:
         return DataSetMetadata.from_array(arr)
 
     @property
-    def _use_native(self) -> bool:
+    def _use_cpp(self) -> bool:
         """
         Resolve the implementation choice against what this machine actually has.
 
-        ``"native"`` is a demand and raises when the library is missing;
+        ``"cpp"`` is a demand and raises when the library is missing;
         ``"auto"`` -- what every public entry point uses -- is a preference and
         falls back silently, because a wheel built without the shared object
         must still read files.
         """
         if self._impl == "python":
             return False
-        if self._impl == "native":
+        if self._impl == "cpp":
             _capi_module()._load()  # noqa: SLF001 - raises with the load diagnostics
             return True
         return _capi_module().available()
 
-    def _read_ds_segments_native(self, ds_id: str, keep: set[str]) -> dict[str, NDArray[Any]]:
+    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str]) -> dict[str, NDArray[Any]]:
         """
-        Decompress a dataset's arrays through the native core.
+        Decompress a dataset's arrays through the C++ core.
 
-        The dataset-metadata frame is not an array frame -- the native reader
+        The dataset-metadata frame is not an array frame -- the C++ reader
         lifts it out into JSON and does not report it among the arrays -- and a
         MultiBlock file carries one per dataset, so it is decompressed here
-        rather than taken from the native reader's single slot.
+        rather than taken from the C++ reader's single slot.
         """
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
-        reader = self._native_reader()
+        reader = self._core_reader()
         segments = reader.read_arrays(keep=keep - {meta_key})
 
-        # The native core has already decompressed this frame and parked it as
+        # The C++ core has already decompressed this frame and parked it as
         # JSON, so when it is the right one it can be taken from there instead
         # of being pulled through zstd a second time. The core keeps a single
         # slot, so that only holds for a file carrying one dataset -- a
@@ -1610,13 +1609,13 @@ class Reader:
             segments[meta_key] = np.frombuffer(raw.encode("utf-8"), dtype=np.uint8)
         return segments
 
-    def _native_reader(self) -> NativeReader:
+    def _core_reader(self) -> CoreReader:
         """
-        Return the native reader for this file, opened once and kept.
+        Return the C++ reader for this file, opened once and kept.
 
         Opening one maps the file and parses the trailer and every array
         header. This object did all of that in __init__ already, so building a
-        fresh native reader per dataset paid for a second copy of it on every
+        fresh C++ reader per dataset paid for a second copy of it on every
         read -- and a MultiBlock paid once per dataset.
 
         Holding it does not weaken any guarantee that was being offered: the
@@ -1624,10 +1623,10 @@ class Reader:
         reader has always been a snapshot of the file as it was when opened.
         It is released when this object is, the same way the mapping is.
         """
-        reader = self._native
+        reader = self._core
         if reader is None:
-            reader = _capi_module().NativeReader(self._filename)
-            self._native = reader
+            reader = _capi_module().CoreReader(self._filename)
+            self._core = reader
         return reader
 
     def _holds_one_dataset(self) -> bool:
@@ -1675,11 +1674,11 @@ class Reader:
             msg = "No selected frames"
             raise RuntimeError(msg)
 
-        if self._use_native:
+        if self._use_cpp:
             # Arrays that were not selected are never decompressed at all --
-            # the native reader is frame-addressed, so downselecting saves the
+            # the C++ reader is frame-addressed, so downselecting saves the
             # whole frame rather than just the copy into the dataset.
-            segments = self._read_ds_segments_native(ds_id, selected_frame_names)
+            segments = self._read_ds_segments_cpp(ds_id, selected_frame_names)
             return self._segments_to_ds(ds_id, segments)
 
         n_frames = len(frame_names)

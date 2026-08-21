@@ -2,14 +2,14 @@
 ``ctypes`` binding to the ``pvzstd`` C ABI.
 
 There is no compiled extension module here and no binding framework. The
-native core is a plain shared library exposing a C ABI, and this module loads
+C++ core is a plain shared library exposing a C ABI, and this module loads
 it with :mod:`ctypes`. That choice is what lets the same library be consumed as
 a C++ submodule, cross-compiled to WebAssembly, and shipped in a wheel without
 three separate binding layers going out of step.
 
 Importing this module never fails on a machine without the library: use
 :func:`available` to ask, and let the pure-Python implementation handle the
-rest. Nothing in the package requires the native path to exist.
+rest. Nothing in the package requires the C++ path to exist.
 """
 
 from __future__ import annotations
@@ -42,8 +42,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ABI_VERSION",
-    "NativeReader",
-    "NativeUnavailableError",
+    "CoreReader",
+    "CoreUnavailableError",
     "PvzstdError",
     "available",
     "library_path",
@@ -55,7 +55,7 @@ ABI_VERSION = 2
 
 DTYPE_LEN = 16
 
-# Mirrors PVZ_THREADS_AUTO: let the native core pick from hardware concurrency.
+# Mirrors PVZ_THREADS_AUTO: let the C++ core pick from hardware concurrency.
 THREADS_AUTO = -2
 
 # Discovery override for development and for unusual deployments. This names
@@ -77,7 +77,7 @@ _STATUS_NAMES = {
 
 
 class PvzstdError(RuntimeError):
-    """The native library reported a failure."""
+    """The C++ library reported a failure."""
 
     def __init__(self, status: int, detail: str = "", message: str | None = None) -> None:
         if message is None:
@@ -108,8 +108,8 @@ class UnsupportedFilterError(PvzstdError, ValueError):
         )
 
 
-class NativeUnavailableError(RuntimeError):
-    """The native library could not be loaded on this machine."""
+class CoreUnavailableError(RuntimeError):
+    """The C++ library could not be loaded on this machine."""
 
 
 class _ArrayInfo(Structure):
@@ -223,7 +223,7 @@ def _load() -> ctypes.CDLL:
     if _lib is not None:
         return _lib
     if _load_error is not None:
-        raise NativeUnavailableError(_load_error)
+        raise CoreUnavailableError(_load_error)
 
     attempts: list[str] = []
     for candidate in _candidate_paths():
@@ -246,29 +246,29 @@ def _load() -> ctypes.CDLL:
         return lib
 
     _load_error = "could not load the pvzstd shared library. Tried:\n  " + "\n  ".join(attempts)
-    raise NativeUnavailableError(_load_error)
+    raise CoreUnavailableError(_load_error)
 
 
 def available() -> bool:
     """
-    Return whether the native core can be loaded.
+    Return whether the C++ core can be loaded.
 
     Returns
     -------
     bool
-        True when :class:`NativeReader` will work on this machine.
+        True when :class:`CoreReader` will work on this machine.
 
     """
     try:
         _load()
-    except NativeUnavailableError:
+    except CoreUnavailableError:
         return False
     return True
 
 
 def library_path() -> str | None:
     """
-    Return the file the native core was loaded from, or None.
+    Return the file the C++ core was loaded from, or None.
 
     Useful when diagnosing which of several builds is actually in play.
 
@@ -284,7 +284,7 @@ def library_path() -> str | None:
 
 def load_error() -> str | None:
     """
-    Return why the native core could not be loaded, or None if it did.
+    Return why the C++ core could not be loaded, or None if it did.
 
     ``available()`` collapses every reason to False, which is the right shape
     for a fallback decision and the wrong one for a diagnosis: a missing
@@ -307,9 +307,9 @@ def _check(status: int, detail: str = "") -> None:
         raise PvzstdError(status, detail)
 
 
-class NativeReader:
+class CoreReader:
     """
-    Read a container through the native core.
+    Read a container through the C++ core.
 
     Opening parses only the trailer and the per-array headers; payloads are
     decompressed on demand. Reading two arrays out of a large file therefore
@@ -323,7 +323,7 @@ class NativeReader:
     Examples
     --------
     >>> from pyvista_zstd import _capi
-    >>> with _capi.NativeReader("dataset.pv") as reader:  # doctest: +SKIP
+    >>> with _capi.CoreReader("dataset.pv") as reader:  # doctest: +SKIP
     ...     names = reader.names()
 
     """
@@ -339,22 +339,22 @@ class NativeReader:
         self._handle = handle
 
     # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
-    def __enter__(self) -> NativeReader:  # noqa: PYI034
+    def __enter__(self) -> CoreReader:  # noqa: PYI034
         """Return self; the reader is already open."""
         return self
 
     def __exit__(self, *exc: object) -> None:
-        """Release the native reader."""
+        """Release the C++ reader."""
         self.close()
 
     def close(self) -> None:
-        """Release the native reader. Safe to call more than once."""
+        """Release the C++ reader. Safe to call more than once."""
         if self._handle is not None:
             self._lib.pvz_close(self._handle)
             self._handle = None
 
     def __del__(self) -> None:
-        """Release the native reader if the caller forgot to."""
+        """Release the C++ reader if the caller forgot to."""
         # A ctypes handle is not garbage-collected by the interpreter, so
         # without this a dropped reader leaks the mapping until exit. Errors
         # here are unreportable: the interpreter may already be tearing down.
@@ -364,7 +364,7 @@ class NativeReader:
     @property
     def _live(self) -> c_void_p:
         if self._handle is None:
-            msg = "operation on a closed NativeReader"
+            msg = "operation on a closed CoreReader"
             raise ValueError(msg)
         return self._handle
 
@@ -401,7 +401,7 @@ class NativeReader:
         Returns
         -------
         numpy.ndarray
-            The array, with its filter already reversed by the native core.
+            The array, with its filter already reversed by the C++ core.
 
         """
         info = self._info(index)
@@ -492,7 +492,7 @@ class NativeReader:
         """
         Decompress arrays into a name-keyed mapping.
 
-        All wanted frames are handed to the native core in one call so it can
+        All wanted frames are handed to the C++ core in one call so it can
         decompress them in parallel. Doing this one array at a time leaves
         every core but one idle, which measured *slower* than the pure-Python
         reader -- that one batches through zstd's own threaded decompressor.
@@ -514,7 +514,7 @@ class NativeReader:
         """
         # Everything below is hoisted out of the loop on purpose. This loop runs
         # once per array on every single read, and profiling it on an idle
-        # machine put more time in this Python body than in the native
+        # machine put more time in this Python body than in the C++
         # decompression it wraps -- the per-array property lookups, attribute
         # resolutions and np.dtype construction dominated a small file entirely.
         handle = self._live

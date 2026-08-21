@@ -57,6 +57,31 @@ git_describe_command = "git describe --dirty --tags --long --match v*"
 tag_regex = "^v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:[abrc][0-9]+)?(?:\\.post[0-9]+)?(?:\\.dev[0-9]+)?)$"
 version_file = "src/pyvista_zstd/_version.py"
 
+# Which manylinux image each Linux wheel is built in. This lives here rather
+# than beside the other cibuildwheel settings in the workflow because it
+# differs per interpreter, and only a config file can say that -- an
+# environment variable would apply one image to every build and would also
+# take precedence over these overrides.
+#
+# The choice is driven by NumPy, because a wheel is only useful where the
+# things it imports are installable too. NumPy 2.3 dropped both Python 3.10
+# and glibc 2.17, and those two happen to line up exactly:
+#
+#   Python 3.10  pinned to NumPy <= 2.2.6 by requires-python, and 2.2.6 is
+#                the last release shipping a cp310 manylinux2014 wheel, so
+#                the old image still resolves -- build there and reach the
+#                older distributions.
+#   Python 3.12  resolves NumPy 2.5.x, whose lowest x86_64 tag is
+#                manylinux_2_27. In the 2014 image pip finds no wheel, falls
+#                back to the sdist, and the build fails on that image's
+#                gcc 10.2.1 against NumPy's required >= 10.3.
+[tool.cibuildwheel]
+manylinux-x86_64-image = "manylinux_2_28"
+
+[[tool.cibuildwheel.overrides]]
+manylinux-x86_64-image = "manylinux2014"
+select = "cp310-*"
+
 [tool.mypy]
 ignore_missing_imports = true
 

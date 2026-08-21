@@ -216,19 +216,22 @@ jobs:
           # One wheel per platform, not one per interpreter: the bundled
           # library is loaded through ctypes and carries no CPython ABI, and
           # setup.py tags the wheel py3-none-<platform> to say so.
-          CIBW_BUILD: "cp312-*"
+          # Two Linux wheels, from two images: see [tool.cibuildwheel] in
+          # pyproject.toml for which image each of these gets and why. The
+          # 3.10 build exists to reach glibc 2.17, which 3.12 no longer can.
+          CIBW_BUILD: "cp310-* cp312-*"
           # No musl wheels. The package requires a rendering stack that
           # publishes none, so a musllinux wheel of this project could not be
           # installed alongside its own dependencies -- cibuildwheel's install
           # test proves it by failing to resolve them.
-          CIBW_SKIP: "*-musllinux_*"
+          #
+          # And no second macOS or Windows wheel: the 3.10 build is only here
+          # for the older manylinux image, and since these wheels are tagged
+          # py3-none-<platform> rather than per-interpreter, building 3.10
+          # there would produce a file of exactly the same name as the 3.12
+          # one. The two Linux wheels differ because their platform tags do.
+          CIBW_SKIP: "*-musllinux_* cp310-macosx_* cp310-win*"
           CIBW_ARCHS_LINUX: x86_64
-          # manylinux2014 (glibc 2.17) rather than cibuildwheel's newer
-          # default. The core needs only C++17 and zstd, both of which the
-          # 2014 image's toolchain provides, so nothing is given up -- and the
-          # resulting wheel installs on the older enterprise distributions
-          # this is meant to be droppable into.
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
           # A wheel that quietly lost its native core is the failure mode this

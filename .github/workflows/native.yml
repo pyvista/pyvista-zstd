@@ -231,6 +231,20 @@ jobs:
           # there would produce a file of exactly the same name as the 3.12
           # one. The two Linux wheels differ because their platform tags do.
           CIBW_SKIP: "*-musllinux_* cp310-macosx_* cp310-win*"
+          # The 3.10 wheel is built but not install-tested, for the same
+          # reason musllinux is not built at all: on glibc 2.17 the rendering
+          # stack has no wheels to install. NumPy still resolves there -- 2.2.6
+          # is the last release with a cp310 manylinux2014 wheel and 3.10 can
+          # never ask for a newer one -- but Pillow has none, so pip compiles
+          # it and stops for want of jpeg headers the image does not carry.
+          #
+          # That is a fact about the dependencies, not about our wheel, and it
+          # is not worth dropping the wheel over: the shared object inside it
+          # is built from these sources by the same job, and the 3.12 wheel
+          # install-tests that it loads. What goes untested here is only
+          # whether a full environment can be assembled on glibc 2.17, which
+          # today it cannot, by anyone.
+          CIBW_TEST_SKIP: "cp310-manylinux*"
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64

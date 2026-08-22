@@ -83,10 +83,6 @@ FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
 FILE_VERSION_KEY = "FILE_VERSION"
-# Internal vocabulary; callers are not asked. "auto" prefers the C++ core and
-# falls back silently, "cpp" demands it, "python" pins the pure-Python path. The
-# latter two exist for the conformance suite, which must name an arm to compare.
-_IMPLEMENTATIONS = frozenset({"auto", "cpp", "python"})
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
@@ -1317,21 +1313,15 @@ class Reader:
         filename: Path | str,
         *,
         backend: str | None = None,
-        _impl: str = "auto",
     ) -> None:
         """
         Initialize the decompressor.
 
         ``backend`` is deprecated and ignored; see
-        :func:`_warn_backend_deprecated`. ``_impl`` is private and exists so
-        the conformance suite and the parity harness can name one of the two
-        implementations and compare them; it is not part of the public API.
+        :func:`_warn_backend_deprecated`. There is one implementation -- the
+        C++ core -- so there is nothing to select.
         """
         _warn_backend_deprecated(backend)
-        if _impl not in _IMPLEMENTATIONS:
-            msg = f"_impl must be one of {sorted(_IMPLEMENTATIONS)}, not {_impl!r}"
-            raise ValueError(msg)
-        self._impl = _impl
         self._filename = Path(filename)
         self._selected_point_arrays: set[str] | None = None
         self._selected_cell_arrays: set[str] | None = None
@@ -1388,12 +1378,15 @@ class Reader:
         # adds to open is arriving at the library, not using it: ~220us deferred
         # `import _capi` plus ~175us dlopen and prototype binding, both once per
         # process, against +6us for the trailer parse this duplicates.
-        core = self._core_reader() if self._use_cpp else None
+        core = self._core_reader()
 
-        from_core = None if core is None else self._file_metadata_from_core(core)
+        # Still fall back per-file: the core parks metadata it can lift cheaply
+        # and reports nothing for the shapes it does not, which is a property of
+        # the file rather than of a choice of implementation.
+        from_core = self._file_metadata_from_core(core)
         self._metadata = self._load_file_metadata() if from_core is None else from_core
 
-        ds_from_core = None if core is None else self._root_ds_meta_from_core(core)
+        ds_from_core = self._root_ds_meta_from_core(core)
         self._ds_metadata = self._load_root_dataset_meta() if ds_from_core is None else ds_from_core
 
         self.__ds_reader: _DataSetReader | None = None
@@ -1552,23 +1545,6 @@ class Reader:
             return MultiBlockMetadata.from_array(arr)
         return DataSetMetadata.from_array(arr)
 
-    @property
-    def _use_cpp(self) -> bool:
-        """
-        Resolve the implementation choice against what this machine actually has.
-
-        ``"cpp"`` is a demand and raises when the library is missing;
-        ``"auto"`` -- what every public entry point uses -- is a preference and
-        falls back silently, because a wheel built without the shared object
-        must still read files.
-        """
-        if self._impl == "python":
-            return False
-        if self._impl == "cpp":
-            _capi_module()._load()  # noqa: SLF001 - raises with the load diagnostics
-            return True
-        return _capi_module().available()
-
     def _read_ds_segments_cpp(self, ds_id: str, keep: set[str]) -> dict[str, NDArray[Any]]:
         """
         Decompress a dataset's arrays through the C++ core.
@@ -1642,7 +1618,7 @@ class Reader:
         return {f for f in names if f.startswith(ds_id)}
 
     # @profile
-    def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
+    def _read_ds(self, ds_id: str) -> DataSet:
         """Read a single dataset."""
         # map frame indices to names using metadata
         frame_names = self._metadata.frame_names
@@ -1650,55 +1626,15 @@ class Reader:
             msg = "Frame names not found in metadata."
             raise RuntimeError(msg)
 
-        selected_frames = []
-        sizes = []
         selected_frame_names = self._selected_frame_names(ds_id)
 
         if not selected_frame_names:  # pragma: no cover
             msg = "No selected frames"
             raise RuntimeError(msg)
 
-        if self._use_cpp:
-            # Frame-addressed, so downselecting skips the decompression too, not
-            # just the copy into the dataset.
-            segments = self._read_ds_segments_cpp(ds_id, selected_frame_names)
-            return self._segments_to_ds(ds_id, segments)
-
-        n_frames = len(frame_names)
-        if len(selected_frame_names) == n_frames:
-            # Decompress with multi-threaded buffer API
-            dctx = zstd.ZstdDecompressor()
-            segments_raw = dctx.multi_decompress_to_buffer(
-                self._frames,
-                decompressed_sizes=self._decompressed_sizes,
-                threads=_set_n_threads(n_threads, self.nbytes),
-            )
-
-        elif selected_frame_names:
-            for ii, frame_name in enumerate(frame_names):
-                if not frame_name.startswith(ds_id):
-                    continue
-                if frame_name in selected_frame_names:
-                    idx = ii * 2  # double for metadata
-                    selected_frames.extend([self._frames[idx], self._frames[idx + 1]])
-                    # 8 bytes per frame
-                    sizes.append(self._decompressed_sizes[idx * 8 : (idx + 2) * 8])
-
-            # Decompress with multi-threaded buffer API
-            d_sizes_bytes = b"".join(sizes)
-            ds_size = np.frombuffer(d_sizes_bytes, dtype=np.uint64).sum()
-            n_threads = _set_n_threads(n_threads, ds_size)
-            dctx = zstd.ZstdDecompressor()
-            segments_raw = dctx.multi_decompress_to_buffer(
-                selected_frames,
-                decompressed_sizes=d_sizes_bytes,
-                threads=n_threads,
-            )
-        else:  # pragma: no cover
-            msg = "No selected frames"
-            raise RuntimeError(msg)
-
-        segments = _raw_segments_to_arrays(segments_raw)
+        # Frame-addressed, so downselecting skips the decompression too, not
+        # just the copy into the dataset.
+        segments = self._read_ds_segments_cpp(ds_id, selected_frame_names)
         return self._segments_to_ds(ds_id, segments)
 
     def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901, PLR0912
@@ -1791,7 +1727,10 @@ class Reader:
 
         """
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
-            return self._read_ds(self._ds_metadata.uid, n_threads)
+            # ``n_threads`` does not reach here: a single dataset is read
+            # through the core, which chooses its own decompression threading.
+            # It still applies to the MultiBlock path below.
+            return self._read_ds(self._ds_metadata.uid)
 
         # read everything
         n_threads = _set_n_threads(n_threads, self.nbytes)

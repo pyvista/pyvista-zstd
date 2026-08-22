@@ -1,17 +1,21 @@
 """
-Hold the C++ reader backend to agreement with the pure-Python one.
+Hold the reader to exact reconstruction of what the writer was given.
 
 Skipped unless ``PVZSTD_LIBRARY`` points at a built shared library, or one is
-installed beside the package. The comparison is exact: the C++ path is a
-different implementation of the same format, not an approximation of it, so
-any difference in a value is a defect rather than a tolerance question.
+installed beside the package. The comparison is exact: a round trip through
+the format is lossless by construction, so any difference in a value is a
+defect rather than a tolerance question.
 
-The tests also assert that the C++ path was actually *taken*. Selection
-falls back silently by design, which is right for users and dangerous for a
-test suite -- a green run proves nothing if every case quietly ran the Python
-implementation. That is why these tests reach for the private ``_impl``
-argument: the public API deliberately offers no way to demand one of the two,
-because the two agree, but a parity test has to be able to name an arm.
+These once compared the C++ reader against a pure-Python one. That second
+implementation is gone, and with it the option of comparing the library to
+itself. The oracle is now the source dataset the writer was handed, which is
+a stronger claim than the old one: it holds the writer to account too, where
+implementation-vs-implementation would pass on a file both agreed to corrupt.
+
+``test_cpp_core_is_actually_used`` remains the control. With one path there is
+no silent fallback left to hide behind, but a test that never reached the core
+would still pass for the wrong reason, so the sabotage has to keep proving the
+core is what answers.
 """
 
 from __future__ import annotations
@@ -128,22 +132,21 @@ def _assert_same_dataset(a: pv.DataSet, b: pv.DataSet) -> int:
 
 @pytest.mark.parametrize("label", sorted(DATASETS))
 @pytest.mark.parametrize("shuffle", [False, True, "auto"])
-def test_cpp_matches_python(tmp_path, label, shuffle) -> None:
-    """Both backends reconstruct exactly the same dataset."""
+def test_roundtrip_reconstructs_source(tmp_path, label, shuffle) -> None:
+    """What comes back out is exactly what went in."""
+    source = DATASETS[label]()
     path = tmp_path / f"{label}.pv"
-    pz.write(DATASETS[label](), path, shuffle=shuffle, progress_bar=False)
+    pz.write(source, path, shuffle=shuffle, progress_bar=False)
 
-    from_python = pz.Reader(path, _impl="python").read()
-    from_cpp = pz.Reader(path, _impl="cpp").read()
-    assert _assert_same_dataset(from_python, from_cpp) > 0
+    assert _assert_same_dataset(source, pz.Reader(path).read()) > 0
 
 
 def test_cpp_core_is_actually_used(tmp_path, monkeypatch) -> None:
     """
     Control: crippling the C++ path must break the C++ core.
 
-    Without this the parity tests above could all be running the pure-Python
-    implementation twice and passing for the wrong reason.
+    Without this the round-trip tests above could be satisfied by something
+    other than the core and pass for the wrong reason.
     """
     path = tmp_path / "control.pv"
     pz.write(_sphere(), path, shuffle=True, progress_bar=False)
@@ -157,10 +160,7 @@ def test_cpp_core_is_actually_used(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(_capi.CoreReader, "read_arrays", _sabotage)
 
     with pytest.raises(RuntimeError, match="deliberately broken"):
-        pz.Reader(path, _impl="cpp").read()
-
-    # Untouched by the sabotage, proving the two paths are separate.
-    assert pz.Reader(path, _impl="python").read().n_points > 0
+        pz.Reader(path).read()
 
 
 def test_shuffle_filter_is_exercised_in_cpp(tmp_path) -> None:
@@ -177,14 +177,6 @@ def test_shuffle_filter_is_exercised_in_cpp(tmp_path) -> None:
         filters = [reader._info(i).filter_id for i in range(len(reader))]  # noqa: SLF001
 
     assert any(f == 1 for f in filters), "no array carried the shuffle filter"
-
-
-def test_unknown_implementation_is_refused(tmp_path) -> None:
-    """A misspelt implementation fails loudly rather than falling back."""
-    path = tmp_path / "x.pv"
-    pz.write(_sphere(), path, progress_bar=False)
-    with pytest.raises(ValueError, match="_impl must be one of"):
-        pz.Reader(path, _impl="c++")
 
 
 def _call_discarding_result(fn, path) -> None:
@@ -222,20 +214,21 @@ def test_backend_argument_is_deprecated(tmp_path, call) -> None:
         _call_discarding_result(call, path)
 
 
-def test_array_downselection_matches(tmp_path) -> None:
-    """Selecting a subset of arrays gives the same result on both backends."""
+def test_array_downselection_keeps_only_what_was_asked_for(tmp_path) -> None:
+    """Downselecting drops the rest and leaves the kept array untouched."""
+    source = _sphere()
     path = tmp_path / "subset.pv"
-    pz.write(_sphere(), path, progress_bar=False)
+    pz.write(source, path, progress_bar=False)
 
-    def _read(impl: str) -> pv.DataSet:
-        reader = pz.Reader(path, _impl=impl)
-        reader.selected_point_arrays = {"scal_f64"}
-        reader.selected_cell_arrays = set()
-        return reader.read()
+    reader = pz.Reader(path)
+    reader.selected_point_arrays = {"scal_f64"}
+    reader.selected_cell_arrays = set()
+    got = reader.read()
 
-    cpp, python = _read("cpp"), _read("python")
-    assert set(cpp.point_data.keys()) == {"scal_f64"}
-    _assert_same_dataset(python, cpp)
+    assert set(got.point_data.keys()) == {"scal_f64"}
+    assert not set(got.cell_data.keys())
+    # The survivor is unchanged; downselection must not perturb what it keeps.
+    assert np.array_equal(got.point_data["scal_f64"], source.point_data["scal_f64"])
 
 
 def test_cpp_reader_survives_close_and_reports_it(tmp_path) -> None:
@@ -280,7 +273,7 @@ def _esgrid() -> pv.DataSet:
 
 def test_explicit_structured_grid_round_trips(tmp_path) -> None:
     """
-    An ExplicitStructuredGrid survives the container on both implementations.
+    An ExplicitStructuredGrid survives the container.
 
     It used to survive on neither: the reader cast the rebuilt unstructured
     grid before attaching any cell data, so the cast never saw the blocking
@@ -290,10 +283,9 @@ def test_explicit_structured_grid_round_trips(tmp_path) -> None:
     path = tmp_path / "esgrid.pv"
     pz.write(ds, path, progress_bar=False)
 
-    from_python = pz.Reader(path, _impl="python").read()
-    from_cpp = pz.Reader(path, _impl="cpp").read()
+    got = pz.Reader(path).read()
 
-    assert type(from_python) is type(ds), "round-trip changed the dataset type"
-    assert _assert_same_dataset(from_python, from_cpp) > 0
+    assert type(got) is type(ds), "round-trip changed the dataset type"
+    assert _assert_same_dataset(ds, got) > 0
     for key in ("BLOCK_I", "BLOCK_J", "BLOCK_K", "payload"):
-        assert np.array_equal(from_python.cell_data[key], ds.cell_data[key]), key
+        assert np.array_equal(got.cell_data[key], ds.cell_data[key]), key

@@ -70,7 +70,6 @@ import zstandard as zstd
 
 from pyvista_zstd.pyvista_zstd import _FILTER_NONE
 from pyvista_zstd.pyvista_zstd import _FILTER_SHUFFLE
-from pyvista_zstd.pyvista_zstd import _IMPLEMENTATIONS
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
 from pyvista_zstd.pyvista_zstd import FIELD_DATA_SUFFIX
 from pyvista_zstd.pyvista_zstd import FILE_METADATA_KEY
@@ -530,19 +529,14 @@ class AppendReader:
         filename: Path | str,
         *,
         backend: str | None = None,
-        _impl: str = "auto",
     ) -> None:
         """
         Open ``filename`` and read its footer + metadata frames.
 
-        ``backend`` is deprecated and ignored; ``_impl`` is private and exists
-        for the conformance suite and the parity harness.
+        ``backend`` is deprecated and ignored. There is one implementation --
+        the C++ core -- so there is nothing to select.
         """
         _warn_backend_deprecated(backend)
-        if _impl not in _IMPLEMENTATIONS:
-            msg = f"_impl must be one of {sorted(_IMPLEMENTATIONS)}, not {_impl!r}"
-            raise ValueError(msg)
-        self._impl = _impl
         self._core: CoreReader | None = None
         self._path = Path(filename)
         if self._path.suffix not in SUPPORTED_READ_SUFFIXES:
@@ -570,23 +564,19 @@ class AppendReader:
         return name in self._ds_meta.field_data_keys
 
     @property
-    def _core_reader(self) -> CoreReader | None:
+    def _core_reader(self) -> CoreReader:
         """
-        The C++ reader to serve reads from, or None to stay in Python.
+        The C++ reader to serve reads from.
 
         Opened once and kept, because the mapping it holds is what makes a
         second single-block read cheap. Resolved lazily so constructing a
         reader and never reading from it costs nothing.
+
+        No availability check: there is no second path to fall to, so the
+        load failure itself is what gets raised, carrying its diagnostics.
         """
-        if self._impl == "python":
-            return None
         if self._core is None:
-            capi = _capi_module()
-            if self._impl != "cpp" and not capi.available():
-                return None
-            # "cpp" skips the availability check so the load failure itself is
-            # what gets raised, with its diagnostics.
-            self._core = capi.CoreReader(self._path)
+            self._core = _capi_module().CoreReader(self._path)
         return self._core
 
     def read_array(self, name: str) -> NDArray:
@@ -595,26 +585,14 @@ class AppendReader:
             msg = f"field array {name!r} not found; available: {sorted(self._ds_meta.field_data_keys)}"
             raise KeyError(msg)
 
-        cpp = self._core_reader
-        if cpp is not None:
-            index = cpp.find_field(name)
-            if index is not None:
-                return cpp.read_at(index)
-            # Falling back here would paper over a disagreement between the two
-            # about what the file contains.
+        index = self._core_reader.find_field(name)
+        if index is None:
+            # Not looked up a second way: a name the metadata carries but the
+            # frame index does not is a disagreement about what the file holds,
+            # and papering over it would hide that.
             msg = f"frame for field array {name!r} not found in frame index."
             raise KeyError(msg)
-
-        frame_name = f"{self._ds_id}{name}{FIELD_DATA_SUFFIX}"
-        ai = self._name_to_idx.get(frame_name)
-        if ai is None:  # pragma: no cover - metadata/name desync
-            msg = f"frame for field array {name!r} not found in frame index."
-            raise KeyError(msg)
-        mi, di = ai * 2, ai * 2 + 1
-        with self._path.open("rb") as f:
-            meta_blob, data_blob = _read_frame_pair(f, self._starts, self._ends, ai)
-        _, arr = _decompress_two_blobs(meta_blob, data_blob, (self._frame_meta[mi][1], self._frame_meta[di][1]))
-        return arr
+        return self._core_reader.read_at(index)
 
     def read_arrays(self, names: Iterable[str]) -> dict[str, NDArray]:
         """Decompress and return several field arrays by name."""

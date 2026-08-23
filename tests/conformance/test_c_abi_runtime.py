@@ -18,8 +18,6 @@ from pyvista_zstd import write
 if TYPE_CHECKING:
     from pathlib import Path
 
-pytestmark = pytest.mark.skipif(not _capi.available(), reason="the C++ core is not loadable here")
-
 
 @pytest.fixture
 def container(tmp_path: Path) -> str:

@@ -48,9 +48,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from pyvista_zstd import _capi
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import ArrayInfo
-from pyvista_zstd.pyvista_zstd import _capi_module
 from pyvista_zstd.pyvista_zstd import _shuffle_mode
 from pyvista_zstd.pyvista_zstd import _warn_backend_deprecated
 
@@ -134,10 +134,9 @@ def append_arrays(
     if not arrays:
         return
 
-    capi = _capi_module()
     # ``None`` means "whatever the file records"; the core resolves it.
-    resolved = capi.LEVEL_FROM_FILE if level is None else int(level)
-    capi.append_arrays(path, arrays, level=resolved, shuffle=_shuffle_mode(shuffle))
+    resolved = _capi.LEVEL_FROM_FILE if level is None else int(level)
+    _capi.append_arrays(path, arrays, level=resolved, shuffle=_shuffle_mode(shuffle))
 
 
 def read_array(
@@ -225,7 +224,7 @@ class AppendReader:
         Opened lazily and kept, so a second single-block read is cheap.
         """
         if self._core is None:
-            self._core = _capi_module().CoreReader(self._path)
+            self._core = _capi.CoreReader(self._path)
         return self._core
 
     @property

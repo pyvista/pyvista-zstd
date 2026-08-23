@@ -21,6 +21,8 @@ import warnings
 import numpy as np
 import pyvista as pv
 
+from pyvista_zstd import _capi
+
 # Import VTK through PyVista rather than from ``vtkmodules`` directly, so the
 # classes constructed here always come from the same VTK binding PyVista itself
 # is built on. PyVista can be built against a binding other than the stock
@@ -56,8 +58,6 @@ from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
 if TYPE_CHECKING:  # pragma: no cover
-    from types import ModuleType
-
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
@@ -138,11 +138,10 @@ ShuffleSpec = Literal["auto", True, False]
 
 def _shuffle_mode(shuffle: ShuffleSpec) -> int:
     """Translate the API spelling to the core's policy enum."""
-    capi = _capi_module()
     return {
-        False: capi.SHUFFLE_NEVER,
-        True: capi.SHUFFLE_ALWAYS,
-        "auto": capi.SHUFFLE_AUTO,
+        False: _capi.SHUFFLE_NEVER,
+        True: _capi.SHUFFLE_ALWAYS,
+        "auto": _capi.SHUFFLE_AUTO,
     }[shuffle]
 
 
@@ -336,20 +335,6 @@ class DataSetMetadata:
         """Output as a numpy uint8 array."""
         meta_bytes = self.to_json().encode("utf-8")
         return np.frombuffer(meta_bytes, dtype=np.uint8)
-
-
-def _capi_module() -> ModuleType:
-    """
-    Import the ctypes binding lazily.
-
-    Deferred so importing ``pyvista_zstd`` does not load a shared library, and
-    so a machine without the core raises
-    :class:`~pyvista_zstd._capi.CoreUnavailableError` from the first read or
-    write rather than from the import.
-    """
-    from pyvista_zstd import _capi  # noqa: PLC0415 - deliberately deferred
-
-    return _capi
 
 
 def _format_bytes(size: float) -> str:
@@ -762,10 +747,9 @@ class Writer:
 
         # The core owns the format decisions; this side stages arrays in
         # frame order.
-        capi = _capi_module()
-        with capi.CoreWriter() as writer:
+        with _capi.CoreWriter() as writer:
             writer.set_level(level)
-            writer.set_threads(capi.THREADS_AUTO if n_threads is None else n_threads)
+            writer.set_threads(_capi.THREADS_AUTO if n_threads is None else n_threads)
             writer.set_shuffle(_shuffle_mode(shuffle))
             writer.set_fixed_width_cells(enabled=self._uses_fixed_width_cells)
             for name, arr in self._arrays.items():
@@ -1211,7 +1195,7 @@ class Reader:
 
         try:
             core = self._core_reader()
-        except _capi_module().ContainerFormatError as err:
+        except _capi.ContainerFormatError as err:
             # Callers catch on this wording, so keep it.
             msg = f"'{self._filename}' did not parse as a pyvista-zstd container. File may be corrupted."
             raise RuntimeError(msg) from err
@@ -1328,9 +1312,8 @@ class Reader:
         by name -- a MultiBlock carries one per block.
         """
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
-        capi = _capi_module()
         reader = self._core_reader()
-        threads = capi.THREADS_AUTO if n_threads is None else n_threads
+        threads = _capi.THREADS_AUTO if n_threads is None else n_threads
         segments = reader.read_arrays(keep=keep - {meta_key}, n_threads=threads)
         segments[meta_key] = np.frombuffer(self._metadata_documents[meta_key].encode("utf-8"), dtype=np.uint8)
         return segments
@@ -1351,7 +1334,7 @@ class Reader:
         """
         reader = self._core
         if reader is None:
-            reader = _capi_module().CoreReader(self._filename)
+            reader = _capi.CoreReader(self._filename)
             self._core = reader
         return reader
 

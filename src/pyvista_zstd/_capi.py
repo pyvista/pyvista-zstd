@@ -2,9 +2,10 @@
 ``ctypes`` binding to the ``pvzstd`` C ABI.
 
 The C++ core is a plain shared library exposing a C ABI, loaded here with
-:mod:`ctypes`. It is required: there is no second implementation, so on a
-machine without the library every entry point raises
-:class:`CoreUnavailableError` carrying the load diagnostics.
+:mod:`ctypes` when this module is imported. It is required -- there is no
+second implementation -- so an install without a loadable library of the
+right ABI version fails at import with :class:`CoreUnavailableError` naming
+every candidate it tried, rather than deeper in at the first read or write.
 """
 
 from __future__ import annotations
@@ -45,9 +46,7 @@ __all__ = [
     "PvzstdError",
     "UnsupportedFileVersionError",
     "append_arrays",
-    "available",
     "library_path",
-    "load_error",
     "max_file_version",
 ]
 
@@ -386,51 +385,18 @@ def _load() -> ctypes.CDLL:
     raise CoreUnavailableError(_load_error)
 
 
-def available() -> bool:
+def library_path() -> str:
     """
-    Return whether the C++ core can be loaded.
+    Return the file the C++ core was loaded from.
 
     Returns
     -------
-    bool
-        True when :class:`CoreReader` will work on this machine.
+    str
 
     """
-    try:
-        _load()
-    except CoreUnavailableError:
-        return False
-    return True
-
-
-def library_path() -> str | None:
-    """
-    Return the file the C++ core was loaded from, or None.
-
-    Returns
-    -------
-    str | None
-
-    """
-    if _lib is None and not available():
-        return None
+    _load()
+    assert _lib_path is not None  # noqa: S101 - _load() sets it or raises
     return _lib_path
-
-
-def load_error() -> str | None:
-    """
-    Return why the C++ core could not be loaded, or None if it did.
-
-    Reports the candidates that were tried and what each of them said.
-
-    Returns
-    -------
-    str | None
-
-    """
-    if available():
-        return None
-    return _load_error
 
 
 def max_file_version() -> int:
@@ -976,3 +942,8 @@ def append_arrays(
     if status == _STATUS_UNSUPPORTED:
         raise ContainerShapeError(status, message="appending to MultiBlock .pv files is not supported.")
     _check(status, str(path))
+
+
+# Importing this module loads the library. The package is the library, so an
+# install that cannot produce one is broken at import, not at first use.
+_load()

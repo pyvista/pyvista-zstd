@@ -35,8 +35,8 @@ jobs:
         run: pip install uv
 
       - name: Install pytest-pyvista with test dependencies
-        env:
-          PVZSTD_BUILD_CORE: "0"
+        # The core builds here: the gallery examples call write() and read(),
+        # and there is no Python implementation left behind them.
         run: uv pip install --system .[docs]
 
       - name: Setup headless display

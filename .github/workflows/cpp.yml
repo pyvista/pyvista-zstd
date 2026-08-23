@@ -137,6 +137,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           PVZSTD_BUILD_CORE=0 pip install .[tests]
+          # Skipping the build keeps the install from compiling the core a
+          # second time; the host build above already produced one, and write()
+          # has no Python implementation to fall back on.
+          export PVZSTD_LIBRARY="$PWD/cpp/build-host/libpvzstd.so"
           PYTHONPATH=tests/conformance python - <<'PY'
           import numpy as np
           import pyvista as pv

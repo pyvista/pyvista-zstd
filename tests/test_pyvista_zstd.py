@@ -485,6 +485,36 @@ def test_roundtrip_preserves_connectivity_dtype(ugrid: UnstructuredGrid, tmp_pat
     assert np.array_equal(ugrid_out.cell_connectivity, ugrid.cell_connectivity)
 
 
+def test_force_int32_declines_when_ids_do_not_fit() -> None:
+    """
+    ``force_int32`` must bound the values, not the array's length.
+
+    Connectivity entries are point ids, so a short cell array in a mesh with
+    more than 2**31 points still holds ids that do not fit in int32 --
+    ``astype`` wraps those silently rather than raising, which corrupts
+    topology on a default write. The guard is asserted at the staging helper
+    because reaching this through :func:`pyvista_zstd.write` needs a real mesh
+    of 2 billion points; what is exercised here is exactly the decision the
+    helper makes, on a cell array VTK is happy to hold.
+    """
+    connectivity = np.array([0, 1, np.iinfo(np.int32).max + 7], dtype=np.int64)
+    offsets = np.array([0, 3], dtype=np.int64)
+
+    int64_vtk = impl.vtkTypeInt64Array().GetDataType()
+    cell_array = impl.vtkCellArray()
+    cell_array.SetData(
+        impl.numpy_to_vtk(offsets, deep=True, array_type=int64_vtk),
+        impl.numpy_to_vtk(connectivity, deep=True, array_type=int64_vtk),
+    )
+
+    arrays: dict[str, np.ndarray] = {}
+    impl._add_cell_array("ds", arrays, "cells", cell_array, {}, force_int32=True)  # noqa: SLF001
+
+    stored = arrays["dscells_connectivity"]
+    assert stored.dtype == np.int64, "an id past int32 was narrowed anyway"
+    assert np.array_equal(stored, connectivity)
+
+
 def test_future_version_is_rejected(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """
     Reading a file newer than this build supports is a hard error, not a warning.

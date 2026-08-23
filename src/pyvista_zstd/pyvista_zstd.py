@@ -380,6 +380,24 @@ def _format_bytes(size: float) -> str:
     return f"{size:.1f}TB"
 
 
+def _narrowed_to_int32(values: NDArray[Any]) -> NDArray[Any]:
+    """
+    Return *values* as int32 when every entry survives the cast, else unchanged.
+
+    The bound has to come from the values, not from the array's length. A cell
+    array's connectivity holds point ids, so its entries are bounded by the
+    point count -- which a short connectivity array in a huge mesh does not
+    bound at all, and ``astype`` wraps out-of-range ids silently rather than
+    raising. The one pass this costs is a fraction of the cast it guards, and
+    both are dwarfed by the compression that follows.
+
+    Ids are non-negative by construction, so only the upper end is checked.
+    """
+    if values.size and int(values.max()) > np.iinfo(np.int32).max:
+        return values
+    return values.astype(np.int32, copy=False)
+
+
 def _add_cell_array(  # noqa: PLR0913
     ds_id: str,
     arrays: dict[str, np.ndarray],
@@ -396,15 +414,15 @@ def _add_cell_array(  # noqa: PLR0913
     cell_size = cell_array.IsHomogeneous()
 
     # compress to int32 whenever possible
-    if force_int32 and connectivity.size <= np.iinfo(np.int32).max:
-        connectivity = connectivity.astype(np.int32, copy=False)
+    if force_int32:
+        connectivity = _narrowed_to_int32(connectivity)
 
     if cell_size > 0:
         fixed_cell_sizes[name] = cell_size
     else:
         offsets = vtk_to_numpy(cell_array.GetOffsetsArray())
-        if force_int32 and connectivity.size <= np.iinfo(np.int32).max:
-            offsets = offsets.astype(np.int32, copy=False)
+        if force_int32:
+            offsets = _narrowed_to_int32(offsets)
         arrays[f"{ds_id}{name}{OFFSET_SUFFIX}"] = offsets
     arrays[f"{ds_id}{name}{CONNECTIVITY_SUFFIX}"] = connectivity
 
@@ -552,7 +570,9 @@ def write(  # noqa: PLR0913
     force_int32 : bool, default: True
         Write cell topology as int32 whenever possible. Only applies to
         :class:`pyvista.PolyData` and
-        :class:`pyvista.UnstructuredGrid`.
+        :class:`pyvista.UnstructuredGrid`. A mesh whose point ids do not fit
+        in int32 keeps its wider topology; the request is a preference, not a
+        promise to narrow.
     progress_bar : bool, default: False
         Show a progress bar while writing to disk.
     level : int, default: 3

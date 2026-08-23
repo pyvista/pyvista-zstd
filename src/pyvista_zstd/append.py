@@ -480,9 +480,8 @@ def read_array(
         Field-array name (the key passed to :func:`append_arrays`, or any
         field-data key present in the file).
     backend : str, optional
-        Deprecated and ignored. The C++ core is used when this install has
-        it and the pure-Python path otherwise; the two produce byte-identical
-        results, so there is nothing to select between. Passing this raises a
+        Deprecated and ignored. The C++ core is the only implementation, so
+        there is nothing to select between. Passing this raises a
         :class:`DeprecationWarning`.
 
     Returns
@@ -509,9 +508,8 @@ class AppendReader:
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
     backend : str, optional
-        Deprecated and ignored. The C++ core is used when this install has
-        it and the pure-Python path otherwise; the two produce byte-identical
-        results, so there is nothing to select between. Passing this raises a
+        Deprecated and ignored. The C++ core is the only implementation, so
+        there is nothing to select between. Passing this raises a
         :class:`DeprecationWarning`.
 
     Examples

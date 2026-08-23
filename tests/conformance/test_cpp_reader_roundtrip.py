@@ -1,10 +1,11 @@
 """
 Hold the reader to exact reconstruction of what the writer was given.
 
-Skipped unless ``PVZSTD_LIBRARY`` points at a built shared library, or one is
-installed beside the package. The comparison is exact: a round trip through
-the format is lossless by construction, so any difference in a value is a
-defect rather than a tolerance question.
+Requires the core, and does not skip without it. ``PVZSTD_LIBRARY`` chooses
+which build answers; failing that, the one installed beside the package. The
+comparison is exact: a round trip through the format is lossless by
+construction, so any difference in a value is a defect rather than a
+tolerance question.
 
 These once compared the C++ reader against a pure-Python one. That second
 implementation is gone, and with it the option of comparing the library to
@@ -30,10 +31,9 @@ import vtk
 import pyvista_zstd as pz
 from pyvista_zstd import _capi
 
-pytestmark = pytest.mark.skipif(
-    not _capi.available(),
-    reason="set PVZSTD_LIBRARY to a built libpvzstd to run C++ core parity",
-)
+# No availability gate. The core is the only implementation, so a machine that
+# cannot load it cannot read these files at all -- skipping here would report
+# success for a package that does not work.
 
 HEX = 8
 TET = 4

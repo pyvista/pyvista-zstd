@@ -404,9 +404,11 @@ def _capi_module() -> ModuleType:
     """
     Import the ctypes binding lazily.
 
-    Deferred so that importing ``pyvista_zstd`` costs nothing on a machine
-    with no C++ library, and so the pure-Python path has no import-time
-    dependency on it at all.
+    Deferred so that importing ``pyvista_zstd`` does not load a shared library,
+    which keeps import cheap and keeps the failure where it can be acted on: a
+    machine without the core raises :class:`~pyvista_zstd._capi.CoreUnavailableError`
+    from the first read or write, naming the candidates it tried, rather than
+    from ``import pyvista_zstd`` with no operation to blame.
     """
     from pyvista_zstd import _capi  # noqa: PLC0415 - deliberately deferred
 
@@ -1126,9 +1128,8 @@ def _warn_backend_deprecated(backend: object) -> None:
         return
     msg = (
         "The 'backend' argument is deprecated and no longer has any effect. "
-        "The C++ core is used when it is available and the pure-Python "
-        "implementation when it is not; the two produce byte-identical "
-        "results, so there is nothing to select between. Remove the argument."
+        "The C++ core is the only implementation, so there is nothing to "
+        "select between. Remove the argument."
     )
     warnings.warn(msg, DeprecationWarning, stacklevel=3)
 
@@ -1154,10 +1155,9 @@ def read(
         decompress the file will be used. Ignored by the C++ core, which
         decompresses frames on demand rather than in one threaded batch.
     backend : str, optional
-        Deprecated and ignored. The C++ core is used when it is installed
-        and the pure-Python implementation when it is not; the two produce
-        byte-identical results, so there is nothing to select between. Passing
-        this raises a :class:`DeprecationWarning`.
+        Deprecated and ignored. The C++ core is the only implementation, so
+        there is nothing to select between. Passing this raises a
+        :class:`DeprecationWarning`.
 
     Returns
     -------

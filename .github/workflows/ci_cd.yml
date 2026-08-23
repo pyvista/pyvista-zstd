@@ -93,7 +93,9 @@ jobs:
         run: uv pip install --system .[tests]
 
       - name: Confirm the C++ core is present
-        # The core falls back to pure Python by design, so no test below fails if it is missing.
+        # Kept as a separate step for the diagnosis, not for the verdict: without
+        # the core every test below fails, but they fail on the first read rather
+        # than saying the library never loaded and why.
         run: |
           python -c "
           from pyvista_zstd import _capi
@@ -129,14 +131,17 @@ jobs:
         with:
           python-version: 3.13
 
-      - name: Build distributions
-        # Pure Python: this Linux runner would otherwise publish a linux_x86_64 wheel
-        # as the only wheel. Per-platform wheels come from the C++ Core workflow.
+      - name: Build the sdist
+        # The sdist only. A wheel built here would be this runner's Linux build
+        # published as the one wheel for every platform -- and with the core no
+        # longer optional, a core-less wheel is not a lesser package, it is a
+        # broken one. Per-platform wheels come from the C++ Core workflow; this
+        # sdist builds the core at install time.
         env:
           PVZSTD_BUILD_CORE: "0"
         run: |
           pip install build
-          python -m build
+          python -m build --sdist
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

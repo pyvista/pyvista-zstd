@@ -7,9 +7,11 @@ it with :mod:`ctypes`. That choice is what lets the same library be consumed as
 a C++ submodule, cross-compiled to WebAssembly, and shipped in a wheel without
 three separate binding layers going out of step.
 
-Importing this module never fails on a machine without the library: use
-:func:`available` to ask, and let the pure-Python implementation handle the
-rest. Nothing in the package requires the C++ path to exist.
+The core is required, not preferred. There is no second implementation to
+fall to, so a machine without the library cannot read or write these files
+and says so: every entry point raises :class:`CoreUnavailableError` carrying
+the load diagnostics. :func:`available` remains for reporting -- it answers
+"can this machine work", never "which implementation should run".
 """
 
 from __future__ import annotations
@@ -89,14 +91,13 @@ class UnsupportedFilterError(PvzstdError, ValueError):
     """
     An array carries a byte filter this build cannot reverse.
 
-    Inherits from :class:`ValueError` because that is what the pure-Python
-    reader has always raised for this condition, and the two backends are two
-    implementations of one contract -- code that catches the error must not
-    have to care which one ran.
+    Inherits from :class:`ValueError` because that is what this condition has
+    raised since before the core existed. Nothing about the error changed when
+    the reader moved into C++, so neither should what callers catch.
     """
 
     def __init__(self, filter_id: int, name: str) -> None:
-        # Worded as the pure-Python reader does; the code stays on .status.
+        # Wording preserved from the reader this replaced; the code stays on .status.
         super().__init__(
             _STATUS_FILTER,
             message=(
@@ -282,8 +283,8 @@ def load_error() -> str | None:
     """
     Return why the C++ core could not be loaded, or None if it did.
 
-    ``available()`` collapses every reason to False, which is the right shape
-    for a fallback decision and the wrong one for a diagnosis: a missing
+    ``available()`` collapses every reason to False, which answers "can this
+    machine work" and nothing else: a missing
     library, a library built against a different ABI, and one that failed to
     link all look identical. This reports the candidates that were tried and
     what each of them said.
@@ -483,8 +484,9 @@ class CoreReader:
 
         All wanted frames are handed to the C++ core in one call so it can
         decompress them in parallel. Doing this one array at a time leaves
-        every core but one idle, which measured *slower* than the pure-Python
-        reader -- that one batches through zstd's own threaded decompressor.
+        every core but one idle, which measured *slower* than the Python
+        reader this replaced -- that one batched through zstd's own threaded
+        decompressor.
 
         Parameters
         ----------

@@ -1,7 +1,9 @@
 """
 Hold the field-array index and reads to what was appended.
 
-Skipped unless ``PVZSTD_LIBRARY`` points at a built shared library.
+Requires the core, and does not skip without it: the core is the only
+implementation, so a machine that cannot load it has nothing left to pass.
+``PVZSTD_LIBRARY`` selects which build answers.
 
 The C-ABI names field arrays the way a caller does -- bare, without the
 dataset-UID prefix or the ``__field_data`` suffix the frame carries -- and it
@@ -30,7 +32,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-import pytest
 import pyvista as pv
 
 import pyvista_zstd as pz
@@ -40,10 +41,8 @@ from pyvista_zstd.append import AppendReader
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pathlib import Path
 
-pytestmark = pytest.mark.skipif(
-    not _capi.available(),
-    reason=f"C++ library not loadable: {_capi.load_error()}",
-)
+# No availability gate: the core is the only implementation, so a machine that
+# cannot load it must fail these tests rather than skip them.
 
 UID_N_CHAR = 16
 FIELD_DATA_SUFFIX = "__field_data"

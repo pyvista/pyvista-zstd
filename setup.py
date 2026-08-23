@@ -1,18 +1,20 @@
 """
 Build the pvzstd C++ core and bundle it into the wheel.
 
-The package works with or without this library: ``pyvista_zstd`` falls back to
-its pure-Python reader whenever the C++ one cannot be loaded, so a build on
-a machine with no C++ toolchain still produces a working (pure-Python) wheel.
-That is the point of the default below being best-effort rather than required.
+The library is the package. There is no second implementation to fall back
+to, so an install that did not get one cannot read or write a container at
+all -- which is why the default is required rather than best-effort. It used
+to be best-effort, from when a pure-Python reader stood behind it; keeping
+that default after the reader was removed would ship a wheel that imports
+cleanly and then fails on first use.
 
-Release builds must not rely on that leniency, because a wheel that quietly
-lost its accelerator looks exactly like one that never had it. Set
-``PVZSTD_BUILD_CORE=1`` and a failed C++ build fails the whole build.
-
-  unset  best effort -- build it if we can, carry on as pure Python if not
-  1      required    -- a C++ build failure is a build failure
-  0      skipped     -- never invoke CMake at all
+  unset  required -- a C++ build failure is a build failure
+  1      required -- same; kept because CI and cibuildwheel set it explicitly
+  0      skipped  -- never invoke CMake, and the install is unusable until a
+                     library arrives from elsewhere (``PVZSTD_LIBRARY``, or
+                     one dropped into the package's ``lib/``). For building
+                     docs and for CI jobs that test a separate CMake build;
+                     never for a wheel anyone installs.
 """
 
 from __future__ import annotations
@@ -31,9 +33,7 @@ HERE = Path(__file__).parent.resolve()
 CPP_DIR = HERE / "cpp"
 PACKAGE_LIB_DIR = HERE / "src" / "pyvista_zstd" / "lib"
 
-_MODE = os.environ.get("PVZSTD_BUILD_CORE", "").strip()
-_REQUIRED = _MODE == "1"
-_SKIPPED = _MODE == "0"
+_SKIPPED = os.environ.get("PVZSTD_BUILD_CORE", "").strip() == "0"
 
 
 def _library_names() -> list[str]:
@@ -93,10 +93,8 @@ def _build_cpp() -> Path | None:
         return None
     if not (CPP_DIR / "CMakeLists.txt").is_file():
         # An sdist that omitted cpp/, or a source tree in an odd state.
-        if _REQUIRED:
-            msg = f"PVZSTD_BUILD_CORE=1 but no CMake project at {CPP_DIR}"
-            raise SystemExit(msg)
-        return None
+        msg = f"no CMake project at {CPP_DIR}; set PVZSTD_BUILD_CORE=0 to install without a core"
+        raise SystemExit(msg)
 
     build_dir = Path(tempfile.mkdtemp(prefix="pvzstd-build-"))
     configure = [
@@ -128,19 +126,13 @@ def _build_cpp() -> Path | None:
             check=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
-        if _REQUIRED:
-            msg = f"pvzstd: C++ build failed and PVZSTD_BUILD_CORE=1: {exc}"
-            raise SystemExit(msg) from exc
-        print(f"pvzstd: C++ build unavailable ({exc}); shipping pure Python")
-        return None
+        msg = f"pvzstd: the C++ core failed to build, and it is what the package is: {exc}"
+        raise SystemExit(msg) from exc
 
     built = _find_built_library(build_dir)
     if built is None:
-        if _REQUIRED:
-            msg = f"pvzstd: build produced no shared library in {build_dir}"
-            raise SystemExit(msg)
-        print("pvzstd: build produced no shared library; shipping pure Python")
-        return None
+        msg = f"pvzstd: build produced no shared library in {build_dir}"
+        raise SystemExit(msg)
 
     PACKAGE_LIB_DIR.mkdir(parents=True, exist_ok=True)
     destination = PACKAGE_LIB_DIR / built.name

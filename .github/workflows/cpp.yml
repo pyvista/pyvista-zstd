@@ -117,8 +117,13 @@ jobs:
           version: 3.1.64
 
       - name: Build for the host
+        # Both arms take the pinned zstd: this job compares written bytes, and
+        # another zstd version emits different frames for the same input.
         run: |
-          cmake -S cpp -B cpp/build-host -DCMAKE_BUILD_TYPE=Release -DPVZSTD_BUILD_TOOLS=ON
+          cmake -S cpp -B cpp/build-host \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPVZSTD_BUILD_TOOLS=ON \
+            -DPVZSTD_ZSTD_PROVIDER=vendored
           cmake --build cpp/build-host --parallel
 
       - name: Build for WebAssembly
@@ -128,6 +133,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DPVZSTD_BUILD_SHARED=OFF \
             -DPVZSTD_BUILD_TOOLS=ON \
+            -DPVZSTD_ZSTD_PROVIDER=vendored \
             -DCMAKE_C_FLAGS=-pthread \
             -DCMAKE_CXX_FLAGS=-pthread \
             -DCMAKE_EXE_LINKER_FLAGS="-pthread -sPTHREAD_POOL_SIZE=4 -sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1"
@@ -187,12 +193,7 @@ jobs:
             read -r level fixed uid < "$name.args"
             node cpp/build-wasm/pvz_rewrite.js \
               "$name.pv" "$name.wasm.pv" "$level" -2 1 "$fixed" "$uid"
-            if cmp "$name.pv" "$name.wasm.pv"; then continue; fi
-            # Say what diverged: same checksums means the compressed encoding
-            # differs, different checksums means the content does.
-            ./cpp/build-host/pvz_dump "$name.wasm.pv" > "$name.wasm-rewrite.txt"
-            diff "$name.host.txt" "$name.wasm-rewrite.txt" || true
-            exit 1
+            cmp "$name.pv" "$name.wasm.pv"
           done
 
   wheels:

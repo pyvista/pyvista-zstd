@@ -107,8 +107,9 @@ int main(int argc, char **argv) {
     arrays.push_back(a);
   }
 
-  const pvz_status st = pvz_append_arrays(container.c_str(), arrays.data(), arrays.size(), level,
-                                          static_cast<pvz_shuffle_mode>(shuffle_code));
+  const pvz_status st =
+      pvz_append_arrays(container.c_str(), arrays.data(), arrays.size(), level,
+                        static_cast<pvz_shuffle_mode>(shuffle_code), nullptr, nullptr);
   if (st != PVZ_OK) {
     std::cerr << "pvz_append_arrays: " << pvz_status_message(st) << "\n";
     return 1;

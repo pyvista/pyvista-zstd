@@ -136,7 +136,10 @@ struct StagedFrame {
 extern "C" {
 
 pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, uint64_t count,
-                             int level, pvz_shuffle_mode shuffle) try {
+                             int level, pvz_shuffle_mode shuffle, uint64_t *clash_slot,
+                             uint32_t *found_version) try {
+  if (clash_slot != nullptr) *clash_slot = PVZ_SLOT_NONE;
+  if (found_version != nullptr) *found_version = 0;
   if (path == nullptr) return PVZ_E_INVALID;
   if (count == 0) return PVZ_OK;  // appending nothing is a no-op, not an error
   if (arrays == nullptr) return PVZ_E_INVALID;
@@ -179,7 +182,16 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   // cannot decode is one it must not edit either. Appending would regenerate the
   // two metadata frames -- restamping a version whose meaning is unknown here --
   // and leave a file neither this build nor the one that wrote it can trust.
-  if (old_version > static_cast<long long>(PVZSTD_FILE_VERSION_MAX)) return PVZ_E_VERSION;
+  if (old_version > static_cast<long long>(PVZSTD_FILE_VERSION_MAX)) {
+    if (found_version != nullptr) {
+      // The field is what the file says; a value past uint32 is a number this
+      // build cannot report, not one it can round down and still be honest about.
+      *found_version = old_version > static_cast<long long>(UINT32_MAX)
+                           ? UINT32_MAX
+                           : static_cast<uint32_t>(old_version);
+    }
+    return PVZ_E_VERSION;
+  }
 
   // The file-metadata array's own name is absent from frame_names; disagreeing
   // counts would shift every name onto the wrong frame.
@@ -213,10 +225,16 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
     for (const std::string &have : existing) {
       // Refused, not overwritten: the old bytes would stay with nothing pointing
       // at them and the reader would surface whichever entry it found first.
-      if (have == arrays[k].name) return PVZ_E_EXISTS;
+      if (have == arrays[k].name) {
+        if (clash_slot != nullptr) *clash_slot = k;
+        return PVZ_E_EXISTS;
+      }
     }
     for (uint64_t j = 0; j < k; ++j) {
-      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZ_E_EXISTS;
+      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) {
+        if (clash_slot != nullptr) *clash_slot = k;
+        return PVZ_E_EXISTS;
+      }
     }
   }
 

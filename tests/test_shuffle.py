@@ -259,26 +259,39 @@ def test_append_refuses_an_unreadable_file_version(tmp_path: Path) -> None:
     blob = json.dumps(meta).encode("utf-8")
     _rewrite_frames(path, {-1: blob, -2: _resized(bodies[-2], len(blob))})
 
-    with pytest.raises(ValueError, match="newer than the version supported"):
+    with pytest.raises(ValueError, match="newer than the version supported") as raised:
         append_arrays(path, {"extra": np.arange(8, dtype=np.float64)})
+    # The number is the core's reading of the file, not a placeholder: the
+    # append reports the version it found alongside the refusal.
+    assert raised.value.found == FILE_VERSION + 99
 
 
 def test_unknown_array_filter_id_is_rejected(tmp_path: Path) -> None:
     """
-    An array tagged with an unknown filter id is a hard read error.
+    An array tagged with an unknown filter id is a hard read error, named.
 
     Treating it as unfiltered (the old behaviour) would read the transformed
-    bytes verbatim and silently corrupt the array.
+    bytes verbatim and silently corrupt the array. The array named is the one
+    corrupted here, which is deliberately not the first: the core reports the
+    slot of the batch it refused, and blaming the first would pass anyway.
     """
-    grid = _float_grid()
+    grid = pv.ImageData(dimensions=(16, 16, 16))
+    for name in ("first", "second", "third"):
+        grid.point_data[name] = np.sin(np.arange(grid.n_points, dtype=np.float64) / 9.0)
     path = tmp_path / "badfilter.pv"
     pz.write(grid, path, shuffle=True)
 
     # Array metadata frames are the even-numbered ones, and a filtered array
-    # carries its filter id as the last byte. Find the first that says shuffle.
+    # carries its filter id as the last byte.
     bodies = _frames(path.read_bytes())
-    index = next(i for i in range(0, len(bodies), 2) if bodies[i][-1] == _FILTER_SHUFFLE)
+    shuffled = [i for i in range(0, len(bodies), 2) if bodies[i][-1] == _FILTER_SHUFFLE]
+    assert len(shuffled) > 1, "fixture stopped carrying several filtered arrays"
+    index = shuffled[-1]
     _rewrite_frames(path, {index: bodies[index][:-1] + bytes([99])})
 
-    with pytest.raises(ValueError, match="Unsupported per-array filter id 99"):
+    with capi.CoreReader(path) as reader:
+        corrupted = reader.names()[index // 2]
+
+    with pytest.raises(ValueError, match="Unsupported per-array filter id 99") as raised:
         pz.read(path)
+    assert corrupted in str(raised.value)

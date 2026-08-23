@@ -574,7 +574,9 @@ pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index, void *dst
 }
 
 pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, uint64_t count,
-                           void *const *dsts, const uint64_t *dst_sizes, int n_threads) try {
+                           void *const *dsts, const uint64_t *dst_sizes, int n_threads,
+                           uint64_t *failed_slot) try {
+  if (failed_slot != nullptr) *failed_slot = PVZ_SLOT_NONE;
   if (reader == nullptr || indices == nullptr || dsts == nullptr || dst_sizes == nullptr) {
     return PVZ_E_INVALID;
   }
@@ -602,7 +604,10 @@ pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, ui
   if (workers <= 1) {
     for (uint64_t i = 0; i < count; ++i) {
       const pvz_status st = pvz_read_array_at(reader, indices[i], dsts[i], dst_sizes[i]);
-      if (st != PVZ_OK) return st;
+      if (st != PVZ_OK) {
+        if (failed_slot != nullptr) *failed_slot = i;
+        return st;
+      }
     }
     return PVZ_OK;
   }
@@ -614,7 +619,10 @@ pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, ui
   });
 
   for (uint64_t i = 0; i < count; ++i) {
-    if (results[static_cast<size_t>(i)] != PVZ_OK) return results[static_cast<size_t>(i)];
+    if (results[static_cast<size_t>(i)] != PVZ_OK) {
+      if (failed_slot != nullptr) *failed_slot = i;
+      return results[static_cast<size_t>(i)];
+    }
   }
   return PVZ_OK;
 } catch (...) {

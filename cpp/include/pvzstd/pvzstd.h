@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 7u
+#define PVZSTD_ABI_VERSION 8u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -52,6 +52,10 @@ typedef enum pvz_status {
   PVZ_E_EXISTS = 9,      /* the name is already taken, and would be overwritten */
   PVZ_E_VERSION = 10     /* the container's file_version is newer than this build decodes */
 } pvz_status;
+
+/* An out-parameter that names which of a call's own arrays a status is about
+ * carries this when the failure is not about one of them. */
+#define PVZ_SLOT_NONE UINT64_MAX
 
 /* Per-array filter ids. An unknown id is an error, never a passthrough. */
 #define PVZ_FILTER_NONE 0
@@ -122,10 +126,15 @@ PVZSTD_API pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index
  * pure fan-out. 0 or 1 runs inline; negative means one worker per logical CPU,
  * the same sign convention pvz_writer_set_threads uses; PVZ_THREADS_AUTO picks
  * from the total size. Every count is capped at `count`, and the work and its
- * order do not depend on the setting. Returns the first non-OK status. */
+ * order do not depend on the setting. Returns the first non-OK status, by slot
+ * rather than by which worker finished first.
+ *
+ * `failed_slot` (optional) receives the index into `indices` that status is
+ * about, or PVZ_SLOT_NONE. Without it a caller can only learn that one of the
+ * batch was refused, and has to re-read them singly to find out which. */
 PVZSTD_API pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices,
                                       uint64_t count, void *const *dsts, const uint64_t *dst_sizes,
-                                      int n_threads);
+                                      int n_threads, uint64_t *failed_slot);
 
 /* ---- Field arrays ----
  *
@@ -311,9 +320,17 @@ typedef struct pvz_append_array {
  * file rather than all of it. This is the reference implementation's behaviour
  * and the format has one such field; zstd frames carry their own parameters,
  * so nothing decoding the file depends on it. PVZ_LEVEL_FROM_FILE keeps the
- * two in agreement and is what a caller wanting one level should pass. */
+ * two in agreement and is what a caller wanting one level should pass.
+ *
+ * The two refusals say what they are about rather than only that they happened,
+ * both optional. On PVZ_E_EXISTS `clash_slot` receives the index into `arrays`
+ * of the offered name that was already taken -- by the file or by an earlier
+ * entry in this same call -- and PVZ_SLOT_NONE otherwise. On PVZ_E_VERSION
+ * `found_version` receives the container's file_version, which is what makes
+ * "too new" reportable against pvz_max_file_version(); it is 0 otherwise. */
 PVZSTD_API pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays,
-                                        uint64_t count, int level, pvz_shuffle_mode shuffle);
+                                        uint64_t count, int level, pvz_shuffle_mode shuffle,
+                                        uint64_t *clash_slot, uint32_t *found_version);
 
 /* ------------------------------------------------------------------ *
  * Streaming append

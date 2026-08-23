@@ -273,11 +273,19 @@ def test_manually_truncated_file_does_not_corrupt_committed(tmp_path, base_grid)
 # 5. Error handling.
 # --------------------------------------------------------------------------
 def test_append_duplicate_name_rejected(tmp_path, base_grid) -> None:
-    """Appending a name that already exists is rejected."""
+    """
+    Appending a name that already exists is rejected, and the error names it.
+
+    The clashing name is offered second. The core reports which of the call's
+    own arrays it refused; naming the first would pass a one-array test.
+    """
     path = _write_base(tmp_path / "e.pv", base_grid)
     append_arrays(path, {"dup": np.arange(5, dtype=np.float64)})
-    with pytest.raises(ValueError, match="already exists"):
-        append_arrays(path, {"dup": np.arange(5, dtype=np.float64)})
+    with pytest.raises(ValueError, match="field array 'dup' already exists"):
+        append_arrays(
+            path,
+            {"fresh": np.arange(3, dtype=np.float64), "dup": np.arange(5, dtype=np.float64)},
+        )
 
 
 def test_append_bad_suffix_rejected(tmp_path) -> None:

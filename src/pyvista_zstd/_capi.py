@@ -50,10 +50,14 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 7
+ABI_VERSION = 8
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
+
+# Mirrors PVZ_SLOT_NONE: the core writes this into a "which one" out-parameter
+# when the failure it is reporting is not about one of the call's own arrays.
+_SLOT_NONE = 2**64 - 1
 
 # Mirrors PVZ_LEVEL_FROM_FILE: append at whatever level the container records,
 # so added blocks match the ones already there.
@@ -280,6 +284,7 @@ def _bind_reader(lib: ctypes.CDLL) -> None:
         POINTER(c_void_p),
         POINTER(c_uint64),
         c_int,
+        POINTER(c_uint64),
     ]
 
     lib.pvz_field_array_count.restype = c_uint64
@@ -348,7 +353,15 @@ def _bind_writer(lib: ctypes.CDLL) -> None:
     lib.pvz_writer_write.argtypes = [c_void_p, c_char_p]
 
     lib.pvz_append_arrays.restype = c_int
-    lib.pvz_append_arrays.argtypes = [c_char_p, POINTER(_AppendArray), c_uint64, c_int, c_int]
+    lib.pvz_append_arrays.argtypes = [
+        c_char_p,
+        POINTER(_AppendArray),
+        c_uint64,
+        c_int,
+        c_int,
+        POINTER(c_uint64),
+        POINTER(c_uint32),
+    ]
 
 
 def _load() -> ctypes.CDLL:
@@ -658,25 +671,18 @@ class CoreReader:
                 # C-contiguous, so the core writes straight into the final array.
                 dsts[slot] = arr.ctypes.data
                 sizes[slot] = arr.nbytes
-            status = self._lib.pvz_read_arrays(handle, indices, c_uint64(count), dsts, sizes, c_int(n_threads))
-            if status == _STATUS_FILTER:
-                self._raise_filter_error(payloads)
+            refused = c_uint64(0)
+            status = self._lib.pvz_read_arrays(
+                handle, indices, c_uint64(count), dsts, sizes, c_int(n_threads), byref(refused)
+            )
+            if status == _STATUS_FILTER and refused.value != _SLOT_NONE:
+                # The core names the slot it rejected, so nothing is re-read to
+                # work out which one it was.
+                index, name, _ = payloads[refused.value]
+                raise UnsupportedFilterError(self._info(index).filter_id, name)
             _check(status)
 
         return {name: arr for _, name, arr in wanted}
-
-    def _raise_filter_error(self, payloads: list[tuple[int, str, NDArray[Any]]]) -> None:
-        """Re-read one at a time to name the array the batch call rejected."""
-        for index, name, arr in payloads:
-            info = self._info(index)
-            if (
-                self._lib.pvz_read_array_at(
-                    self._live, c_uint64(index), c_void_p(arr.ctypes.data), c_uint64(arr.nbytes)
-                )
-                == _STATUS_FILTER
-            ):
-                raise UnsupportedFilterError(info.filter_id, name)
-        raise PvzstdError(_STATUS_FILTER)  # pragma: no cover - batch said yes, singles said no
 
     @property
     def ds_metadata_json(self) -> str | None:
@@ -831,33 +837,6 @@ class CoreWriter:
         _check(self._lib.pvz_writer_write(self._live, str(path).encode("utf-8")), str(path))
 
 
-def _name_collision(path: Path | str, offered: list[str]) -> str:
-    """
-    Say which name the core refused, by asking it what the file already holds.
-
-    The status says a name was taken but not which one. Error path only.
-    """
-    try:
-        with CoreReader(path) as reader:
-            taken = set(reader.field_array_names())
-    except PvzstdError:  # pragma: no cover - the append just read this file
-        taken = set()
-
-    clashed = [name for name in offered if name in taken]
-    if clashed:
-        return (
-            f"field array {clashed[0]!r} already exists in {Path(path).name}; "
-            f"append_arrays does not overwrite existing blocks."
-        )
-    # The core refuses a name repeated within one call too, but a dict cannot
-    # carry one, so reaching here means the two sides disagree about what the
-    # file holds. Report that rather than inventing a name to blame.
-    return (
-        f"the core refused a name already in {Path(path).name}, but none of {sorted(offered)} "
-        f"is among the field arrays it reports; append_arrays does not overwrite existing blocks."
-    )
-
-
 def append_arrays(
     path: Path | str,
     arrays: dict[str, NDArray[Any]],
@@ -924,21 +903,30 @@ def append_arrays(
         items[slot].data = buf.ctypes.data
         items[slot].nbytes = c_uint64(buf.nbytes)
 
+    clash = c_uint64(0)
+    found = c_uint32(0)
     status = lib.pvz_append_arrays(
-        str(path).encode("utf-8"), items, c_uint64(len(arrays)), c_int(level), c_int(shuffle)
+        str(path).encode("utf-8"),
+        items,
+        c_uint64(len(arrays)),
+        c_int(level),
+        c_int(shuffle),
+        byref(clash),
+        byref(found),
     )
     if status == _STATUS_VERSION:
-        # The append status says "too new" but not how new; the open path reports
-        # the number even when it refuses, so ask it rather than re-parse the
-        # trailer here. Only reached on the error path.
-        found = c_uint32(0)
-        handle = c_void_p()
-        lib.pvz_open_versioned(str(path).encode("utf-8"), byref(handle), byref(found))
-        if handle:  # pragma: no cover - append refused it, so the open does too
-            lib.pvz_close(handle)
         raise UnsupportedFileVersionError(int(found.value), int(lib.pvz_max_file_version()))
     if status == _STATUS_EXISTS:
-        raise ArrayExistsError(status, message=_name_collision(path, list(arrays)))
+        # The slot indexes `items`, which was built from this dict in order.
+        subject = "a name offered"
+        if clash.value != _SLOT_NONE:
+            subject = f"field array {list(arrays)[clash.value]!r}"
+        raise ArrayExistsError(
+            status,
+            message=(
+                f"{subject} already exists in {Path(path).name}; append_arrays does not overwrite existing blocks."
+            ),
+        )
     if status == _STATUS_UNSUPPORTED:
         raise ContainerShapeError(status, message="appending to MultiBlock .pv files is not supported.")
     _check(status, str(path))

@@ -817,3 +817,47 @@ def test_cell_array_binds_to_pyvista_polydata() -> None:
     polydata = PolyData()
     polydata.points = np.zeros((3, 3))
     polydata.SetPolys(impl.vtkCellArray())
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    ["ugrid", "ugrid_polyhedra", "polydata", "esgrid", "multi_block_nested"],
+)
+def test_declared_int32_bounds_hold_over_the_corpus(
+    fixture: str,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Every bound the staging declares must actually bound the values it stands for.
+
+    ``_add_cell_array`` narrows connectivity and offsets to int32 on the strength
+    of a bound derived from what the entries mean -- a point count, a
+    connectivity length -- rather than from scanning them. Reasoning is what
+    makes those bounds right, and reasoning is what a test is for: a bound that
+    came out too small would silently wrap ids on a default write, and no
+    round-trip on a small fixture would notice, because a small fixture never
+    reaches the int32 ceiling either way.
+
+    So intercept the bounds as they are declared and scan against them, which is
+    exactly the work the bound exists to avoid at run time and exactly the work
+    a test should be doing. Erring the other way is safe and not asserted here:
+    too large a bound only declines to narrow.
+    """
+    ds = request.getfixturevalue(fixture)
+    recorded: list[tuple[np.ndarray, int | None]] = []
+    unbounded = impl._narrowed_to_int32  # noqa: SLF001
+
+    def _recording(values: np.ndarray, *, upper_bound: int | None = None) -> np.ndarray:
+        recorded.append((np.asarray(values).copy(), upper_bound))
+        return unbounded(values, upper_bound=upper_bound)
+
+    monkeypatch.setattr(impl, "_narrowed_to_int32", _recording)
+    pyvista_zstd.write(ds, tmp_path / "bounds.pv")
+
+    declared = [(values, bound) for values, bound in recorded if bound is not None]
+    assert declared, "no cell array was staged with a declared bound; the wiring is gone"
+    for values, bound in declared:
+        if values.size:
+            assert int(values.max()) <= bound, f"declared bound {bound} is below the largest entry {int(values.max())}"

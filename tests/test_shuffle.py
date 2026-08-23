@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import struct
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 import pyvista as pv
+import zstandard as zstd
 
 import pyvista_zstd as pz
-from pyvista_zstd import pyvista_zstd as _pz_mod
 from pyvista_zstd.append import append_arrays
 from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import _FILTER_NONE
@@ -155,7 +157,54 @@ def test_auto_never_inflates_low_entropy_floats(tmp_path: Path) -> None:
     assert np.array_equal(pz.read(auto).point_data["coords"], grid.point_data["coords"])
 
 
-def test_unsupported_file_version_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _frames(raw: bytes) -> list[bytes]:
+    """Return every frame's decompressed body, in file order."""
+    count = struct.unpack("<Q", raw[-8:])[0]
+    table = raw[-8 - 16 * count : -8]
+    dctx = zstd.ZstdDecompressor()
+    bodies, start = [], 0
+    for i in range(count):
+        end, dsize = struct.unpack_from("<QQ", table, 16 * i)
+        bodies.append(dctx.decompress(raw[start:end], max_output_size=dsize + 64))
+        start = end
+    return bodies
+
+
+def _resized(header: bytes, length: int) -> bytes:
+    """Return an array-metadata header with its single dimension set to *length*."""
+    name_len = struct.unpack_from("<I", header)[0]
+    at = 4 + name_len
+    ndim = struct.unpack_from("<I", header, at)[0]
+    assert ndim == 1, "the metadata blob is a flat uint8 array"
+    return header[: at + 4] + struct.pack("<Q", length) + header[at + 12 :]
+
+
+def _rewrite_frames(path: Path, replacements: dict[int, bytes]) -> None:
+    """
+    Replace frames' decompressed bytes in place, rebuilding the footer.
+
+    The two tests below need a container this build cannot read. Building one
+    by patching the writer's constants only works while the writer is the
+    thing under the test's control -- it writes a *valid* file the moment the
+    bytes come from somewhere else, and the assertion then passes for the
+    wrong reason or fails for no reason. Corrupting the finished artefact
+    instead holds the reader to account whoever produced the file.
+    """
+    bodies = _frames(path.read_bytes())
+    for index, body in replacements.items():
+        bodies[index] = body
+
+    cctx = zstd.ZstdCompressor(level=3)
+    out, table, offset = bytearray(), bytearray(), 0
+    for piece in bodies:
+        frame = cctx.compress(piece)
+        out += frame
+        offset += len(frame)
+        table += struct.pack("<QQ", offset, len(piece))
+    path.write_bytes(bytes(out) + bytes(table) + struct.pack("<Q", len(bodies)))
+
+
+def test_unsupported_file_version_is_rejected(tmp_path: Path) -> None:
     """
     A file stamped with a newer ``file_version`` is a hard read error, not a warning.
 
@@ -164,16 +213,24 @@ def test_unsupported_file_version_is_rejected(tmp_path: Path, monkeypatch: pytes
     """
     grid = _float_grid()
     path = tmp_path / "future.pv"
-    # Stamp a version this build does not understand by writing under a bumped
-    # shuffle format version; the reader still uses the real FILE_VERSION.
-    monkeypatch.setattr(_pz_mod, "FILE_VERSION_SHUFFLE", FILE_VERSION + 99)
     pz.write(grid, path, shuffle=True)
-    monkeypatch.undo()
+
+    # Arrays are (header, payload) frame pairs, so the file metadata is the last
+    # payload and its length is declared by the header before it. Restamping the
+    # version lengthens the JSON; leave the header behind and the core refuses
+    # the file for a malformed trailer instead of for the version under test.
+    bodies = _frames(path.read_bytes())
+    meta = json.loads(bodies[-1].decode("utf-8"))
+    assert meta["file_version"] == FILE_VERSION_SHUFFLE, "fixture stopped being a filtered file"
+    meta["file_version"] = FILE_VERSION + 99
+    blob = json.dumps(meta).encode("utf-8")
+    _rewrite_frames(path, {-1: blob, -2: _resized(bodies[-2], len(blob))})
+
     with pytest.raises(ValueError, match="newer than the version supported"):
         pz.read(path)
 
 
-def test_unknown_array_filter_id_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unknown_array_filter_id_is_rejected(tmp_path: Path) -> None:
     """
     An array tagged with an unknown filter id is a hard read error.
 
@@ -182,10 +239,13 @@ def test_unknown_array_filter_id_is_rejected(tmp_path: Path, monkeypatch: pytest
     """
     grid = _float_grid()
     path = tmp_path / "badfilter.pv"
-    # Write a shuffled array but stamp it with an unknown filter id; the reader
-    # cannot reverse it and must refuse rather than return corrupted data.
-    monkeypatch.setattr(_pz_mod, "_FILTER_SHUFFLE", 99)
     pz.write(grid, path, shuffle=True)
-    monkeypatch.undo()
+
+    # Array metadata frames are the even-numbered ones, and a filtered array
+    # carries its filter id as the last byte. Find the first that says shuffle.
+    bodies = _frames(path.read_bytes())
+    index = next(i for i in range(0, len(bodies), 2) if bodies[i][-1] == _FILTER_SHUFFLE)
+    _rewrite_frames(path, {index: bodies[index][:-1] + bytes([99])})
+
     with pytest.raises(ValueError, match="Unsupported per-array filter id 99"):
         pz.read(path)

@@ -371,11 +371,23 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   // Windows will not rename onto an open handle, and the source is still open.
   src.reset(nullptr);
   if (std::rename(tmp_path.c_str(), path) != 0) {
-    // Some platforms refuse a rename onto an existing file.
-    if (std::remove(path) != 0 || std::rename(tmp_path.c_str(), path) != 0) {
+    // Some platforms refuse a rename onto an existing file. Move the original
+    // aside rather than deleting it: removing it first and then failing the
+    // second rename would leave the caller with neither file, which is the one
+    // outcome committing by rename exists to prevent.
+    const std::string kept_path = tmp_path + ".orig";
+    std::remove(kept_path.c_str());
+    if (std::rename(path, kept_path.c_str()) != 0) {
       std::remove(tmp_path.c_str());
       return PVZ_E_IO;
     }
+    if (std::rename(tmp_path.c_str(), path) != 0) {
+      // Put the original back before reporting; the append did not happen.
+      std::rename(kept_path.c_str(), path);
+      std::remove(tmp_path.c_str());
+      return PVZ_E_IO;
+    }
+    std::remove(kept_path.c_str());
   }
   return PVZ_OK;
 } catch (...) {

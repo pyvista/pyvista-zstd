@@ -33,22 +33,50 @@ inline int HardwareWorkers() {
 }
 
 // Call fn(i) for every i in [0, count), striding indices over `workers` threads.
+//
+// `fn` must not throw. A thread whose function throws calls std::terminate
+// before anything can catch it, so every caller passes something that reports
+// failure by writing a status into a slot it owns.
 template <typename Fn>
 inline void ParallelStride(int workers, uint64_t count, Fn fn) {
 #ifdef PVZSTD_NO_THREADS
   (void)workers;
   for (uint64_t i = 0; i < count; ++i) fn(i);
 #else
-  std::vector<std::thread> pool;
-  pool.reserve(static_cast<size_t>(workers));
-  for (int w = 0; w < workers; ++w) {
-    pool.emplace_back([w, workers, count, &fn]() {
-      for (uint64_t i = static_cast<uint64_t>(w); i < count; i += static_cast<uint64_t>(workers)) {
-        fn(i);
+  const auto stride = [&fn, workers, count](int w) {
+    for (uint64_t i = static_cast<uint64_t>(w); i < count; i += static_cast<uint64_t>(workers)) {
+      fn(i);
+    }
+  };
+
+  // Joins whatever was spawned, on every exit from this function. A
+  // std::thread vector destructed with a joinable member calls std::terminate,
+  // which is what the throwing emplace_back below would otherwise reach --
+  // past the ABI guard, which cannot catch it.
+  struct Joiner {
+    std::vector<std::thread> pool;
+    ~Joiner() {
+      for (std::thread &t : pool) {
+        if (t.joinable()) t.join();
       }
-    });
+    }
+  } joiner;
+
+  int spawned = 0;
+  try {
+    joiner.pool.reserve(static_cast<size_t>(workers));
+    for (int w = 1; w < workers; ++w) {
+      joiner.pool.emplace_back(stride, w);
+      ++spawned;
+    }
+  } catch (...) {
+    // Thread creation is a resource request and can be refused. The work is
+    // still owed, so the caller's stripe below covers slice 0 and this loop
+    // covers the slices whose thread never started; a slower answer, not a
+    // failed one.
+    for (int w = spawned + 1; w < workers; ++w) stride(w);
   }
-  for (std::thread &t : pool) t.join();
+  stride(0);
 #endif
 }
 

@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 6u
+#define PVZSTD_ABI_VERSION 7u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -119,8 +119,10 @@ PVZSTD_API pvz_status pvz_read_array_at(const pvz_reader *reader, uint64_t index
 
 /* Decompress `count` arrays over `n_threads` workers; `indices[i]` goes to
  * `dsts[i]`, at least `dst_sizes[i]` bytes. Frames are independent, so this is a
- * pure fan-out. `n_threads` <= 1 runs inline; PVZ_THREADS_AUTO uses hardware
- * concurrency capped at `count`. Returns the first non-OK status. */
+ * pure fan-out. 0 or 1 runs inline; negative means one worker per logical CPU,
+ * the same sign convention pvz_writer_set_threads uses; PVZ_THREADS_AUTO picks
+ * from the total size. Every count is capped at `count`, and the work and its
+ * order do not depend on the setting. Returns the first non-OK status. */
 PVZSTD_API pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices,
                                       uint64_t count, void *const *dsts, const uint64_t *dst_sizes,
                                       int n_threads);
@@ -182,10 +184,13 @@ PVZSTD_API const char *pvz_metadata_json_at(const pvz_reader *reader, uint64_t i
 /* Total frame count, always even. */
 PVZSTD_API uint64_t pvz_frame_count(const pvz_reader *reader);
 
-/* Fill two caller-owned arrays of pvz_frame_count() entries. Either pointer may
- * be NULL to skip that half. */
+/* Fill two caller-owned arrays with `capacity` entries each. Either pointer may
+ * be NULL to skip that half. `capacity` is checked against pvz_frame_count()
+ * and a short one returns PVZ_E_RANGE rather than writing past the end -- the
+ * count comes from a separate call, so nothing else here can tell the two
+ * apart. */
 PVZSTD_API pvz_status pvz_frame_sizes(const pvz_reader *reader, uint64_t *decompressed,
-                                      uint64_t *compressed);
+                                      uint64_t *compressed, uint64_t capacity);
 
 /* Every entry point below reports failure as a status code and never lets an
  * exception cross this boundary: a caller reaching it through ctypes or another
@@ -298,7 +303,15 @@ typedef struct pvz_append_array {
 /* Append `count` arrays to the container at `path`. A name colliding with an
  * existing field array -- or repeated within one call -- returns PVZ_E_EXISTS
  * rather than overwriting it. MultiBlock is refused (PVZ_E_UNSUPPORTED): no
- * single root dataset to append to. Appending nothing is a no-op. */
+ * single root dataset to append to. Appending nothing is a no-op.
+ *
+ * `level` compresses the new frames only. The file's recorded
+ * compression_level is left describing the frames that were already there, so
+ * an explicit level different from it makes the field describe part of the
+ * file rather than all of it. This is the reference implementation's behaviour
+ * and the format has one such field; zstd frames carry their own parameters,
+ * so nothing decoding the file depends on it. PVZ_LEVEL_FROM_FILE keeps the
+ * two in agreement and is what a caller wanting one level should pass. */
 PVZSTD_API pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays,
                                         uint64_t count, int level, pvz_shuffle_mode shuffle);
 

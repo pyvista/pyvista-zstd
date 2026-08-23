@@ -795,10 +795,12 @@ class Writer:
 
         self._add_ds_arrays(self._ds, force_int32=force_int32)
 
-        # Every decision the file format encodes -- each array's byte filter,
+        # The format decisions belong to the core: each array's byte filter,
         # the file version that implies, the trailing metadata frame and the
-        # frame index -- belongs to the core. Staging the arrays in frame order
-        # is the whole of this side's contribution.
+        # frame index. This side stages arrays in frame order -- which is not
+        # nothing, since which frames exist follows from how a dataset is
+        # marshalled (see _add_cell_array on homogeneous cells, and
+        # _narrowed_to_int32 on the dtype a cell array is recorded with).
         capi = _capi_module()
         with capi.CoreWriter() as writer:
             writer.set_level(level)
@@ -1057,9 +1059,10 @@ def read(
     filename : pathlib.Path | str
         Path to the file.
     n_threads : None | int, optional
-        Number of threads to use. If omitted, the best number of threads to
-        decompress the file will be used. Ignored by the C++ core, which
-        decompresses frames on demand rather than in one threaded batch.
+        Workers to spread the frames over. If omitted, the count is chosen
+        from the total size being decompressed. ``-1`` uses all available
+        cores and ``0`` disables multi-threading. Frames are independent, so
+        this changes how long the read takes and nothing about its result.
     backend : str, optional
         Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
@@ -1491,8 +1494,10 @@ class Reader:
         Parameters
         ----------
         n_threads : int, optional
-            Number of threads to use when reading. A value of ``-1`` uses all
-            available cores and ``0`` disables multi-threading.
+            Workers to spread the frames over. A value of ``-1`` uses all
+            available cores and ``0`` disables multi-threading. Frames are
+            independent, so this changes how long the read takes and nothing
+            about its result.
 
         Examples
         --------

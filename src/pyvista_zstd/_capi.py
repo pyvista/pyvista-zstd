@@ -58,7 +58,7 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 6
+ABI_VERSION = 7
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -81,6 +81,7 @@ _LIBRARY_ENV_VAR = "PVZSTD_LIBRARY"
 
 _STATUS_OK = 0
 _STATUS_FORMAT = 2
+_STATUS_RANGE = 4
 _STATUS_FILTER = 6
 _STATUS_UNSUPPORTED = 8
 _STATUS_EXISTS = 9
@@ -324,7 +325,7 @@ def _bind_reader(lib: ctypes.CDLL) -> None:
     lib.pvz_frame_count.argtypes = [c_void_p]
 
     lib.pvz_frame_sizes.restype = c_int
-    lib.pvz_frame_sizes.argtypes = [c_void_p, POINTER(c_uint64), POINTER(c_uint64)]
+    lib.pvz_frame_sizes.argtypes = [c_void_p, POINTER(c_uint64), POINTER(c_uint64), c_uint64]
 
 
 def _bind_writer(lib: ctypes.CDLL) -> None:
@@ -671,8 +672,9 @@ class CoreReader:
             that are not kept are never decompressed at all -- the saving is
             the whole frame, not just the copy.
         n_threads : int, optional
-            Workers to spread the frames over. The default follows the
-            hardware concurrency; 1 decompresses inline.
+            Workers to spread the frames over. The default picks from the
+            total size; 0 or 1 decompresses inline and negative uses every
+            core, matching :meth:`CoreWriter.set_threads`.
 
         Returns
         -------
@@ -786,6 +788,7 @@ class CoreReader:
                 self._live,
                 decompressed.ctypes.data_as(POINTER(c_uint64)),
                 compressed.ctypes.data_as(POINTER(c_uint64)),
+                c_uint64(count),
             )
         )
         return decompressed, compressed
@@ -796,9 +799,11 @@ class CoreWriter:
     Write a container through the C++ core.
 
     Arrays are staged in call order and emitted on :meth:`write`. The core
-    owns every decision the file format encodes -- which arrays get the byte
-    shuffle, which file version that implies, the trailing metadata frame, and
-    the frame index -- so this class stages buffers and nothing else.
+    owns the format decisions -- which arrays get the byte shuffle, which file
+    version that implies, the trailing metadata frame, and the frame index --
+    so this class stages buffers and nothing else. What it is handed, and under
+    what name and dtype, is the caller's; see
+    :mod:`pyvista_zstd.pyvista_zstd` for that half.
 
     Examples
     --------

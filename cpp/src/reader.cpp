@@ -594,8 +594,15 @@ pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, ui
     uint64_t total = 0;
     for (uint64_t i = 0; i < count; ++i) total += dst_sizes[i];
     workers = total < kParallelDecompressFloor ? 1 : pvzstd::detail::HardwareWorkers();
+  } else if (workers < 0) {
+    // Negative means every core, the same sign convention pvz_writer_set_threads
+    // uses. It meant "inline" here until the clamp below was written against a
+    // signed count, which is the opposite of what the two share an ABI to say.
+    workers = pvzstd::detail::HardwareWorkers();
   }
-  if (workers > static_cast<int>(count)) workers = static_cast<int>(count);
+  // In uint64: count is unbounded, and narrowing it to int first could land on a
+  // negative and silently drop this call to a single worker.
+  if (count < static_cast<uint64_t>(workers)) workers = static_cast<int>(count);
   // Same work in the same order, so a clamp rather than an error.
   if (!pvzstd::detail::kHasThreads) workers = 1;
 
@@ -663,12 +670,20 @@ uint64_t pvz_frame_count(const pvz_reader *reader) try {
   return 0;
 }
 
-pvz_status pvz_frame_sizes(const pvz_reader *reader, uint64_t *decompressed,
-                           uint64_t *compressed) try {
+pvz_status pvz_frame_sizes(const pvz_reader *reader, uint64_t *decompressed, uint64_t *compressed,
+                           uint64_t capacity) try {
   if (reader == nullptr) return PVZ_E_INVALID;
   const size_t n = reader->frame_decompressed.size();
-  if (decompressed != nullptr) std::memcpy(decompressed, reader->frame_decompressed.data(), n * 8);
-  if (compressed != nullptr) std::memcpy(compressed, reader->frame_compressed.data(), n * 8);
+  // The caller sized these from pvz_frame_count(), a separate call: nothing
+  // else here can tell a correctly sized buffer from one allocated against a
+  // different reader, so refuse rather than write past the end.
+  if (capacity < static_cast<uint64_t>(n)) return PVZ_E_RANGE;
+  if (decompressed != nullptr) {
+    std::memcpy(decompressed, reader->frame_decompressed.data(), n * sizeof(uint64_t));
+  }
+  if (compressed != nullptr) {
+    std::memcpy(compressed, reader->frame_compressed.data(), n * sizeof(uint64_t));
+  }
   return PVZ_OK;
 } catch (...) {
   return PVZ_E_NOMEM;

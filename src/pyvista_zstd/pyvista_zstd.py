@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from dataclasses import field
 import json
 from pathlib import Path
-import struct
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
@@ -55,7 +54,6 @@ from pyvista.core.pointset import PointSet
 from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
-import zstandard as zstd
 
 if TYPE_CHECKING:  # pragma: no cover
     from types import ModuleType
@@ -128,26 +126,24 @@ VTK_DOUBLE = 11
 # ---------------------------------------------------------------------------
 # Byte-shuffle pre-filter (file_version >= 1)
 # ---------------------------------------------------------------------------
-# zstd alone barely compresses raw IEEE-754 float arrays because the volatile
-# mantissa bytes are interleaved with the highly repetitive sign/exponent
-# bytes.  Splitting an array into byte planes -- all byte-0s, then all
-# byte-1s, ... -- before compression turns those repetitive planes into long
-# runs, lifting the ratio substantially (e.g. ~1.5x on smooth float64) while
-# often *speeding up* compression.  This is the classic HDF5/Blosc "shuffle"
-# filter.  It is fully reversible and gated behind ``file_version >= 1``.
+# The byte-shuffle pre-filter splits an array into byte planes -- all byte-0s,
+# then all byte-1s, ... -- before compression, turning the repetitive
+# sign/exponent planes of an IEEE-754 array into long runs.  It is opt-in
+# (disabled by default); ``"auto"`` considers only multibyte floating-point
+# arrays and keeps the shuffle only when a trial compression confirms it
+# shrinks the data, so ``auto`` never inflates a file.
 #
-# The per-array filter id is stored as an OPTIONAL trailing byte on the array
-# metadata frame.  Legacy frames carry no trailing byte, so a reader treats a
-# missing byte as ``_FILTER_NONE`` -- this keeps unfiltered output and on-disk
-# layout byte-identical to the legacy format.
-_FILTER_NONE = 0
+# Applying the filter, deciding ``"auto"``, and writing the per-array filter id
+# all happen in the core.  This module only names the policy -- see
+# :func:`_shuffle_mode`.
+#
+# The core records the filter as an OPTIONAL trailing byte on the array
+# metadata frame; a frame with no trailing byte is unfiltered, which is what
+# keeps unfiltered output byte-identical to the legacy layout.  The id below is
+# declared because it is part of the on-disk format -- nothing in this module
+# branches on it.
 _FILTER_SHUFFLE = 1
 
-# The byte-shuffle pre-filter is opt-in (disabled by default).  ``shuffle="auto"``
-# considers only multibyte floating-point arrays -- the payloads that can
-# benefit -- and then keeps the shuffle only when a trial compression confirms
-# it actually shrinks the data, so ``auto`` never inflates a file (shuffling
-# already-regular data, e.g. small coordinate ramps, can otherwise hurt).
 ShuffleSpec = Literal["auto", True, False]
 
 
@@ -165,59 +161,6 @@ def _shuffle_mode(shuffle: ShuffleSpec) -> int:
         True: capi.SHUFFLE_ALWAYS,
         "auto": capi.SHUFFLE_AUTO,
     }[shuffle]
-
-
-# Sample budget for the ``auto`` probe.  Arrays at or below this many bytes are
-# evaluated exactly (the whole array is trial-compressed both ways); larger
-# arrays are decided from a representative contiguous middle sample, keeping the
-# probe cheap on big payloads where shuffle reliably wins.
-_SHUFFLE_PROBE_BYTES = 1 << 20  # 1 MiB
-
-
-def _auto_shuffle_beneficial(arr: np.ndarray, level: int) -> bool:
-    """Trial-compress a sample raw vs shuffled; keep shuffle only if it's smaller."""
-    itemsize = arr.dtype.itemsize
-    flat = np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
-    n_elem = flat.size // itemsize
-    if n_elem == 0:
-        return False
-    n_sample = min(n_elem, max(1, _SHUFFLE_PROBE_BYTES // itemsize))
-    start = (n_elem - n_sample) // 2  # centered, representative of bulk data
-    sample = flat[start * itemsize : (start + n_sample) * itemsize]
-    shuffled = sample.reshape(n_sample, itemsize).T.reshape(-1)
-    cctx = zstd.ZstdCompressor(level=level)
-    return len(cctx.compress(shuffled.tobytes())) < len(cctx.compress(sample.tobytes()))
-
-
-def _resolve_shuffle(arr: np.ndarray, shuffle: ShuffleSpec, level: int | None = None) -> bool:
-    """Return whether ``arr`` should be byte-shuffled under ``shuffle``."""
-    if shuffle is False:
-        return False
-    if arr.dtype.itemsize <= 1:
-        return False  # nothing to interleave
-    if shuffle is True:
-        return True
-    # "auto": multibyte floating-point (real or complex) only ...
-    if arr.dtype.kind not in ("f", "c"):
-        return False
-    # ... and only when the probe shows it pays off.  Without a level to probe
-    # with, fall back to the dtype gate.
-    if level is None:
-        return True
-    return _auto_shuffle_beneficial(arr, level)
-
-
-def _shuffle_bytes(arr: np.ndarray) -> np.ndarray:
-    """Split a contiguous array into byte planes (uint8, 1-D)."""
-    itemsize = arr.dtype.itemsize
-    flat = np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
-    return flat.reshape(-1, itemsize).T.reshape(-1)
-
-
-def _unshuffle_bytes(buf: memoryview | bytes, itemsize: int) -> np.ndarray:
-    """Invert :func:`_shuffle_bytes`, returning a contiguous uint8 array."""
-    flat = np.frombuffer(buf, dtype=np.uint8)
-    return flat.reshape(itemsize, -1).T.reshape(-1)
 
 
 @dataclass(slots=True, frozen=True)
@@ -655,23 +598,6 @@ def _make_ds_id(ds: DataSet) -> str:
     """Make a unique dataset ID using the memory address."""
     # padded for 32-bit
     return f"{id(ds):016x}"
-
-
-def _pack_array_metadata(name: str, arr: np.ndarray, filter_id: int = _FILTER_NONE) -> bytes:
-    parts = [
-        struct.pack("<I", len(name)),
-        name.encode("utf-8"),
-        struct.pack("<I", arr.ndim),
-    ]
-    parts.extend(struct.pack("<Q", dim) for dim in arr.shape)
-    parts.append(arr.dtype.str.encode("utf-8").ljust(UID_N_CHAR, b" "))
-    # Append the filter id ONLY when a filter is in use.  Omitting it for the
-    # common unfiltered case keeps the metadata frame byte-identical to the
-    # legacy layout, so legacy readers are unaffected and new readers parsing
-    # an old frame see no trailing byte (-> _FILTER_NONE).
-    if filter_id != _FILTER_NONE:
-        parts.append(struct.pack("<B", filter_id))
-    return b"".join(parts)
 
 
 class Writer:

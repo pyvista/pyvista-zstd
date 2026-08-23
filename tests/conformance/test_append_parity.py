@@ -1,16 +1,28 @@
 """
-Hold the C++ append to byte-for-byte agreement with the reference append.
+Hold the two entry points into the C++ append to byte-for-byte agreement.
 
 Skipped unless ``PVZ_APPEND`` points at a built ``pvz_append`` binary.
 
-Appending is a harder parity problem than writing, because most of the output
-is not produced at all -- it is copied verbatim from the source file -- and the
-part that *is* produced has to slot into a document another library wrote. Two
-things here would pass a round-trip test and fail this one: compressing the new
-frames with a worker pool (the reference append uses none, unlike the writer),
-and regenerating the dataset metadata instead of splicing into it.
+**What this file stopped proving.** It was written when ``append_arrays`` was a
+Python re-implementation of the append, and it compared that implementation
+against the C++ one -- a genuine two-implementation gate. The Python append is
+gone; both arms below now reach ``pvz_append_arrays``. Read as an
+implementation-parity gate this file would be measuring one arm twice, and a
+green run here is *not* evidence that the port preserved the format.
 
-The gate is deliberately paired with a negative control. A byte-comparison that
+What it still measures is real but narrower: the two arms differ in how they
+*arrive*, one through the ctypes binding and one through the CLI tool's own
+argument parsing. Agreement pins the binding -- the dtype spellings, the shape
+and ndim it passes, the level and shuffle codes -- against a second caller of
+the same ABI. The negative control below fails on exactly one wrong dtype
+string, so the comparison is demonstrably sensitive to that marshaling and to
+nothing weaker.
+
+Evidence that the port preserved the *format* has to come from files written
+before and after it, which is a measurement this file cannot make from inside
+one revision.
+
+The negative control stays for the reason it was added. A byte-comparison that
 cannot be made to fail is not evidence, and this one is easy to get wrong in a
 direction that looks green: the appended arrays are small, so a mistake in the
 metadata could be swamped by identical payload bytes if the comparison were
@@ -40,9 +52,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 SHUFFLE_CODE = {False: 0, True: 1, "auto": 2}
-# PVZ_LEVEL_FROM_FILE: makes the tool read the level out of the container, the
-# way ``level=None`` does on the reference side, rather than being handed the
-# resolved number.
+# PVZ_LEVEL_FROM_FILE: makes the tool read the level out of the container, which
+# is what ``level=None`` asks for on the binding side, rather than handing the
+# core a resolved number one arm worked out and the other did not.
 LEVEL_FROM_FILE = "-1000"
 # One filtered, one not: the two outcomes "auto" must be able to reach.
 DISTINCT_FILTER_DECISIONS = 2
@@ -125,21 +137,27 @@ def _digest(path: Path) -> str:
 @pytest.mark.parametrize("label", sorted(DATASETS))
 @pytest.mark.parametrize("shuffle", [False, True, "auto"])
 def test_cpp_append_is_byte_identical(tmp_path, label, shuffle) -> None:
-    """The C++ append reproduces the reference append's file exactly."""
+    """
+    Both entry points into the append produce the same file, byte for byte.
+
+    Not an implementation comparison -- see the module docstring. What a failure
+    here means is that the binding hands the core something different from what
+    the tool hands it, for the same arrays and the same options.
+    """
     seed = tmp_path / f"{label}.pv"
     pz.write(DATASETS[label](), seed, progress_bar=False)
 
-    reference = tmp_path / "reference.pv"
-    cpp = tmp_path / "cpp.pv"
-    shutil.copyfile(seed, reference)
-    shutil.copyfile(seed, cpp)
+    via_binding = tmp_path / "via_binding.pv"
+    via_tool = tmp_path / "cpp.pv"
+    shutil.copyfile(seed, via_binding)
+    shutil.copyfile(seed, via_tool)
 
     arrays = _payloads()
-    pz.append_arrays(reference, arrays, shuffle=shuffle)
-    _cpp_append(cpp, _write_spec(tmp_path, arrays), shuffle=shuffle)
+    pz.append_arrays(via_binding, arrays, shuffle=shuffle)
+    _cpp_append(via_tool, _write_spec(tmp_path, arrays), shuffle=shuffle)
 
-    expected = reference.read_bytes()
-    actual = cpp.read_bytes()
+    expected = via_binding.read_bytes()
+    actual = via_tool.read_bytes()
     if expected != actual:  # pragma: no cover - failure path
         first = next(
             (i for i, (a, b) in enumerate(zip(expected, actual, strict=False)) if a != b),
@@ -164,18 +182,18 @@ def test_the_parity_gate_can_fail(tmp_path) -> None:
     seed = tmp_path / "seed.pv"
     pz.write(_sphere(), seed, progress_bar=False)
 
-    reference = tmp_path / "reference.pv"
-    cpp = tmp_path / "cpp.pv"
-    shutil.copyfile(seed, reference)
-    shutil.copyfile(seed, cpp)
+    via_binding = tmp_path / "via_binding.pv"
+    via_tool = tmp_path / "cpp.pv"
+    shutil.copyfile(seed, via_binding)
+    shutil.copyfile(seed, via_tool)
 
     arrays = {"step_1_disp": np.linspace(0.0, 1.0, 90).reshape(30, 3)}
-    pz.append_arrays(reference, arrays)
+    pz.append_arrays(via_binding, arrays)
     # "f8" is a real numpy dtype spelling -- just not the one str() produces.
     wrong = _write_spec(tmp_path, arrays, dtype_names={"step_1_disp": "f8"})
-    _cpp_append(cpp, wrong, shuffle=False)
+    _cpp_append(via_tool, wrong, shuffle=False)
 
-    assert _digest(reference) != _digest(cpp), (
+    assert _digest(via_binding) != _digest(via_tool), (
         "the wrong dtype name produced an identical file; the parity gate is not comparing the dataset metadata"
     )
 

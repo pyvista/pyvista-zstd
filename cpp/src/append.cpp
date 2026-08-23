@@ -182,8 +182,11 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
   size_t root_idx = frame_names.size();
   for (size_t i = 0; i < frame_names.size(); ++i) {
     // MultiBlock metadata ends with the same suffix but has no root dataset to
-    // append to; refuse rather than misparse it as a dataset's.
-    if (EndsWith(frame_names[i], kMultiblockKey)) return PVZ_E_FORMAT;
+    // append to; refuse rather than misparse it as a dataset's. Reported apart
+    // from PVZ_E_FORMAT because the file is intact -- it is this operation that
+    // has nowhere to put the arrays, and a caller told "format error" would
+    // report a good container as damaged.
+    if (EndsWith(frame_names[i], kMultiblockKey)) return PVZ_E_UNSUPPORTED;
     if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataKey)) root_idx = i;
   }
   if (root_idx == frame_names.size()) return PVZ_E_FORMAT;
@@ -204,10 +207,10 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
     for (const std::string &have : existing) {
       // Refused, not overwritten: the old bytes would stay with nothing pointing
       // at them and the reader would surface whichever entry it found first.
-      if (have == arrays[k].name) return PVZ_E_INVALID;
+      if (have == arrays[k].name) return PVZ_E_EXISTS;
     }
     for (uint64_t j = 0; j < k; ++j) {
-      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZ_E_INVALID;
+      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZ_E_EXISTS;
     }
   }
 

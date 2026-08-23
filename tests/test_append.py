@@ -14,8 +14,7 @@ Covers:
 
 from __future__ import annotations
 
-import io
-import pathlib
+import json
 import struct
 from typing import TYPE_CHECKING
 
@@ -24,8 +23,8 @@ import pytest
 import pyvista as pv
 
 import pyvista_zstd as pz
+from pyvista_zstd import _capi
 from pyvista_zstd.append import AppendReader
-from pyvista_zstd.append import _load_file_meta_and_root_ds
 from pyvista_zstd.append import append_arrays
 from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
@@ -191,16 +190,16 @@ def test_kept_frames_are_byte_identical_after_append(tmp_path, base_grid) -> Non
     path = _write_base(tmp_path / "b.pv", base_grid)
     orig = path.read_bytes()
 
-    # Decode the frame layout straight from the in-memory bytes (no open
-    # file handle — a live reader's mmap would block the atomic replace on
-    # Windows).
+    # Where the first regenerated frame starts. The index comes from the bytes
+    # (a harness may parse the container the product no longer does in Python)
+    # and the frame names from the core, which is what decides them.
     nf = struct.unpack("<Q", orig[-8:])[0]
     meta = orig[-(8 + nf * 16) : -8]
-    fm = [struct.unpack("<QQ", meta[i * 16 : (i + 1) * 16]) for i in range(nf)]
-    ends = [e for e, _ in fm]
+    ends = [struct.unpack("<QQ", meta[i * 16 : (i + 1) * 16])[0] for i in range(nf)]
     starts = [0, *ends[:-1]]
-    file_meta, _ds_id, _ds_meta = _load_file_meta_and_root_ds(io.BytesIO(orig), fm)
-    ds_meta_idx = next(i for i, n in enumerate(file_meta.frame_names) if n.endswith(DS_METADATA_KEY))
+    with _capi.CoreReader(path) as reader:
+        frame_names = json.loads(reader.file_metadata_json)["frame_names"]
+    ds_meta_idx = next(i for i, n in enumerate(frame_names) if n.endswith(DS_METADATA_KEY))
     kept_prefix_len = starts[ds_meta_idx * 2]
 
     append_arrays(path, {"z": np.arange(100, dtype=np.float64)})
@@ -212,28 +211,24 @@ def test_kept_frames_are_byte_identical_after_append(tmp_path, base_grid) -> Non
 # --------------------------------------------------------------------------
 # 4. Crash / partial-write safety.
 # --------------------------------------------------------------------------
-def test_truncated_append_does_not_destroy_prior_blocks(tmp_path, base_grid, monkeypatch) -> None:
+def test_failed_append_does_not_destroy_prior_blocks(tmp_path, base_grid) -> None:
     """
-    A crash mid-append leaves the original file fully readable.
+    An append that cannot complete leaves the original file fully readable.
 
-    If the atomic replace never happens, all prior blocks remain intact.
+    The commit is a rename onto the original, so nothing the append does is
+    visible until it has a whole file to publish. This blocks the append by
+    occupying the staging path with a directory, which the core cannot open for
+    writing -- a real failure of the real code path, where patching a Python
+    ``replace`` would only have tested a wrapper the core no longer uses.
     """
     path = _write_base(tmp_path / "c.pv", base_grid)
     append_arrays(path, {"first": np.arange(50, dtype=np.float64)})
     committed = path.read_bytes()
 
-    # Force the temp file to be written but the atomic replace to fail,
-    # simulating a crash after staging but before commit.
-    real_replace = pathlib.Path.replace
-
-    def boom(self, target) -> None:  # noqa: ARG001
-        msg = "simulated crash before commit"
-        raise OSError(msg)
-
-    monkeypatch.setattr(pathlib.Path, "replace", boom)
-    with pytest.raises(OSError, match="simulated crash"):
+    staging = path.with_suffix(path.suffix + ".append.tmp")
+    staging.mkdir()
+    with pytest.raises(_capi.PvzstdError, match="I/O error"):
         append_arrays(path, {"second": np.arange(99, dtype=np.float64)})
-    monkeypatch.setattr(pathlib.Path, "replace", real_replace)
 
     # Original file untouched, prior block still readable.
     assert path.read_bytes() == committed
@@ -241,8 +236,13 @@ def test_truncated_append_does_not_destroy_prior_blocks(tmp_path, base_grid, mon
     assert "first" in r.field_array_names
     assert "second" not in r.field_array_names
     assert np.array_equal(r.read_array("first"), np.arange(50, dtype=np.float64))
-    # temp file cleaned up
-    assert not (path.with_suffix(path.suffix + ".append.tmp")).exists()
+
+    # ...and once the obstruction is gone the same append succeeds, so the
+    # failure was the staging path and not something the file itself lost.
+    staging.rmdir()
+    append_arrays(path, {"second": np.arange(99, dtype=np.float64)})
+    assert np.array_equal(read_array(path, "second"), np.arange(99, dtype=np.float64))
+    assert not staging.exists()
 
 
 def test_manually_truncated_file_does_not_corrupt_committed(tmp_path, base_grid) -> None:

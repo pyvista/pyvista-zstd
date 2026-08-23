@@ -44,18 +44,25 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ABI_VERSION",
+    "ArrayExistsError",
+    "ContainerShapeError",
     "CoreReader",
     "CoreUnavailableError",
     "PvzstdError",
+    "append_arrays",
     "available",
     "library_path",
     "load_error",
 ]
 
-ABI_VERSION = 2
+ABI_VERSION = 3
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
+
+# Mirrors PVZ_LEVEL_FROM_FILE: append at whatever level the container records,
+# so added blocks match the ones already there.
+LEVEL_FROM_FILE = -1000
 
 # Mirrors PVZ_THREADS_AUTO: let the C++ core pick from hardware concurrency.
 THREADS_AUTO = -2
@@ -71,6 +78,8 @@ _LIBRARY_ENV_VAR = "PVZSTD_LIBRARY"
 
 _STATUS_OK = 0
 _STATUS_FILTER = 6
+_STATUS_UNSUPPORTED = 8
+_STATUS_EXISTS = 9
 _STATUS_NAMES = {
     1: "I/O error: file missing, unreadable, or truncated",
     2: "format error: the trailer or a frame header did not parse",
@@ -79,6 +88,8 @@ _STATUS_NAMES = {
     5: "out of memory",
     6: "unsupported filter: this build cannot reverse the on-disk transform",
     7: "invalid argument",
+    8: "this operation cannot serve a container of that shape",
+    9: "an array of that name is already in the container",
 }
 
 
@@ -112,6 +123,25 @@ class UnsupportedFilterError(PvzstdError, ValueError):
         )
 
 
+class ContainerShapeError(PvzstdError, NotImplementedError):
+    """
+    The operation has nothing to work on in a container of this shape.
+
+    Inherits from :class:`NotImplementedError` because that is what appending
+    to a MultiBlock has always raised, and the condition did not change when
+    the decision moved into C++ -- only where it is made.
+    """
+
+
+class ArrayExistsError(PvzstdError, ValueError):
+    """
+    The name is taken, and the call would have overwritten it.
+
+    A :class:`ValueError`, as it was before the core answered: the argument is
+    wrong for the file it was given, not a failure of the operation.
+    """
+
+
 class CoreUnavailableError(RuntimeError):
     """The C++ library could not be loaded on this machine."""
 
@@ -123,6 +153,20 @@ class _ArrayInfo(Structure):
         ("ndim", c_uint32),
         ("filter_id", c_uint8),
         ("dtype", c_char * (DTYPE_LEN + 1)),
+        ("nbytes", c_uint64),
+    )
+
+
+class _AppendArray(Structure):
+    # Field order is the C declaration's; ctypes reproduces its padding from that,
+    # and a reordering here would misread every member past the first difference.
+    _fields_ = (
+        ("name", c_char_p),
+        ("dtype", c_char_p),
+        ("dtype_name", c_char_p),
+        ("shape", POINTER(c_uint64)),
+        ("ndim", c_uint32),
+        ("data", c_void_p),
         ("nbytes", c_uint64),
     )
 
@@ -250,6 +294,9 @@ def _bind(lib: ctypes.CDLL) -> None:
 
     lib.pvz_writer_write.restype = c_int
     lib.pvz_writer_write.argtypes = [c_void_p, c_char_p]
+
+    lib.pvz_append_arrays.restype = c_int
+    lib.pvz_append_arrays.argtypes = [c_char_p, POINTER(_AppendArray), c_uint64, c_int, c_int]
 
 
 def _load() -> ctypes.CDLL:
@@ -715,3 +762,108 @@ class CoreWriter:
     def write(self, path: Path | str) -> None:
         """Compress and emit every staged array to *path*."""
         _check(self._lib.pvz_writer_write(self._live, str(path).encode("utf-8")), str(path))
+
+
+def _name_collision(path: Path | str, offered: list[str]) -> str:
+    """
+    Say which name the core refused, by asking it what the file already holds.
+
+    The status says a name was taken but not which one, and the caller offered
+    several. Only reached on the error path, so the extra open costs nothing in
+    the case that matters.
+    """
+    try:
+        with CoreReader(path) as reader:
+            taken = set(reader.field_array_names())
+    except PvzstdError:  # pragma: no cover - the append just read this file
+        taken = set()
+
+    clashed = [name for name in offered if name in taken]
+    if clashed:
+        return (
+            f"field array {clashed[0]!r} already exists in {Path(path).name}; "
+            f"append_arrays does not overwrite existing blocks."
+        )
+    # The core refuses a name repeated within one call too, but a dict cannot
+    # carry one, so reaching here means the two sides disagree about what the
+    # file holds. Report that rather than inventing a name to blame.
+    return (
+        f"the core refused a name already in {Path(path).name}, but none of {sorted(offered)} "
+        f"is among the field arrays it reports; append_arrays does not overwrite existing blocks."
+    )
+
+
+def append_arrays(
+    path: Path | str,
+    arrays: dict[str, NDArray[Any]],
+    *,
+    level: int = LEVEL_FROM_FILE,
+    shuffle: int = SHUFFLE_NEVER,
+) -> None:
+    """
+    Append field arrays to an existing container through the C++ core.
+
+    Every decision the edit encodes -- which blocks are copied by offset, which
+    two metadata frames are regenerated, whether a block is shuffled, what file
+    version that implies, and the commit-by-rename -- belongs to the core. This
+    marshals buffers across the ABI and translates the refusals into the
+    exceptions this package has always raised.
+
+    Parameters
+    ----------
+    path : pathlib.Path | str
+        An existing ``.pv`` container.
+    arrays : dict[str, numpy.ndarray]
+        Mapping of bare name to array. The core adds the dataset-UID prefix and
+        the field-data suffix the frame carries.
+    level : int, optional
+        zstd level for the new blocks. ``LEVEL_FROM_FILE`` reads it out of the
+        container so appended blocks match what is already there.
+    shuffle : int, optional
+        One of the ``SHUFFLE_*`` modes. Under ``SHUFFLE_AUTO`` the core runs the
+        trial compression itself, so the policy has one home.
+
+    Raises
+    ------
+    ArrayExistsError
+        A name is already a field array in the file, or is repeated in *arrays*.
+    ContainerShapeError
+        The container is a MultiBlock, which has no root dataset to append to.
+
+    """
+    lib = _load()
+    if not arrays:
+        return
+
+    # Both the buffers and the encoded strings have to outlive the call: every
+    # one of them is handed over as a borrowed pointer, and a temporary freed at
+    # the end of the loop iteration would be a dangling read inside the core
+    # rather than an error at the line that caused it.
+    pinned: list[Any] = []
+    items = (_AppendArray * len(arrays))()
+    for slot, (name, arr) in enumerate(arrays.items()):
+        buf = np.ascontiguousarray(arr)
+        shape = (c_uint64 * max(buf.ndim, 1))(*buf.shape)
+        encoded = (
+            name.encode("utf-8"),
+            buf.dtype.str.encode("ascii"),
+            # The metadata spelling, which is not derivable from the header one
+            # without carrying a copy of numpy's dtype-name table.
+            str(buf.dtype).encode("ascii"),
+        )
+        pinned.append((buf, shape, encoded))
+
+        items[slot].name, items[slot].dtype, items[slot].dtype_name = encoded
+        items[slot].shape = shape
+        items[slot].ndim = c_uint32(buf.ndim)
+        items[slot].data = buf.ctypes.data
+        items[slot].nbytes = c_uint64(buf.nbytes)
+
+    status = lib.pvz_append_arrays(
+        str(path).encode("utf-8"), items, c_uint64(len(arrays)), c_int(level), c_int(shuffle)
+    )
+    if status == _STATUS_EXISTS:
+        raise ArrayExistsError(status, message=_name_collision(path, list(arrays)))
+    if status == _STATUS_UNSUPPORTED:
+        raise ContainerShapeError(status, message="appending to MultiBlock .pv files is not supported.")
+    _check(status, str(path))

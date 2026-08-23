@@ -240,8 +240,10 @@ pvz_status pvz_stream_open(const char *path, pvz_stream **out) try {
 
   size_t root_idx = frame_names.size();
   for (size_t i = 0; i < frame_names.size(); ++i) {
-    // A MultiBlock container has no single root dataset to stream into.
-    if (EndsWith(frame_names[i], kMultiblockKey)) return fail(PVZ_E_FORMAT);
+    // A MultiBlock container has no single root dataset to stream into. Same
+    // refusal pvz_append_arrays makes, reported under the same code: one
+    // condition answered two ways is a condition callers cannot handle once.
+    if (EndsWith(frame_names[i], kMultiblockKey)) return fail(PVZ_E_UNSUPPORTED);
     if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataKey)) root_idx = i;
   }
   if (root_idx == frame_names.size()) return fail(PVZ_E_FORMAT);
@@ -301,10 +303,10 @@ pvz_status pvz_stream_append(pvz_stream *s, const pvz_append_array *arrays, uint
     for (const std::string &have : existing) {
       // Refused, not overwritten: the old bytes would stay with nothing pointing
       // at them.
-      if (have == arrays[k].name) return PVZ_E_INVALID;
+      if (have == arrays[k].name) return PVZ_E_EXISTS;
     }
     for (uint64_t j = 0; j < k; ++j) {
-      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZ_E_INVALID;
+      if (std::strcmp(arrays[j].name, arrays[k].name) == 0) return PVZ_E_EXISTS;
     }
   }
 

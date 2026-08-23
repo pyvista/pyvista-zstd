@@ -614,6 +614,10 @@ const char *pvz_status_message(pvz_status status) {
       return "array uses a filter this build cannot reverse";
     case PVZ_E_INVALID:
       return "invalid argument";
+    case PVZ_E_UNSUPPORTED:
+      return "the container is a shape this operation cannot serve";
+    case PVZ_E_EXISTS:
+      return "an array of that name is already in the container";
   }
   return "unknown status";
 }

@@ -31,20 +31,25 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 2u
+#define PVZSTD_ABI_VERSION 3u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
 
 typedef enum pvz_status {
   PVZ_OK = 0,
-  PVZ_E_IO = 1,     /* file missing, unreadable, or truncated */
-  PVZ_E_FORMAT = 2, /* trailer or header did not parse */
-  PVZ_E_ZSTD = 3,   /* zstd rejected a frame or a compression parameter */
-  PVZ_E_RANGE = 4,  /* index or count out of range, or destination too small */
-  PVZ_E_NOMEM = 5,  /* allocation failed */
-  PVZ_E_FILTER = 6, /* per-array filter id this build cannot reverse */
-  PVZ_E_INVALID = 7 /* NULL argument or misuse */
+  PVZ_E_IO = 1,      /* file missing, unreadable, or truncated */
+  PVZ_E_FORMAT = 2,  /* trailer or header did not parse */
+  PVZ_E_ZSTD = 3,    /* zstd rejected a frame or a compression parameter */
+  PVZ_E_RANGE = 4,   /* index or count out of range, or destination too small */
+  PVZ_E_NOMEM = 5,   /* allocation failed */
+  PVZ_E_FILTER = 6,  /* per-array filter id this build cannot reverse */
+  PVZ_E_INVALID = 7, /* NULL argument or misuse */
+  /* The next two are refusals, not damage: the file parsed, and the operation
+   * is the thing being declined. A caller that cannot tell them from
+   * PVZ_E_FORMAT has to report a well-formed container as corrupt. */
+  PVZ_E_UNSUPPORTED = 8, /* the container is a shape this operation cannot serve */
+  PVZ_E_EXISTS = 9       /* the name is already taken, and would be overwritten */
 } pvz_status;
 
 /* Per-array filter ids. An unknown id is an error, never a passthrough. */
@@ -222,9 +227,9 @@ typedef struct pvz_append_array {
 #define PVZ_LEVEL_FROM_FILE (-1000)
 
 /* Append `count` arrays to the container at `path`. A name colliding with an
- * existing field array returns PVZ_E_INVALID rather than overwriting it.
- * MultiBlock is refused (PVZ_E_FORMAT): no single root dataset to append to.
- * Appending nothing is a no-op. */
+ * existing field array -- or repeated within one call -- returns PVZ_E_EXISTS
+ * rather than overwriting it. MultiBlock is refused (PVZ_E_UNSUPPORTED): no
+ * single root dataset to append to. Appending nothing is a no-op. */
 PVZSTD_API pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays,
                                         uint64_t count, int level, pvz_shuffle_mode shuffle);
 

@@ -354,7 +354,10 @@ def test_a_name_already_in_the_container_is_refused(tmp_path) -> None:
         check=False,
     )
     assert result.returncode != 0, "a duplicate field name should be refused"
-    assert "invalid argument" in result.stderr
+    # The collision has its own status, so this pins the reason and not merely
+    # that something was rejected -- "invalid argument" would also have covered
+    # a malformed spec file, which is a different bug with the same exit code.
+    assert "already in the container" in result.stderr
     # Refused before anything was written: the container is untouched.
     assert container.read_bytes() == before
 

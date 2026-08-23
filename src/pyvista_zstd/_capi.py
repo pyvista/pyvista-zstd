@@ -60,6 +60,12 @@ DTYPE_LEN = 16
 # Mirrors PVZ_THREADS_AUTO: let the C++ core pick from hardware concurrency.
 THREADS_AUTO = -2
 
+# Mirrors pvz_shuffle_mode. AUTO is not "decide in Python and pass a bool": the
+# core runs the trial compression itself, so the policy has one home.
+SHUFFLE_NEVER = 0
+SHUFFLE_ALWAYS = 1
+SHUFFLE_AUTO = 2
+
 # Names *which* library to load; every behavioural knob is a keyword argument.
 _LIBRARY_ENV_VAR = "PVZSTD_LIBRARY"
 
@@ -212,6 +218,38 @@ def _bind(lib: ctypes.CDLL) -> None:
 
     lib.pvz_file_metadata_json.restype = c_char_p
     lib.pvz_file_metadata_json.argtypes = [c_void_p]
+
+    lib.pvz_writer_create.restype = c_int
+    lib.pvz_writer_create.argtypes = [POINTER(c_void_p)]
+
+    lib.pvz_writer_free.restype = None
+    lib.pvz_writer_free.argtypes = [c_void_p]
+
+    lib.pvz_writer_set_level.restype = c_int
+    lib.pvz_writer_set_level.argtypes = [c_void_p, c_int]
+
+    lib.pvz_writer_set_threads.restype = c_int
+    lib.pvz_writer_set_threads.argtypes = [c_void_p, c_int]
+
+    lib.pvz_writer_set_shuffle.restype = c_int
+    lib.pvz_writer_set_shuffle.argtypes = [c_void_p, c_int]
+
+    lib.pvz_writer_set_fixed_width_cells.restype = c_int
+    lib.pvz_writer_set_fixed_width_cells.argtypes = [c_void_p, c_int]
+
+    lib.pvz_writer_add_array.restype = c_int
+    lib.pvz_writer_add_array.argtypes = [
+        c_void_p,
+        c_char_p,
+        c_char_p,
+        POINTER(c_uint64),
+        c_uint32,
+        c_void_p,
+        c_uint64,
+    ]
+
+    lib.pvz_writer_write.restype = c_int
+    lib.pvz_writer_write.argtypes = [c_void_p, c_char_p]
 
 
 def _load() -> ctypes.CDLL:
@@ -574,3 +612,106 @@ class CoreReader:
         """Return the file metadata JSON document, or None."""
         raw = self._lib.pvz_file_metadata_json(self._live)
         return None if raw is None else raw.decode("utf-8")
+
+
+class CoreWriter:
+    """
+    Write a container through the C++ core.
+
+    Arrays are staged in call order and emitted on :meth:`write`. The core
+    owns every decision the file format encodes -- which arrays get the byte
+    shuffle, which file version that implies, the trailing metadata frame, and
+    the frame index -- so this class stages buffers and nothing else.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyvista_zstd import _capi
+    >>> with _capi.CoreWriter() as writer:  # doctest: +SKIP
+    ...     writer.add_array("points", np.zeros(3))
+    ...     writer.write("out.pv")
+
+    """
+
+    def __init__(self) -> None:
+        lib = _load()
+        self._lib = lib
+        self._handle: c_void_p | None = None
+        # Staged buffers are kept alive until write(): add_array hands the
+        # core a borrowed pointer, and a freed temporary would be a dangling
+        # read at write time rather than an error at the call that caused it.
+        self._pinned: list[Any] = []
+
+        handle = c_void_p()
+        _check(lib.pvz_writer_create(byref(handle)))
+        self._handle = handle
+
+    def __enter__(self) -> CoreWriter:  # noqa: PYI034
+        """Return self; the writer is already created."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Release the writer."""
+        self.close()
+
+    def close(self) -> None:
+        """Release the underlying writer, if it is still open."""
+        if self._handle is not None:
+            self._lib.pvz_writer_free(self._handle)
+            self._handle = None
+        self._pinned.clear()
+
+    def __del__(self) -> None:
+        """Release the writer on collection."""
+        with contextlib.suppress(Exception):
+            self.close()
+
+    @property
+    def _live(self) -> c_void_p:
+        if self._handle is None:
+            msg = "writer is closed"
+            raise ValueError(msg)
+        return self._handle
+
+    def set_level(self, level: int) -> None:
+        """Set the zstd compression level."""
+        _check(self._lib.pvz_writer_set_level(self._live, int(level)))
+
+    def set_threads(self, n_threads: int) -> None:
+        """Set the worker count; ``THREADS_AUTO`` sizes it from the payload."""
+        _check(self._lib.pvz_writer_set_threads(self._live, int(n_threads)))
+
+    def set_shuffle(self, mode: int) -> None:
+        """Set the byte-shuffle policy to one of the ``SHUFFLE_*`` modes."""
+        _check(self._lib.pvz_writer_set_shuffle(self._live, int(mode)))
+
+    def set_fixed_width_cells(self, *, enabled: bool) -> None:
+        """Record whether any dataset used the fixed-width cell encoding."""
+        _check(self._lib.pvz_writer_set_fixed_width_cells(self._live, 1 if enabled else 0))
+
+    def add_array(self, name: str, arr: NDArray[Any]) -> None:
+        """
+        Stage one named array, in frame order.
+
+        The array is made contiguous if it is not already; a non-contiguous
+        buffer has no single pointer to hand across the ABI.
+        """
+        buf = np.ascontiguousarray(arr)
+        self._pinned.append(buf)
+        shape = (c_uint64 * max(buf.ndim, 1))(*buf.shape)
+        _check(
+            self._lib.pvz_writer_add_array(
+                self._live,
+                name.encode("utf-8"),
+                buf.dtype.str.encode("ascii"),
+                shape,
+                c_uint32(buf.ndim),
+                buf.ctypes.data_as(c_void_p),
+                c_uint64(buf.nbytes),
+            ),
+            name,
+        )
+
+    def write(self, path: Path | str) -> None:
+        """Compress and emit every staged array to *path*."""
+        _check(self._lib.pvz_writer_write(self._live, str(path).encode("utf-8")), str(path))

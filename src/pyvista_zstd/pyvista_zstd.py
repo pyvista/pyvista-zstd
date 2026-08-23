@@ -56,7 +56,6 @@ from pyvista.core.pointset import PointSet
 from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
-from tqdm import tqdm
 import zstandard as zstd
 from zstandard import BufferSegment
 from zstandard import BufferWithSegments
@@ -154,6 +153,23 @@ _FILTER_SHUFFLE = 1
 # it actually shrinks the data, so ``auto`` never inflates a file (shuffling
 # already-regular data, e.g. small coordinate ramps, can otherwise hurt).
 ShuffleSpec = Literal["auto", True, False]
+
+
+def _shuffle_mode(shuffle: ShuffleSpec) -> int:
+    """
+    Translate the API spelling to the core's policy enum.
+
+    The mapping is the whole translation. Which arrays actually get shuffled,
+    and whether ``"auto"`` pays off on a given buffer, is the core's decision;
+    naming the policy is this side's only job.
+    """
+    capi = _capi_module()
+    return {
+        False: capi.SHUFFLE_NEVER,
+        True: capi.SHUFFLE_ALWAYS,
+        "auto": capi.SHUFFLE_AUTO,
+    }[shuffle]
+
 
 # Sample budget for the ``auto`` probe.  Arrays at or below this many bytes are
 # evaluated exactly (the whole array is trial-compressed both ways); larger
@@ -785,60 +801,31 @@ class Writer:
                 stacklevel=2,
             )
 
+        if progress_bar:
+            # The frames are compressed in one call inside the core, so there
+            # is no longer a Python-side loop to report from. Say so rather
+            # than accept the argument and silently show nothing.
+            warnings.warn(
+                "`progress_bar` no longer has any effect: frames are written by the C++ core in a single call.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         self._add_ds_arrays(self._ds, force_int32=force_int32)
 
-        # optimal number of threads is based on how much we're writing to disk
-        n_bytes = sum([arr.nbytes for arr in self._arrays.values()])
-        n_threads = _set_n_threads(n_threads, n_bytes)
-
-        # Decide each array's byte-filter up front so the file version can
-        # record which optional encodings were used. A file using neither
-        # stays at FILE_VERSION_UNFILTERED and remains readable by older
-        # releases.
-        filters = {
-            name: (_FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE)
-            for name, arr in self._arrays.items()
-        }
-        any_filtered = any(f != _FILTER_NONE for f in filters.values())
-        if self._uses_fixed_width_cells:
-            version = FILE_VERSION_FIXED_WIDTH_CELLS
-        elif any_filtered:
-            version = FILE_VERSION_SHUFFLE
-        else:
-            version = FILE_VERSION_UNFILTERED
-
-        # finally, append file metadata as the final frame
-        file_meta = ZstdFileMetadata(
-            frame_names=list(self._arrays.keys()),  # frame order matters
-            compression_level=level,
-            file_version=version,
-        )
-        self._arrays[FILE_METADATA_KEY] = file_meta.to_array()
-        filters[FILE_METADATA_KEY] = _FILTER_NONE  # JSON blob: never shuffled
-
-        # data to compress must include array metadata and the array.  A
-        # shuffled array yields a fresh byte-plane buffer; otherwise the raw
-        # bytes are a zero-copy uint8 view.
-        data: list[bytes] = []
-        for name, arr in self._arrays.items():
-            filter_id = filters[name]
-            arr_bytes = _shuffle_bytes(arr).data if filter_id == _FILTER_SHUFFLE else arr.ravel().view(np.uint8).data
-            data.extend([_pack_array_metadata(name, arr, filter_id), arr_bytes])
-
-        # Compress multiple pieces of data as a single function call to minimize overhead
-        frame_meta: list[tuple[float, float]] = []  # (compressed_end, decompressed_size)
-        offset = 0
-        with self._filename.open("wb") as fout:
-            cctx = zstd.ZstdCompressor(level=level, threads=n_threads)
-            buff_seg = cctx.multi_compress_to_buffer(data, threads=n_threads)
-            for ii, cdata in enumerate(tqdm(buff_seg, disable=not progress_bar, desc="Writing frames")):
-                offset += fout.write(cdata)
-                frame_meta.append((offset, len(data[ii])))
-
-            # finally, write out compressed and decompressed size of each segment
-            # 16 bytes per frame
-            fout.writelines(struct.pack("<QQ", off, dsz) for off, dsz in frame_meta)
-            fout.write(struct.pack("<Q", len(frame_meta)))  # total frames at very end
+        # Every decision the file format encodes -- each array's byte filter,
+        # the file version that implies, the trailing metadata frame and the
+        # frame index -- belongs to the core. Staging the arrays in frame order
+        # is the whole of this side's contribution.
+        capi = _capi_module()
+        with capi.CoreWriter() as writer:
+            writer.set_level(level)
+            writer.set_threads(capi.THREADS_AUTO if n_threads is None else n_threads)
+            writer.set_shuffle(_shuffle_mode(shuffle))
+            writer.set_fixed_width_cells(enabled=self._uses_fixed_width_cells)
+            for name, arr in self._arrays.items():
+                writer.add_array(name, arr)
+            writer.write(self._filename)
 
         # no need to hold onto any references as all IDs have been written
         self._refs = []

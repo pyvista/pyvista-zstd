@@ -34,24 +34,14 @@ SHUFFLE_CODE = {False: "0", True: "1", "auto": "2"}
 # the one it means.
 PVZ_E_INVALID = 7
 # Enough commits that a per-commit cost proportional to the file shows itself.
-# How much depends on the machine -- 10.30x control growth on a workstation but
-# 2.52x on a Windows runner -- so nothing below is asserted against the control's
-# wall time.
+# The control's wall time is machine-dependent, so nothing below bounds it.
 N_COMMITS = 24
-# A bound on the arm that should stay flat is a statement about this code and
-# transfers; a bound on the control, or on a ratio it dominates, is a statement
-# about the machine's storage and does not. Both were absolute here at first and
-# CI reddened on each in turn.
-#
-# About the code: the stream must not be meaningfully slower at the end than at
-# the start. Measured 0.97x; 3.0 leaves room for a loaded runner.
+# The stream must not be meaningfully slower at the end than at the start.
 MAX_STREAM_GROWTH = 3.0
-# About the fixture, which is the same everywhere: the container grows 0.81 MB to
-# 14.82 MB, a ratio of 6.70x that is arithmetic under a fixed seed rather than a
-# measurement. Below this the fixture has stopped posing the problem.
+# The container's growth is arithmetic under a fixed seed, not a measurement.
+# Below this the fixture has stopped posing the problem.
 MIN_CONTROL_CONTAINER_GROWTH = 3.0
-# Only that streaming is faster, not by how much: measured 87.6x on a workstation
-# and 4.39x on a Linux runner, and an earlier floor of 5.0 reddened CI.
+# Only that streaming is faster, not by how much.
 MIN_TOTAL_SPEEDUP = 1.5
 HEAD = 5
 
@@ -204,8 +194,8 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     # Measured, not timed: whether the fixture still poses the problem is settled
     # by how big the file got, which page cache cannot flatter.
     container_growth = sum(control_sizes[-HEAD:]) / sum(control_sizes[:HEAD])
-    # All four numbers on every failure: the first CI failure reported only the one
-    # that tripped, which could not say whether the stream or the runner was slow.
+    # All four numbers on every failure: one alone cannot say whether the stream
+    # or the runner was slow.
     measured = (
         f"[control growth {control_growth:.2f}x, stream growth {stream_growth:.2f}x, "
         f"container growth {container_growth:.2f}x, total speedup {speedup:.2f}x] "

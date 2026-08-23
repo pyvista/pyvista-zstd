@@ -75,9 +75,8 @@ def _payloads() -> dict[str, np.ndarray]:
         # empty multibyte: shuffling nothing is a no-op, but the header byte
         # that records it is not
         "step_1_empty": np.zeros(0, dtype=np.float64),
-        # Over 1 MiB, which is the point: zstd emits identical bytes at threads=0
-        # and threads=1 below that, and without this array the suite stayed green
-        # when the worker count was deliberately broken.
+        # Over 1 MiB, which is the point: below that zstd emits identical bytes
+        # at threads=0 and threads=1, so the worker count would go unmeasured.
         "step_1_bulk": rng.random(1 << 18),
     }
 

@@ -1,81 +1,9 @@
 """
-Hold the streaming writer to the copying one: same bytes, flat cost.
+Streaming commits against the append path.
 
-Skipped unless ``PVZ_STREAM`` points at a built ``pvz_stream`` binary.
-
-:func:`~pyvista_zstd.append_arrays` is handed a path and nothing else, so every
-call rediscovers the container: trailer, both metadata frames, and a copy of
-the body into a temporary file it renames. A stream keeps that state instead.
-The two must produce the same file -- N commits through a stream and N separate
-appends are the same edit -- while costing very different amounts.
-
-Both halves are asserted, and the cost half is asserted *relative to a control
-measured in the same run*. Absolute timings here are not a property of the
-code: the same control measured 4.24x growth on one occasion and 10.30x on
-another, because how much of the container is in page cache dominates. What is
-stable is that one arm grows with what is already committed and the other does
-not, so that is what gets compared, never a millisecond figure.
-
-Nor is the *control's* growth an absolute the way it first looked. Requiring it
-to exceed a fixed factor reddened all three CI platforms, because on those
-runners this fixture only drives it to 2.52x (Windows) and 2.97x (macOS) where
-a workstation reaches 10.30x. That was replaced by a separation between the two
-arms, on the reasoning that a ratio survives the machine changing underneath it.
-
-That fix reddened CI a second time, one assertion further down: the total
-speedup floor was 5.0, and a Linux runner managed 4.39x against a workstation's
-87.6x. Same mistake, same file, two lines apart. The rule that separates the
-two cases: **a bound on the arm that is supposed to stay flat is a claim about
-this code and transfers; a bound on how large the control gets, or on any ratio
-the control dominates, is a claim about the machine's storage and does not.**
-So `MAX_STREAM_GROWTH` stays absolute and the speedup floor became a bare
-"faster than", with the magnitude left to the docs where it belongs.
-
-The separation then became the third instance of the same mistake, and how it
-got there is worth more than the fix. It was written as a two-arm ratio --
-control growth over stream growth -- which the rule above permits. But the
-denominator was floored at 1.0, to stop noise in a flat stream arm inflating the
-result. A healthy stream *is* flat: measured 0.42x to 0.89x across eight runs,
-so the floor bound every one of them, the denominator was the constant 1.0, and
-the ratio was control growth wearing a ratio's clothes. It failed 8 of 12 runs
-on an idle machine, at 1.39x to 1.76x against a bound of 1.8. **Clamping one arm
-of a ratio turns it into a bound on the other**, and the tell was printed in
-every failure message: separation and control growth were the same number to two
-decimal places, run after run.
-
-What that assertion was really for is not a claim about this code -- the flat
-arm and the bytes-read assertion below already carry that, and both passed
-throughout. It asks whether the fixture still poses the problem the stream
-exists to solve. That is settled by how much container the copying path is made
-to re-read, which is a property of the fixture rather than of the machine:
-`MIN_CONTROL_CONTAINER_GROWTH` measures it in bytes on disk, where page cache
-cannot flatter it, and it cannot go flaky because nothing about it is timed.
-
-One limit worth knowing: the bytes-read assertion -- the one that actually
-holds this line -- reads ``/proc/self/io`` and therefore only runs on Linux.
-The tool reports -1 elsewhere and the assertion skips. On macOS and Windows
-these timing bounds are all there is, which is precisely why they are kept
-even though they are not what catches the regression that matters.
-
-What these tests catch was established by breaking the implementation, and one
-break is the reason the cost test asserts on bytes rather than on time alone.
-Making every commit re-read the whole container -- the exact regression the
-streaming path exists to prevent -- passes all three timing bounds: the re-read
-is served from page cache, which is too cheap to separate from compression
-noise at this size. It fails the bytes-read assertion immediately. The timing
-bounds are kept because they pin the comparison against the copying path, but
-they are not what holds this line.
-
-Of the other breaks: splicing new keys at the head of ``field_data_keys``
-instead of the tail reddens five, compressing payload frames with workers > 0
-reddens four (which is also what shows the >=1 MiB array in the fixture is
-doing its job -- below that threshold zstd emits identical bytes either way),
-dropping the duplicate-name check reddens one, and accepting any declared
-commit count reddens one. Removing the final truncate reddens nothing, and
-that is correct rather than a gap: a stream only ever appends, so the file
-grows monotonically and the truncate has nothing to remove. It is a guard
-against a shrinking rewrite that this API cannot currently perform, and no
-test here should be read as covering it.
+Both arms end at the same C entry points, so agreement pins the streaming
+driver rather than the format. The timing arms below bound the FLAT arm
+only: a bound on the control measures the machine, not the code.
 """
 
 from __future__ import annotations
@@ -90,6 +18,7 @@ import time
 import numpy as np
 import pytest
 import pyvista as pv
+import ref_reader
 
 import pyvista_zstd as pz
 
@@ -223,11 +152,14 @@ def test_streamed_blocks_read_back_through_the_reference_reader(tmp_path) -> Non
     specs = [_write_spec(tmp_path, f"r{i}", a) for i, a in enumerate(commits)]
     _run_stream(container, specs, shuffle=False)
 
-    back = pz.read(container)
+    # ref_reader keys by the full frame name, which carries the dataset UID.
+    back = ref_reader.read(container).arrays
     for arrays in commits:
         for name, arr in arrays.items():
-            assert name in back.field_data, name
-            assert np.array_equal(back.field_data[name].ravel(), arr.ravel()), name
+            suffix = f"{name}__field_data"
+            found = [k for k in back if k.endswith(suffix)]
+            assert len(found) == 1, f"{suffix} matched {found}"
+            assert np.array_equal(back[found[0]].ravel(), arr.ravel()), name
 
 
 def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> None:

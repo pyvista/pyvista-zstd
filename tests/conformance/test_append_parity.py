@@ -1,32 +1,8 @@
 """
-Hold the two entry points into the C++ append to byte-for-byte agreement.
+Append parity between the Python surface and the pvz_append tool.
 
-Skipped unless ``PVZ_APPEND`` points at a built ``pvz_append`` binary.
-
-**What this file stopped proving.** It was written when ``append_arrays`` was a
-Python re-implementation of the append, and it compared that implementation
-against the C++ one -- a genuine two-implementation gate. The Python append is
-gone; both arms below now reach ``pvz_append_arrays``. Read as an
-implementation-parity gate this file would be measuring one arm twice, and a
-green run here is *not* evidence that the port preserved the format.
-
-What it still measures is real but narrower: the two arms differ in how they
-*arrive*, one through the ctypes binding and one through the CLI tool's own
-argument parsing. Agreement pins the binding -- the dtype spellings, the shape
-and ndim it passes, the level and shuffle codes -- against a second caller of
-the same ABI. The negative control below fails on exactly one wrong dtype
-string, so the comparison is demonstrably sensitive to that marshaling and to
-nothing weaker.
-
-Evidence that the port preserved the *format* has to come from files written
-before and after it, which is a measurement this file cannot make from inside
-one revision.
-
-The negative control stays for the reason it was added. A byte-comparison that
-cannot be made to fail is not evidence, and this one is easy to get wrong in a
-direction that looks green: the appended arrays are small, so a mistake in the
-metadata could be swamped by identical payload bytes if the comparison were
-scoped too narrowly.
+Both arms reach pvz_append_arrays, so agreement pins the ctypes binding
+against a second caller of the same ABI, not the format itself.
 """
 
 from __future__ import annotations

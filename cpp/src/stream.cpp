@@ -236,6 +236,10 @@ pvz_status pvz_stream_open(const char *path, pvz_stream **out) try {
   // The trailing file-metadata array's own name is deliberately absent.
   if (frame_names.size() != n_arrays - 1) return fail(PVZ_E_FORMAT);
   s->level = static_cast<int>(level);
+  // Same ceiling the reader and the append apply: a commit re-stamps this
+  // version, and re-stamping one whose meaning is unknown here is the edit
+  // both of those refuse to make.
+  if (version > static_cast<long long>(PVZSTD_FILE_VERSION_MAX)) return fail(PVZ_E_VERSION);
   s->file_version = version;
 
   size_t root_idx = frame_names.size();
@@ -296,10 +300,12 @@ pvz_status pvz_stream_append(pvz_stream *s, const pvz_append_array *arrays, uint
     return PVZ_E_FORMAT;
   }
   for (uint64_t k = 0; k < count; ++k) {
-    if (arrays[k].name == nullptr || arrays[k].dtype == nullptr ||
-        arrays[k].dtype_name == nullptr) {
-      return PVZ_E_INVALID;
-    }
+    const pvz_append_array &a = arrays[k];
+    if (a.name == nullptr || a.dtype == nullptr || a.dtype_name == nullptr) return PVZ_E_INVALID;
+    if (a.ndim > 0 && a.shape == nullptr) return PVZ_E_INVALID;
+    if (a.nbytes > 0 && a.data == nullptr) return PVZ_E_INVALID;
+    if (std::strlen(a.dtype) > PVZSTD_DTYPE_LEN) return PVZ_E_INVALID;
+    if (!ParseDtype(a.dtype).valid) return PVZ_E_INVALID;
     for (const std::string &have : existing) {
       // Refused, not overwritten: the old bytes would stay with nothing pointing
       // at them.

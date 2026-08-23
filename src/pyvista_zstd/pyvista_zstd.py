@@ -1026,13 +1026,9 @@ def _warn_backend_deprecated(backend: object) -> None:
     """
     Warn that ``backend=`` is deprecated, and ignore it.
 
-    The selector existed so a caller could avoid the C++ core if it read
-    files differently from the Python implementation. It does not: over every
-    downloadable PyVista example that round-trips -- 155 datasets, covering all
-    eight supported types -- the two implementations return byte-identical
-    arrays, dtypes, shapes and metadata. There is nothing left to choose
-    between, so the argument is accepted, warned about and disregarded rather
-    than kept as a supported way to pin one of two identical results.
+    The selector existed to pick between two implementations. Only the C++
+    core remains, so the argument is accepted, warned about and disregarded
+    rather than kept as a way to select the sole implementation.
     """
     if backend is None:
         return
@@ -1065,9 +1061,7 @@ def read(
         decompress the file will be used. Ignored by the C++ core, which
         decompresses frames on demand rather than in one threaded batch.
     backend : str, optional
-        Deprecated and ignored. The C++ core is the only implementation, so
-        there is nothing to select between. Passing this raises a
-        :class:`DeprecationWarning`.
+        Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
     Returns
     -------
@@ -1244,9 +1238,7 @@ class Reader:
         """
         Initialize the decompressor.
 
-        ``backend`` is deprecated and ignored; see
-        :func:`_warn_backend_deprecated`. There is one implementation -- the
-        C++ core -- so there is nothing to select.
+        ``backend`` is deprecated and ignored.
         """
         _warn_backend_deprecated(backend)
         self._filename = Path(filename)

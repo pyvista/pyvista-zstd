@@ -1,4 +1,4 @@
-# Without the C++ sources a source install can only be the pure-Python fallback.
+# The C++ sources are the library; a source install cannot build without them.
 graft cpp
 include LICENSE
 include README.rst

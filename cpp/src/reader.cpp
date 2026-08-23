@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <string>
 #include <vector>
@@ -102,14 +103,12 @@ bool DeclaredSizeAgrees(const std::vector<uint64_t> &shape, const char *dtype, u
 }
 
 // Total decompressed bytes below which AUTO stays inline. A floor, not a tuned
-// optimum -- the crossover is machine-dependent. Measured here: a 10 KB/11-frame
-// file ran 2.5x slower with one thread per frame than inline, a 2.7 MB file was
-// faster threaded.
+// optimum: below it, spawning a thread per frame costs more than it saves, and
+// the crossover is machine-dependent.
 constexpr uint64_t kParallelDecompressFloor = 4ull << 20;
 
-// A read-only view of the file. Mapping rather than copying: reading a 21 MB
-// container into a buffer at open cost 7.85 ms here, and mapping faults in only
-// the frames actually read.
+// A read-only view of the file. Mapping rather than copying, so that opening a
+// container faults in only the frames actually read.
 class FileMapping {
  public:
   FileMapping() = default;
@@ -300,30 +299,29 @@ pvz_status pvz_open_versioned(const char *path, pvz_reader **out, uint32_t *file
   if (path == nullptr || out == nullptr) return PVZ_E_INVALID;
   *out = nullptr;
 
-  pvz_reader *reader = new (std::nothrow) pvz_reader();
+  // Owning: eleven paths below refuse the container, and the function-try
+  // handler catches throws from decompression sized by a field read out of
+  // the file. A raw pointer leaked the fd and the mapping on that last one.
+  std::unique_ptr<pvz_reader> reader(new (std::nothrow) pvz_reader());
   if (reader == nullptr) return PVZ_E_NOMEM;
 
   pvz_status st = reader->map.Open(path);
   if (st != PVZ_OK) {
-    delete reader;
     return st;
   }
 
   const FileMapping &raw = reader->map;
   if (raw.size() < kTrailerCountBytes) {
-    delete reader;
     return PVZ_E_FORMAT;
   }
 
   const uint64_t n_frames = LoadU64(raw.data() + raw.size() - kTrailerCountBytes);
   if (n_frames == 0 || (n_frames % 2) != 0) {
-    delete reader;  // frames pair as (header, payload)
-    return PVZ_E_FORMAT;
+    return PVZ_E_FORMAT;  // frames pair as (header, payload)
   }
   // Bounded by division: n_frames comes from the file and n_frames * 16
   // overflows for a large enough value, turning the size check into a pass.
   if (n_frames > (raw.size() - kTrailerCountBytes) / kIndexEntryBytes) {
-    delete reader;
     return PVZ_E_FORMAT;
   }
   const uint64_t index_bytes = n_frames * kIndexEntryBytes;
@@ -358,28 +356,24 @@ pvz_status pvz_open_versioned(const char *path, pvz_reader **out, uint32_t *file
     const uint64_t hdr_end = ends[static_cast<size_t>(i)];
     const uint64_t pay_end = ends[static_cast<size_t>(i + 1)];
     if (hdr_start > hdr_end || hdr_end > pay_end || pay_end > index_off) {
-      delete reader;
       return PVZ_E_FORMAT;
     }
 
     st = DecompressFrame(raw.data() + hdr_start, hdr_end - hdr_start, sizes[static_cast<size_t>(i)],
                          &frame);
     if (st != PVZ_OK) {
-      delete reader;
       return st;
     }
 
     ArrayEntry entry;
     st = ParseHeader(frame, &entry);
     if (st != PVZ_OK) {
-      delete reader;
       return st;
     }
     entry.nbytes = sizes[static_cast<size_t>(i + 1)];
     entry.payload_start = hdr_end;
     entry.payload_end = pay_end;
     if (!DeclaredSizeAgrees(entry.shape, entry.dtype, entry.nbytes)) {
-      delete reader;
       return PVZ_E_FORMAT;
     }
 
@@ -391,7 +385,6 @@ pvz_status pvz_open_versioned(const char *path, pvz_reader **out, uint32_t *file
       st = DecompressFrame(raw.data() + entry.payload_start,
                            entry.payload_end - entry.payload_start, entry.nbytes, &payload);
       if (st != PVZ_OK) {
-        delete reader;
         return st;
       }
       std::string json(reinterpret_cast<const char *>(payload.data()), payload.size());
@@ -427,7 +420,6 @@ pvz_status pvz_open_versioned(const char *path, pvz_reader **out, uint32_t *file
     if (pvzstd::json::MemberInt(reader->file_metadata, "file_version", &version) && version >= 0) {
       if (file_version != nullptr) *file_version = static_cast<uint32_t>(version);
       if (version > static_cast<long long>(PVZSTD_FILE_VERSION_MAX)) {
-        delete reader;
         return PVZ_E_VERSION;
       }
     }
@@ -458,7 +450,7 @@ pvz_status pvz_open_versioned(const char *path, pvz_reader **out, uint32_t *file
     }
   }
 
-  *out = reader;
+  *out = reader.release();
   return PVZ_OK;
 } catch (...) {
   return PVZ_E_NOMEM;
@@ -597,9 +589,8 @@ pvz_status pvz_read_arrays(const pvz_reader *reader, const uint64_t *indices, ui
 
   int workers = n_threads;
   if (workers == PVZ_THREADS_AUTO) {
-    // Size enters the decision, not just frame count: deciding on count alone
-    // spawned a thread per frame for a 10 KB file and ran 2.5x slower than inline.
-    // AUTO asks for the fastest setting; an explicit n_threads is honoured.
+    // Size enters the decision, not just frame count. AUTO asks for the fastest
+    // setting; an explicit n_threads is honoured.
     uint64_t total = 0;
     for (uint64_t i = 0; i < count; ++i) total += dst_sizes[i];
     workers = total < kParallelDecompressFloor ? 1 : pvzstd::detail::HardwareWorkers();

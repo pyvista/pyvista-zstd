@@ -9,22 +9,19 @@ The C-ABI names field arrays the way a caller does -- bare, without the
 dataset-UID prefix or the ``__field_data`` suffix the frame carries -- and it
 takes that list from the dataset metadata rather than by scanning frame names.
 
-What these tests do and do not pin was established by breaking the
-implementation on purpose. Reporting the unstripped frame name reddens four of
-the five; building the index by stripping any suffix off every array reddens
-two; resolving a name against arrays that are not field data reddens one; an
-off-by-one in the resolved index reddens three. What none of them catch is a
-*correct* frame-name scan -- stripping exactly one ``__field_data`` off the end
--- because on a well-formed single-dataset container that rule and the
-metadata rule agree on every name, including one that itself ends in the
-suffix. The metadata rule is still the right one, since it is what defines the
-set, but this file is not evidence for it and should not be read as such.
+What these tests pin was established by breaking the implementation on
+purpose: reporting the unstripped frame name reddens four of the five, an
+off-by-one in the resolved index reddens three, stripping any suffix off every
+array reddens two, and resolving against non-field-data arrays reddens one.
+What none of them catch is a *correct* frame-name scan -- stripping exactly one
+``__field_data`` off the end -- because on a well-formed single-dataset
+container that rule and the metadata rule agree on every name. The metadata
+rule is still the right one, since it is what defines the set, but this file is
+not evidence for it.
 
-The reads themselves are compared bit-for-bit against the arrays handed to
-``append_arrays``. That was a second implementation until the pure-Python
-reader was removed; the seeded values are the better oracle anyway, since
-they also hold the *writer* to account, where reader-vs-reader would agree
-happily on a file both had mangled.
+The reads are compared bit-for-bit against the arrays handed to
+``append_arrays``, which holds the *writer* to account too -- reader-vs-reader
+would agree happily on a file both had mangled.
 """
 
 from __future__ import annotations

@@ -166,9 +166,7 @@ def read_array(
         Field-array name (the key passed to :func:`append_arrays`, or any
         field-data key present in the file).
     backend : str, optional
-        Deprecated and ignored. The C++ core is the only implementation, so
-        there is nothing to select between. Passing this raises a
-        :class:`DeprecationWarning`.
+        Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
     Returns
     -------
@@ -194,9 +192,7 @@ class AppendReader:
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
     backend : str, optional
-        Deprecated and ignored. The C++ core is the only implementation, so
-        there is nothing to select between. Passing this raises a
-        :class:`DeprecationWarning`.
+        Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
     Examples
     --------
@@ -217,8 +213,7 @@ class AppendReader:
         """
         Open ``filename`` for field-array reads.
 
-        ``backend`` is deprecated and ignored. There is one implementation --
-        the C++ core -- so there is nothing to select.
+        ``backend`` is deprecated and ignored.
         """
         _warn_backend_deprecated(backend)
         self._core: CoreReader | None = None

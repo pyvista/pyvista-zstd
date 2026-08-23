@@ -115,8 +115,8 @@ class ContainerFormatError(PvzstdError):
     The bytes are not a ``.pv`` container this build can parse.
 
     Named separately because callers act on it: a file that fails here is
-    corrupt or not a container at all, which is a different report from an
-    operation the container is well-formed for but cannot serve.
+    corrupt or not a container at all, rather than one that is well-formed
+    but cannot serve the operation.
     """
 
 
@@ -124,9 +124,8 @@ class UnsupportedFilterError(PvzstdError, ValueError):
     """
     An array carries a byte filter this build cannot reverse.
 
-    Inherits from :class:`ValueError` because that is what this condition has
-    raised since before the core existed. Nothing about the error changed when
-    the reader moved into C++, so neither should what callers catch.
+    Inherits from :class:`ValueError`, which is what this condition raised
+    before the reader moved into C++.
     """
 
     def __init__(self, filter_id: int, name: str) -> None:
@@ -143,10 +142,9 @@ class UnsupportedFileVersionError(PvzstdError, ValueError):
     """
     The container is stamped with a format version this build cannot decode.
 
-    A :class:`ValueError`, which is what this condition has raised since the
-    version field existed. The comparison itself is the core's -- it holds the
-    ceiling beside the decoder the ceiling describes -- and this restates the
-    verdict in the wording callers already match on.
+    A :class:`ValueError`, as before the core. The comparison itself is the
+    core's -- it holds the ceiling beside the decoder that ceiling describes
+    -- and this restates the verdict in the wording callers match on.
     """
 
     def __init__(self, found: int, supported: int) -> None:
@@ -166,9 +164,8 @@ class ContainerShapeError(PvzstdError, NotImplementedError):
     """
     The operation has nothing to work on in a container of this shape.
 
-    Inherits from :class:`NotImplementedError` because that is what appending
-    to a MultiBlock has always raised, and the condition did not change when
-    the decision moved into C++ -- only where it is made.
+    Inherits from :class:`NotImplementedError`, which is what appending to a
+    MultiBlock raised before the decision moved into C++.
     """
 
 
@@ -176,8 +173,8 @@ class ArrayExistsError(PvzstdError, ValueError):
     """
     The name is taken, and the call would have overwritten it.
 
-    A :class:`ValueError`, as it was before the core answered: the argument is
-    wrong for the file it was given, not a failure of the operation.
+    A :class:`ValueError`: the argument is wrong for the file it was given,
+    not a failure of the operation.
     """
 
 
@@ -380,12 +377,14 @@ def _load() -> ctypes.CDLL:
     for candidate in _candidate_paths():
         try:
             lib = ctypes.CDLL(candidate)
-        except OSError as exc:
+            # Binding is inside the guard because a version bump that ADDS a
+            # symbol makes an older library fail here, at the missing
+            # attribute, before the check below can name the mismatch.
+            _bind(lib)
+            found = int(lib.pvz_abi_version())
+        except (OSError, AttributeError) as exc:
             attempts.append(f"{candidate}: {exc}")
             continue
-
-        _bind(lib)
-        found = int(lib.pvz_abi_version())
         if found != ABI_VERSION:
             # Worse than a missing one: this module's struct layout would be read
             # against a different contract.
@@ -437,11 +436,9 @@ def load_error() -> str | None:
     """
     Return why the C++ core could not be loaded, or None if it did.
 
-    ``available()`` collapses every reason to False, which answers "can this
-    machine work" and nothing else: a missing
-    library, a library built against a different ABI, and one that failed to
-    link all look identical. This reports the candidates that were tried and
-    what each of them said.
+    ``available()`` collapses every reason to False, so a missing library, one
+    built against a different ABI, and one that failed to link look identical.
+    This reports the candidates that were tried and what each of them said.
 
     Returns
     -------

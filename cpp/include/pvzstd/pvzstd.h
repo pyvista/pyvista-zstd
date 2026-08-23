@@ -307,15 +307,12 @@ PVZSTD_API pvz_status pvz_append_arrays(const char *path, const pvz_append_array
  *
  * The same edit as pvz_append_arrays, with the state kept open rather than
  * rediscovered per call -- that one re-reads the trailer and copies the body
- * every time, so its per-commit cost grows with the container (measured over 40
- * commits: 4.24x and 10.30x from the first five to the last five, dominated by
- * page cache). A stream of N commits produces the same bytes as N separate
- * pvz_append_arrays calls.
+ * every time, so its per-commit cost grows with the container. A stream of N
+ * commits produces the same bytes as N separate pvz_append_arrays calls.
  *
- * Flat is with respect to container size, not to the number of field arrays: the
- * dataset-metadata document is re-scanned and re-emitted per commit, so cost is
- * still linear in how many are already committed. At 40 commits that does not
- * show; at 10,000 it would.
+ * Per-commit cost is flat in container size but still linear in the number of
+ * field arrays already committed, since the dataset-metadata document is
+ * re-scanned and re-emitted on every commit.
  *
  * The trade is crash behaviour, which is why both exist: append_arrays commits
  * by rename, whereas an interrupted stream commit leaves a trailer describing
@@ -327,7 +324,7 @@ typedef struct pvz_stream pvz_stream;
 
 /* Take over a container for streaming, parsing it once. Its two metadata arrays
  * must be the final two, as this library and the reference writer emit.
- * MultiBlock is refused (PVZ_E_FORMAT). */
+ * MultiBlock is refused (PVZ_E_UNSUPPORTED). */
 PVZSTD_API pvz_status pvz_stream_open(const char *path, pvz_stream **out);
 
 /* Commit `count` arrays as one group at the level recorded in the file. Names

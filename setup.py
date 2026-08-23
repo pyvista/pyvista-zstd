@@ -1,12 +1,10 @@
 """
 Build the pvzstd C++ core and bundle it into the wheel.
 
-The library is the package. There is no second implementation to fall back
-to, so an install that did not get one cannot read or write a container at
-all -- which is why the default is required rather than best-effort. It used
-to be best-effort, from when a pure-Python reader stood behind it; keeping
-that default after the reader was removed would ship a wheel that imports
-cleanly and then fails on first use.
+The library is the package: an install that did not get one cannot read or
+write a container at all. That is why the build is required rather than
+best-effort -- a best-effort default would ship a wheel that imports cleanly
+and then fails on first use.
 
   unset  required -- a C++ build failure is a build failure
   1      required -- same; kept because CI and cibuildwheel set it explicitly

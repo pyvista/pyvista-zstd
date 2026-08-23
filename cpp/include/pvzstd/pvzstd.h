@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 4u
+#define PVZSTD_ABI_VERSION 5u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -49,12 +49,24 @@ typedef enum pvz_status {
    * is the thing being declined. A caller that cannot tell them from
    * PVZ_E_FORMAT has to report a well-formed container as corrupt. */
   PVZ_E_UNSUPPORTED = 8, /* the container is a shape this operation cannot serve */
-  PVZ_E_EXISTS = 9       /* the name is already taken, and would be overwritten */
+  PVZ_E_EXISTS = 9,      /* the name is already taken, and would be overwritten */
+  PVZ_E_VERSION = 10     /* the container's file_version is newer than this build decodes */
 } pvz_status;
 
 /* Per-array filter ids. An unknown id is an error, never a passthrough. */
 #define PVZ_FILTER_NONE 0
 #define PVZ_FILTER_SHUFFLE 1
+
+/* Highest container file_version this build can decode.
+ *
+ * A container stamped higher is refused rather than read: a newer format may
+ * transform payloads in a way this build cannot invert, so reading one would
+ * hand back corrupt values instead of failing. The ceiling lives here, beside
+ * the decoder it describes, so every caller of this ABI gets the same answer --
+ * a language binding that kept its own copy would refuse files the library can
+ * read, or accept files it cannot. */
+#define PVZSTD_FILE_VERSION_MAX 2u
+PVZSTD_API uint32_t pvz_max_file_version(void);
 
 typedef struct pvz_reader pvz_reader;
 
@@ -69,8 +81,16 @@ typedef struct pvz_array_info {
 } pvz_array_info;
 
 /* Open a container. On success *out receives a reader that must be released
- * with pvz_close(). On failure *out is set to NULL. */
+ * with pvz_close(). On failure *out is set to NULL. A container stamped newer
+ * than PVZSTD_FILE_VERSION_MAX is refused with PVZ_E_VERSION. */
 PVZSTD_API pvz_status pvz_open(const char *path, pvz_reader **out);
+
+/* As pvz_open, additionally reporting the container's own file_version --
+ * including when the open is refused for being too new, which is the case a
+ * caller needs the number for. `file_version` may be NULL, and is left untouched
+ * when the container carried no readable version. */
+PVZSTD_API pvz_status pvz_open_versioned(const char *path, pvz_reader **out,
+                                         uint32_t *file_version);
 
 /* Release a reader. Safe to call with NULL. */
 PVZSTD_API void pvz_close(pvz_reader *reader);

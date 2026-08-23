@@ -66,8 +66,12 @@ if TYPE_CHECKING:  # pragma: no cover
 # Highest on-disk format version this library can READ. Version 1 added the
 # optional byte-shuffle pre-filter (see ``_FILTER_*`` below), and version 2
 # adds fixed-width cell arrays that store their cell size in dataset metadata
-# instead of writing a redundant offsets frame. A reader refuses any file
-# whose ``file_version`` exceeds this value.
+# instead of writing a redundant offsets frame.
+#
+# The refusal itself is the core's -- it holds the ceiling beside the decoder
+# the ceiling describes, so a caller reaching the library through the C ABI gets
+# the same answer this one does. What is published here is the format constant,
+# and ``test_file_version_matches_the_core`` fails if the two ever disagree.
 FILE_VERSION = 2
 # Version stamped on files that use neither byte filters nor fixed-width cell
 # arrays. Such files stay byte-identical to the legacy format and remain
@@ -1274,23 +1278,6 @@ class Reader:
         """Return the size of the decompressed dataset."""
         return int(self.decompressed_sizes.sum())
 
-    def _checked_file_metadata(self, raw: str) -> ZstdFileMetadata:
-        """Parse file metadata JSON, refusing a file newer than this build."""
-        metadata = ZstdFileMetadata.from_json(raw)
-
-        if metadata.file_version > FILE_VERSION:
-            # Refuse rather than warn-and-continue: a newer file may use a
-            # byte-filter this build cannot invert, which would silently
-            # corrupt array values instead of failing cleanly.
-            msg = (
-                f"The file version {metadata.file_version} of this pyvista-zstd file is "
-                f"newer than the version supported by this library {FILE_VERSION}. "
-                "Upgrade `pyvista-zstd` to read it."
-            )
-            raise ValueError(msg)
-
-        return metadata
-
     def _file_metadata_from_core(self) -> ZstdFileMetadata:
         """
         Return the file metadata, and warn if the container is a legacy one.
@@ -1298,6 +1285,10 @@ class Reader:
         The core accepts both spellings of the frame and reports which one the
         file used, so the deprecation notice is raised from the name rather
         than by parsing the trailer a second time to find out.
+
+        Nothing here decides whether the container is readable: a version this
+        build cannot decode was refused when the core opened the file, so by the
+        time this runs the document is one this build understands.
         """
         raw = self._metadata_documents.get(FILE_METADATA_KEY)
         if raw is None:
@@ -1316,7 +1307,7 @@ class Reader:
                 stacklevel=3,
             )
 
-        return self._checked_file_metadata(raw)
+        return ZstdFileMetadata.from_json(raw)
 
     def _root_ds_meta_from_core(self) -> DataSetMetadata | MultiBlockMetadata:
         """

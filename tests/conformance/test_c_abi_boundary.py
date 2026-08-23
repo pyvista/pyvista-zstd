@@ -29,6 +29,7 @@ SOURCES = sorted((ROOT / "cpp" / "src").glob("*.cpp"))
 
 CANNOT_THROW = {
     "pvz_abi_version": "returns a preprocessor constant",
+    "pvz_max_file_version": "returns a preprocessor constant",
     "pvz_status_message": "returns a string literal from a switch over an enum",
 }
 

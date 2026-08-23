@@ -50,13 +50,15 @@ __all__ = [
     "CoreReader",
     "CoreUnavailableError",
     "PvzstdError",
+    "UnsupportedFileVersionError",
     "append_arrays",
     "available",
     "library_path",
     "load_error",
+    "max_file_version",
 ]
 
-ABI_VERSION = 4
+ABI_VERSION = 5
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -82,6 +84,7 @@ _STATUS_FORMAT = 2
 _STATUS_FILTER = 6
 _STATUS_UNSUPPORTED = 8
 _STATUS_EXISTS = 9
+_STATUS_VERSION = 10
 _STATUS_NAMES = {
     1: "I/O error: file missing, unreadable, or truncated",
     2: "format error: the trailer or a frame header did not parse",
@@ -92,6 +95,7 @@ _STATUS_NAMES = {
     7: "invalid argument",
     8: "this operation cannot serve a container of that shape",
     9: "an array of that name is already in the container",
+    10: "unsupported file version: the container is newer than this build decodes",
 }
 
 
@@ -133,6 +137,29 @@ class UnsupportedFilterError(PvzstdError, ValueError):
                 f"Unsupported per-array filter id {filter_id} for array '{name}'. Upgrade `pyvista-zstd` to read it."
             ),
         )
+
+
+class UnsupportedFileVersionError(PvzstdError, ValueError):
+    """
+    The container is stamped with a format version this build cannot decode.
+
+    A :class:`ValueError`, which is what this condition has raised since the
+    version field existed. The comparison itself is the core's -- it holds the
+    ceiling beside the decoder the ceiling describes -- and this restates the
+    verdict in the wording callers already match on.
+    """
+
+    def __init__(self, found: int, supported: int) -> None:
+        super().__init__(
+            _STATUS_VERSION,
+            message=(
+                f"The file version {found} of this pyvista-zstd file is newer than the "
+                f"version supported by this library {supported}. "
+                "Upgrade `pyvista-zstd` to read it."
+            ),
+        )
+        self.found = found
+        self.supported = supported
 
 
 class ContainerShapeError(PvzstdError, NotImplementedError):
@@ -236,6 +263,12 @@ def _bind_reader(lib: ctypes.CDLL) -> None:
 
     lib.pvz_open.restype = c_int
     lib.pvz_open.argtypes = [c_char_p, POINTER(c_void_p)]
+
+    lib.pvz_open_versioned.restype = c_int
+    lib.pvz_open_versioned.argtypes = [c_char_p, POINTER(c_void_p), POINTER(c_uint32)]
+
+    lib.pvz_max_file_version.restype = c_uint32
+    lib.pvz_max_file_version.argtypes = []
 
     lib.pvz_close.restype = None
     lib.pvz_close.argtypes = [c_void_p]
@@ -420,6 +453,22 @@ def load_error() -> str | None:
     return _load_error
 
 
+def max_file_version() -> int:
+    """
+    Return the highest container ``file_version`` the loaded core can decode.
+
+    The number belongs to the decoder, so it is read from the library rather
+    than kept here: a copy on this side could refuse a file the core reads, or
+    accept one it cannot.
+
+    Returns
+    -------
+    int
+
+    """
+    return int(_load().pvz_max_file_version())
+
+
 def _check(status: int, detail: str = "") -> None:
     if status == _STATUS_OK:
         return
@@ -455,7 +504,13 @@ class CoreReader:
         self._handle: c_void_p | None = None
 
         handle = c_void_p()
-        status = lib.pvz_open(str(path).encode("utf-8"), byref(handle))
+        # The versioned form so a refusal can name the version it refused; the
+        # decision to refuse is the core's, and is already made by the time this
+        # returns.
+        found = c_uint32(0)
+        status = lib.pvz_open_versioned(str(path).encode("utf-8"), byref(handle), byref(found))
+        if status == _STATUS_VERSION:
+            raise UnsupportedFileVersionError(int(found.value), int(lib.pvz_max_file_version()))
         _check(status, str(path))
         self._handle = handle
 
@@ -940,6 +995,16 @@ def append_arrays(
     status = lib.pvz_append_arrays(
         str(path).encode("utf-8"), items, c_uint64(len(arrays)), c_int(level), c_int(shuffle)
     )
+    if status == _STATUS_VERSION:
+        # The append status says "too new" but not how new; the open path reports
+        # the number even when it refuses, so ask it rather than re-parse the
+        # trailer here. Only reached on the error path.
+        found = c_uint32(0)
+        handle = c_void_p()
+        lib.pvz_open_versioned(str(path).encode("utf-8"), byref(handle), byref(found))
+        if handle:  # pragma: no cover - append refused it, so the open does too
+            lib.pvz_close(handle)
+        raise UnsupportedFileVersionError(int(found.value), int(lib.pvz_max_file_version()))
     if status == _STATUS_EXISTS:
         raise ArrayExistsError(status, message=_name_collision(path, list(arrays)))
     if status == _STATUS_UNSUPPORTED:

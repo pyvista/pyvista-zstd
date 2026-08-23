@@ -515,24 +515,33 @@ def test_force_int32_declines_when_ids_do_not_fit() -> None:
     assert np.array_equal(stored, connectivity)
 
 
-def test_future_version_is_rejected(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+def test_file_version_constant_does_not_gate_reads(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """
-    Reading a file newer than this build supports is a hard error, not a warning.
+    ``FILE_VERSION`` is published documentation, not the thing that refuses a file.
 
-    A future format may use a byte-filter this reader cannot invert, which would
-    silently corrupt array values; refuse the file instead of warning-and-reading.
+    The ceiling lives in the core, beside the decoder it describes, so every
+    caller of the C ABI gets one answer. This asserts the Python constant has no
+    say: lowering it below every real version must not make a readable file
+    unreadable. It fails if a version comparison is ever put back on this side --
+    which would refuse files the library can decode, and would leave a C or WASM
+    caller with no gate at all.
+
+    The refusal itself is exercised end to end, against a container genuinely
+    stamped too new, by ``test_unsupported_file_version_is_rejected`` and
+    ``test_append_refuses_an_unreadable_file_version`` in ``test_shuffle.py``.
     """
     filename = tmp_path / "future.pv"
-
-    orig_version = pyvista_zstd.FILE_VERSION
     pyvista_zstd.write(ugrid, filename)
 
+    orig_version = pyvista_zstd.pyvista_zstd.FILE_VERSION
     pyvista_zstd.pyvista_zstd.FILE_VERSION = -1
     try:
-        with pytest.raises(ValueError, match="newer than the version supported"):
-            pyvista_zstd.read(filename)
+        recovered = pyvista_zstd.read(filename)
     finally:
         pyvista_zstd.pyvista_zstd.FILE_VERSION = orig_version
+
+    assert recovered.n_points == ugrid.n_points
+    assert recovered.n_cells == ugrid.n_cells
 
 
 def test_reader_repr(ugrid: UnstructuredGrid, tmp_path: Path) -> None:

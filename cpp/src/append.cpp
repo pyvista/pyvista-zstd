@@ -175,6 +175,12 @@ pvz_status pvz_append_arrays(const char *path, const pvz_append_array *arrays, u
       !MemberString(file_meta_json, "compression", &compression)) {
     return PVZ_E_FORMAT;
   }
+  // Same ceiling the reader applies, for the same reason: a container this build
+  // cannot decode is one it must not edit either. Appending would regenerate the
+  // two metadata frames -- restamping a version whose meaning is unknown here --
+  // and leave a file neither this build nor the one that wrote it can trust.
+  if (old_version > static_cast<long long>(PVZSTD_FILE_VERSION_MAX)) return PVZ_E_VERSION;
+
   // The file-metadata array's own name is absent from frame_names; disagreeing
   // counts would shift every name onto the wrong frame.
   if (frame_names.size() != n_arrays - 1) return PVZ_E_FORMAT;

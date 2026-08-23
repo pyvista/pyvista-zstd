@@ -296,7 +296,7 @@ pvz_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
 
 extern "C" {
 
-pvz_status pvz_open(const char *path, pvz_reader **out) try {
+pvz_status pvz_open_versioned(const char *path, pvz_reader **out, uint32_t *file_version) try {
   if (path == nullptr || out == nullptr) return PVZ_E_INVALID;
   *out = nullptr;
 
@@ -415,6 +415,24 @@ pvz_status pvz_open(const char *path, pvz_reader **out) try {
     reader->arrays.push_back(entry);
   }
 
+  // Refuse a container this build cannot decode, before anything is read out of
+  // it. The version is the format's own statement of what it takes to read a
+  // file, so the ceiling belongs beside the decoder rather than in one of its
+  // front ends -- a C, WASM or Python caller all get the same answer, and none
+  // of them can drift by keeping its own copy of the number. A newer file may
+  // transform payloads in a way this build cannot invert, which would hand back
+  // corrupt values rather than fail.
+  if (reader->has_file_metadata) {
+    long long version = 0;
+    if (pvzstd::json::MemberInt(reader->file_metadata, "file_version", &version) && version >= 0) {
+      if (file_version != nullptr) *file_version = static_cast<uint32_t>(version);
+      if (version > static_cast<long long>(PVZSTD_FILE_VERSION_MAX)) {
+        delete reader;
+        return PVZ_E_VERSION;
+      }
+    }
+  }
+
   // Names come from the dataset metadata, not the frame names: a frame-name scan
   // would also pick up an array whose name merely ends the same way.
   if (!multiblock && !ds_id.empty()) {
@@ -445,6 +463,14 @@ pvz_status pvz_open(const char *path, pvz_reader **out) try {
 } catch (...) {
   return PVZ_E_NOMEM;
 }
+
+pvz_status pvz_open(const char *path, pvz_reader **out) try {
+  return pvz_open_versioned(path, out, nullptr);
+} catch (...) {
+  return PVZ_E_NOMEM;
+}
+
+uint32_t pvz_max_file_version(void) { return PVZSTD_FILE_VERSION_MAX; }
 
 void pvz_close(pvz_reader *reader) try { delete reader; } catch (...) {
 }
@@ -681,6 +707,8 @@ const char *pvz_status_message(pvz_status status) {
       return "the container is a shape this operation cannot serve";
     case PVZ_E_EXISTS:
       return "an array of that name is already in the container";
+    case PVZ_E_VERSION:
+      return "the container's file version is newer than this build can decode";
   }
   return "unknown status";
 }

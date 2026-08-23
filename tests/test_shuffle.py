@@ -12,6 +12,7 @@ import pyvista as pv
 import zstandard as zstd
 
 import pyvista_zstd as pz
+from pyvista_zstd import _capi as capi
 from pyvista_zstd.append import append_arrays
 from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import _FILTER_SHUFFLE
@@ -239,6 +240,41 @@ def test_unsupported_file_version_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="newer than the version supported"):
         pz.read(path)
+
+
+def test_file_version_matches_the_core(tmp_path: Path) -> None:
+    """
+    The published constant and the core's ceiling are one number, not two.
+
+    ``FILE_VERSION`` is documentation; the decision to refuse a container is the
+    core's. If the two ever drift, this package would advertise a ceiling the
+    library does not enforce -- so assert they agree rather than trust that a
+    future format bump touches both files.
+    """
+    del tmp_path
+    assert capi.max_file_version() == FILE_VERSION
+
+
+def test_append_refuses_an_unreadable_file_version(tmp_path: Path) -> None:
+    """
+    Appending to a container this build cannot decode is refused, not attempted.
+
+    An append regenerates the two metadata frames, which means restamping a
+    version whose meaning is unknown here. The reader already refuses such a
+    file; an append that succeeded would leave one neither side can trust.
+    """
+    grid = _float_grid()
+    path = tmp_path / "future_append.pv"
+    pz.write(grid, path, shuffle=True)
+
+    bodies = _frames(path.read_bytes())
+    meta = json.loads(bodies[-1].decode("utf-8"))
+    meta["file_version"] = FILE_VERSION + 99
+    blob = json.dumps(meta).encode("utf-8")
+    _rewrite_frames(path, {-1: blob, -2: _resized(bodies[-2], len(blob))})
+
+    with pytest.raises(ValueError, match="newer than the version supported"):
+        append_arrays(path, {"extra": np.arange(8, dtype=np.float64)})
 
 
 def test_unknown_array_filter_id_is_rejected(tmp_path: Path) -> None:

@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 5u
+#define PVZSTD_ABI_VERSION 6u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -250,6 +250,15 @@ PVZSTD_API pvz_status pvz_writer_set_fixed_width_cells(pvz_writer *writer, int e
 PVZSTD_API pvz_status pvz_writer_add_array(pvz_writer *writer, const char *name, const char *dtype,
                                            const uint64_t *shape, uint32_t ndim, const void *data,
                                            uint64_t nbytes);
+
+/* As pvz_writer_add_array, but ``data`` is borrowed rather than copied: it must
+ * stay allocated and unmodified until pvz_writer_write returns, or the writer is
+ * freed. For a caller that already holds the buffer this halves the resident
+ * bytes; a caller passing a temporary wants pvz_writer_add_array instead. */
+PVZSTD_API pvz_status pvz_writer_add_array_borrowed(pvz_writer *writer, const char *name,
+                                                    const char *dtype, const uint64_t *shape,
+                                                    uint32_t ndim, const void *data,
+                                                    uint64_t nbytes);
 
 /* Dataset-metadata JSON, stored under "<uid>__ds_metadata". Dataset readers
  * expect it. */

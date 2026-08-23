@@ -58,7 +58,7 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 5
+ABI_VERSION = 6
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -350,8 +350,8 @@ def _bind_writer(lib: ctypes.CDLL) -> None:
     lib.pvz_writer_set_fixed_width_cells.restype = c_int
     lib.pvz_writer_set_fixed_width_cells.argtypes = [c_void_p, c_int]
 
-    lib.pvz_writer_add_array.restype = c_int
-    lib.pvz_writer_add_array.argtypes = [
+    lib.pvz_writer_add_array_borrowed.restype = c_int
+    lib.pvz_writer_add_array_borrowed.argtypes = [
         c_void_p,
         c_char_p,
         c_char_p,
@@ -817,9 +817,9 @@ class CoreWriter:
         lib = _load()
         self._lib = lib
         self._handle: c_void_p | None = None
-        # Staged buffers are kept alive until write(): add_array hands the
-        # core a borrowed pointer, and a freed temporary would be a dangling
-        # read at write time rather than an error at the call that caused it.
+        # Staged buffers must outlive write(): the core borrows them, so a
+        # freed temporary is a dangling read at write time rather than an
+        # error at the call that caused it.
         self._pinned: list[Any] = []
 
         handle = c_void_p()
@@ -874,13 +874,15 @@ class CoreWriter:
         Stage one named array, in frame order.
 
         The array is made contiguous if it is not already; a non-contiguous
-        buffer has no single pointer to hand across the ABI.
+        buffer has no single pointer to hand across the ABI. The core borrows
+        that buffer, so it is pinned here until :meth:`write` or
+        :meth:`close`.
         """
         buf = np.ascontiguousarray(arr)
         self._pinned.append(buf)
         shape = (c_uint64 * max(buf.ndim, 1))(*buf.shape)
         _check(
-            self._lib.pvz_writer_add_array(
+            self._lib.pvz_writer_add_array_borrowed(
                 self._live,
                 name.encode("utf-8"),
                 buf.dtype.str.encode("ascii"),

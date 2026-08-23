@@ -26,8 +26,16 @@ struct PendingArray {
   std::string name;
   std::string dtype;
   std::vector<uint64_t> shape;
-  std::vector<uint8_t> data;
+  std::vector<uint8_t> owned;  // holds the bytes unless `borrowed` is set
+  const uint8_t *borrowed = nullptr;
+  uint64_t borrowed_size = 0;
   bool is_metadata_json = false;
+
+  // Read the payload through these, never through a member: an owning entry
+  // carries its length in the vector and a borrowing one in `borrowed_size`,
+  // and reading the wrong one silently yields an empty frame.
+  const uint8_t *bytes() const { return borrowed != nullptr ? borrowed : owned.data(); }
+  uint64_t size() const { return borrowed != nullptr ? borrowed_size : owned.size(); }
 };
 
 }  // namespace
@@ -39,6 +47,38 @@ struct pvz_writer {
   bool fixed_width_cells = false;
   std::vector<PendingArray> arrays;
 };
+
+namespace {
+
+// Shared by the copying and borrowing entry points, which differ only in `copy`.
+pvz_status AddArray(pvz_writer *writer, const char *name, const char *dtype, const uint64_t *shape,
+                    uint32_t ndim, const void *data, uint64_t nbytes, bool copy) {
+  if (writer == nullptr || name == nullptr || dtype == nullptr) return PVZ_E_INVALID;
+  if (nbytes > 0 && data == nullptr) return PVZ_E_INVALID;
+  if (ndim > 0 && shape == nullptr) return PVZ_E_INVALID;
+  if (std::strlen(dtype) > PVZSTD_DTYPE_LEN) return PVZ_E_INVALID;
+  if (!ParseDtype(dtype).valid) return PVZ_E_INVALID;
+
+  const uint8_t *src = static_cast<const uint8_t *>(data);
+  PendingArray entry;
+  entry.name = name;
+  entry.dtype = dtype;
+  entry.shape.assign(shape, shape + ndim);
+  try {
+    if (copy) {
+      entry.owned.assign(src, src + nbytes);
+    } else {
+      entry.borrowed = src;
+      entry.borrowed_size = nbytes;
+    }
+    writer->arrays.push_back(std::move(entry));
+  } catch (const std::bad_alloc &) {
+    return PVZ_E_NOMEM;
+  }
+  return PVZ_OK;
+}
+
+}  // namespace
 
 extern "C" {
 
@@ -88,24 +128,15 @@ pvz_status pvz_writer_set_fixed_width_cells(pvz_writer *writer, int enabled) try
 pvz_status pvz_writer_add_array(pvz_writer *writer, const char *name, const char *dtype,
                                 const uint64_t *shape, uint32_t ndim, const void *data,
                                 uint64_t nbytes) try {
-  if (writer == nullptr || name == nullptr || dtype == nullptr) return PVZ_E_INVALID;
-  if (nbytes > 0 && data == nullptr) return PVZ_E_INVALID;
-  if (ndim > 0 && shape == nullptr) return PVZ_E_INVALID;
-  if (std::strlen(dtype) > PVZSTD_DTYPE_LEN) return PVZ_E_INVALID;
-  if (!ParseDtype(dtype).valid) return PVZ_E_INVALID;
+  return AddArray(writer, name, dtype, shape, ndim, data, nbytes, /*copy=*/true);
+} catch (...) {
+  return PVZ_E_NOMEM;
+}
 
-  PendingArray entry;
-  entry.name = name;
-  entry.dtype = dtype;
-  entry.shape.assign(shape, shape + ndim);
-  try {
-    entry.data.assign(static_cast<const uint8_t *>(data),
-                      static_cast<const uint8_t *>(data) + nbytes);
-    writer->arrays.push_back(std::move(entry));
-  } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
-  }
-  return PVZ_OK;
+pvz_status pvz_writer_add_array_borrowed(pvz_writer *writer, const char *name, const char *dtype,
+                                         const uint64_t *shape, uint32_t ndim, const void *data,
+                                         uint64_t nbytes) try {
+  return AddArray(writer, name, dtype, shape, ndim, data, nbytes, /*copy=*/false);
 } catch (...) {
   return PVZ_E_NOMEM;
 }
@@ -119,7 +150,7 @@ pvz_status pvz_writer_set_ds_metadata(pvz_writer *writer, const char *uid, const
   entry.shape.push_back(n);
   entry.is_metadata_json = true;
   try {
-    entry.data.assign(json, json + n);
+    entry.owned.assign(json, json + n);
     writer->arrays.push_back(std::move(entry));
   } catch (const std::bad_alloc &) {
     return PVZ_E_NOMEM;
@@ -146,7 +177,7 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) try {
       if (writer->shuffle == PVZ_SHUFFLE_ALWAYS) {
         use = true;
       } else if (d.kind == 'f' || d.kind == 'c') {
-        use = AutoShuffleBeneficial(a.data.data(), a.data.size(), d.itemsize, writer->level);
+        use = AutoShuffleBeneficial(a.bytes(), a.size(), d.itemsize, writer->level);
       }
     }
     if (use) {
@@ -177,7 +208,7 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) try {
   // only. The frame is small and the threshold is in MiB, but the two rules
   // differ exactly at a boundary.
   uint64_t total_bytes = 0;
-  for (const PendingArray &a : writer->arrays) total_bytes += a.data.size();
+  for (const PendingArray &a : writer->arrays) total_bytes += a.size();
 
   PendingArray meta_entry;
   meta_entry.name = "__pyvista_zstd_metadata";
@@ -185,7 +216,7 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) try {
   meta_entry.shape.push_back(meta.size());
   meta_entry.is_metadata_json = true;
   try {
-    meta_entry.data.assign(meta.begin(), meta.end());
+    meta_entry.owned.assign(meta.begin(), meta.end());
   } catch (const std::bad_alloc &) {
     return PVZ_E_NOMEM;
   }
@@ -228,11 +259,11 @@ pvz_status pvz_writer_write(pvz_writer *writer, const char *path) try {
     // the legacy layout.
     if (filters[i] != PVZ_FILTER_NONE) header.push_back(filters[i]);
 
-    const uint8_t *payload_ptr = a.data.data();
-    uint64_t payload_len = a.data.size();
+    const uint8_t *payload_ptr = a.bytes();
+    uint64_t payload_len = a.size();
     if (filters[i] == PVZ_FILTER_SHUFFLE) {
-      payload.assign(a.data.size(), 0);
-      ShuffleBytes(a.data.data(), payload.data(), a.data.size(), d.itemsize);
+      payload.assign(a.size(), 0);
+      ShuffleBytes(a.bytes(), payload.data(), a.size(), d.itemsize);
       payload_ptr = payload.data();
       payload_len = payload.size();
     }

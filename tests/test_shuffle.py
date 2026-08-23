@@ -32,13 +32,7 @@ def _float_grid() -> pv.ImageData:
 
 @pytest.mark.parametrize("dtype", [np.float64, np.float32, np.int32, np.int16, np.complex128])
 def test_shuffle_roundtrip_is_bit_exact(dtype: type, tmp_path: Path) -> None:
-    """
-    The filter is reversible for every dtype, measured through the shipped path.
-
-    The core applies and reverses the shuffle; there is no Python arm to compare
-    against, so what is asserted is the property that matters to a caller --
-    write with the filter on, read back the identical bytes.
-    """
+    """The filter is reversible for every dtype: write filtered, read the same bytes."""
     arr = (np.arange(1024, dtype=dtype) * 3).astype(dtype)
     grid = pv.ImageData(dimensions=(1024, 1, 1))
     grid.point_data["vals"] = arr
@@ -55,10 +49,9 @@ def test_shuffle_modes_reach_the_core(tmp_path: Path) -> None:
     """
     ``shuffle=`` is not a no-op: the three modes are distinguishable on disk.
 
-    This is the positive control for the whole file. Every other test here
-    asserts that some mode leaves the container *unchanged*; without one
-    assertion that a mode changes it, a build that ignored the keyword
-    entirely would still pass them all.
+    The positive control for this file. Every other test asserts some mode
+    leaves the container unchanged, which a build ignoring the keyword would
+    also satisfy.
     """
     grid = _float_grid()  # smooth float64: the payload shuffle is meant to help
     sizes = {}
@@ -152,10 +145,9 @@ def test_auto_never_inflates_low_entropy_floats(tmp_path: Path) -> None:
     """
     ``auto`` leaves a file no larger than unfiltered when shuffle would not help.
 
-    This is the "probe declines" half of the ``auto`` policy; the "probe
-    accepts" half is :func:`test_shuffle_modes_reach_the_core`. A regular
-    coordinate ramp already compresses well raw, and byte-shuffle breaks the
-    constant inter-element byte deltas, so the probe should skip it.
+    The "probe declines" half of the policy; the accepting half is
+    :func:`test_shuffle_modes_reach_the_core`. A coordinate ramp compresses
+    well raw, and shuffling breaks its constant inter-element byte deltas.
     """
     grid = pv.ImageData(dimensions=(20, 20, 20))
     grid.point_data["coords"] = np.mgrid[0:20, 0:20, 0:20].reshape(3, -1).T.astype(np.float64)
@@ -195,12 +187,9 @@ def _rewrite_frames(path: Path, replacements: dict[int, bytes]) -> None:
     """
     Replace frames' decompressed bytes in place, rebuilding the footer.
 
-    The two tests below need a container this build cannot read. Building one
-    by patching the writer's constants only works while the writer is the
-    thing under the test's control -- it writes a *valid* file the moment the
-    bytes come from somewhere else, and the assertion then passes for the
-    wrong reason or fails for no reason. Corrupting the finished artefact
-    instead holds the reader to account whoever produced the file.
+    The tests below need a container this build cannot read. Corrupting the
+    finished artefact holds the reader to account whoever produced the file;
+    patching the writer's constants would only work while the writer is ours.
     """
     bodies = _frames(path.read_bytes())
     for index, body in replacements.items():
@@ -246,10 +235,8 @@ def test_file_version_matches_the_core(tmp_path: Path) -> None:
     """
     The published constant and the core's ceiling are one number, not two.
 
-    ``FILE_VERSION`` is documentation; the decision to refuse a container is the
-    core's. If the two ever drift, this package would advertise a ceiling the
-    library does not enforce -- so assert they agree rather than trust that a
-    future format bump touches both files.
+    ``FILE_VERSION`` is documentation; the refusal is the core's. Drift would
+    advertise a ceiling the library does not enforce.
     """
     del tmp_path
     assert capi.max_file_version() == FILE_VERSION
@@ -259,9 +246,8 @@ def test_append_refuses_an_unreadable_file_version(tmp_path: Path) -> None:
     """
     Appending to a container this build cannot decode is refused, not attempted.
 
-    An append regenerates the two metadata frames, which means restamping a
-    version whose meaning is unknown here. The reader already refuses such a
-    file; an append that succeeded would leave one neither side can trust.
+    An append restamps a version whose meaning is unknown here, leaving a file
+    neither side can trust.
     """
     grid = _float_grid()
     path = tmp_path / "future_append.pv"

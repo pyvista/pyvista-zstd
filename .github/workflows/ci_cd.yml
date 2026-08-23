@@ -35,8 +35,7 @@ jobs:
         run: pip install uv
 
       - name: Install pytest-pyvista with test dependencies
-        # The core builds here: the gallery examples call write() and read(),
-        # and there is no Python implementation left behind them.
+        # The core builds here; the gallery examples call write() and read().
         run: uv pip install --system .[docs]
 
       - name: Setup headless display
@@ -93,9 +92,6 @@ jobs:
         run: uv pip install --system .[tests]
 
       - name: Confirm the C++ core is present
-        # Kept as a separate step for the diagnosis, not for the verdict: without
-        # the core every test below fails, but they fail on the first read rather
-        # than saying the library never loaded and why.
         run: |
           python -c "
           from pyvista_zstd import _capi
@@ -132,11 +128,8 @@ jobs:
           python-version: 3.13
 
       - name: Build the sdist
-        # The sdist only. A wheel built here would be this runner's Linux build
-        # published as the one wheel for every platform -- and with the core no
-        # longer optional, a core-less wheel is not a lesser package, it is a
-        # broken one. Per-platform wheels come from the C++ Core workflow; this
-        # sdist builds the core at install time.
+        # Per-platform wheels come from the C++ Core workflow; this sdist
+        # builds the core at install time.
         env:
           PVZSTD_BUILD_CORE: "0"
         run: |

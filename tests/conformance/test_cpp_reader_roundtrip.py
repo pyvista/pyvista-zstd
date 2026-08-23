@@ -7,16 +7,9 @@ comparison is exact: a round trip through the format is lossless by
 construction, so any difference in a value is a defect rather than a
 tolerance question.
 
-These once compared the C++ reader against a pure-Python one. That second
-implementation is gone, and with it the option of comparing the library to
-itself. The oracle is now the source dataset the writer was handed, which is
-a stronger claim than the old one: it holds the writer to account too, where
-implementation-vs-implementation would pass on a file both agreed to corrupt.
-
-``test_cpp_core_is_actually_used`` remains the control. With one path there is
-no silent fallback left to hide behind, but a test that never reached the core
-would still pass for the wrong reason, so the sabotage has to keep proving the
-core is what answers.
+The oracle is the source dataset the writer was handed, so the writer is held
+to account too. ``test_cpp_core_is_actually_used`` is the control: a test that
+never reached the core would pass for the wrong reason.
 """
 
 from __future__ import annotations
@@ -183,9 +176,8 @@ def _call_discarding_result(fn, path) -> None:
     """
     Invoke ``fn`` for its warning alone.
 
-    ``read_array`` is handed a name the fixture does not carry, so it raises;
-    that is fine, because the warning has to be emitted before the lookup can
-    fail, and the warning is what is under test.
+    ``read_array`` is handed a name the fixture does not carry and raises; the
+    warning is emitted before the lookup fails, and it is what is under test.
     """
     with contextlib.suppress(KeyError):
         fn(path)
@@ -204,9 +196,8 @@ def test_backend_argument_is_deprecated(tmp_path, call) -> None:
     """
     Every public entry point that took ``backend`` now warns and ignores it.
 
-    The value passed is deliberately not the one the reader would pick, so a
-    warning that fired while the argument was still being honoured would not
-    be enough to pass: the read has to succeed on whatever the reader chose.
+    The value passed is deliberately not one the reader could honour, so the
+    read must succeed on whatever the reader chose.
     """
     path = tmp_path / "deprecated.pv"
     pz.write(_sphere(), path, progress_bar=False)
@@ -254,9 +245,7 @@ def _esgrid() -> pv.DataSet:
     Build an explicit structured grid carrying the arrays its own cast needs.
 
     ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` are what turn an unstructured grid
-    back into this type, so a grid without them cannot round-trip through any
-    container -- which is exactly why the reader has to restore them before
-    it casts.
+    back into this type.
     """
     ni, nj, nk = 2, 3, 4
     xc, yc, zc = (np.arange(n + 1, dtype=float) for n in (ni, nj, nk))
@@ -275,9 +264,8 @@ def test_explicit_structured_grid_round_trips(tmp_path) -> None:
     """
     An ExplicitStructuredGrid survives the container.
 
-    It used to survive on neither: the reader cast the rebuilt unstructured
-    grid before attaching any cell data, so the cast never saw the blocking
-    arrays it is driven by and refused every file of this type.
+    The cast is driven by the blocking arrays, so they must be attached to the
+    rebuilt unstructured grid before it runs.
     """
     ds = _esgrid()
     path = tmp_path / "esgrid.pv"

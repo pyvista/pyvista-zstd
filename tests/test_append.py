@@ -212,15 +212,7 @@ def test_kept_frames_are_byte_identical_after_append(tmp_path, base_grid) -> Non
 # 4. Crash / partial-write safety.
 # --------------------------------------------------------------------------
 def test_failed_append_does_not_destroy_prior_blocks(tmp_path, base_grid) -> None:
-    """
-    An append that cannot complete leaves the original file fully readable.
-
-    The commit is a rename onto the original, so nothing the append does is
-    visible until it has a whole file to publish. This blocks the append by
-    occupying the staging path with a directory, which the core cannot open for
-    writing -- a real failure of the real code path, where patching a Python
-    ``replace`` would only have tested a wrapper the core no longer uses.
-    """
+    """An append that cannot complete leaves the original file fully readable."""
     path = _write_base(tmp_path / "c.pv", base_grid)
     append_arrays(path, {"first": np.arange(50, dtype=np.float64)})
     committed = path.read_bytes()
@@ -230,19 +222,29 @@ def test_failed_append_does_not_destroy_prior_blocks(tmp_path, base_grid) -> Non
     with pytest.raises(_capi.PvzstdError, match="I/O error"):
         append_arrays(path, {"second": np.arange(99, dtype=np.float64)})
 
-    # Original file untouched, prior block still readable.
     assert path.read_bytes() == committed
-    r = AppendReader(path)
-    assert "first" in r.field_array_names
-    assert "second" not in r.field_array_names
-    assert np.array_equal(r.read_array("first"), np.arange(50, dtype=np.float64))
+    with AppendReader(path) as r:
+        assert "first" in r.field_array_names
+        assert "second" not in r.field_array_names
+        assert np.array_equal(r.read_array("first"), np.arange(50, dtype=np.float64))
 
-    # ...and once the obstruction is gone the same append succeeds, so the
-    # failure was the staging path and not something the file itself lost.
     staging.rmdir()
     append_arrays(path, {"second": np.arange(99, dtype=np.float64)})
     assert np.array_equal(read_array(path, "second"), np.arange(99, dtype=np.float64))
     assert not staging.exists()
+
+
+def test_reader_close_releases_the_file_and_reads_reopen(tmp_path, base_grid) -> None:
+    """close() drops the open file; a later read reopens it."""
+    path = _write_base(tmp_path / "r.pv", base_grid)
+    append_arrays(path, {"a": np.arange(20, dtype=np.float64)})
+
+    r = AppendReader(path)
+    assert np.array_equal(r.read_array("a"), np.arange(20, dtype=np.float64))
+    r.close()
+    r.close()
+    append_arrays(path, {"b": np.arange(7, dtype=np.float64)})
+    assert np.array_equal(r.read_array("b"), np.arange(7, dtype=np.float64))
 
 
 def test_manually_truncated_file_does_not_corrupt_committed(tmp_path, base_grid) -> None:

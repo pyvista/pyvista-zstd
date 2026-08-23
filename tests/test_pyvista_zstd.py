@@ -458,16 +458,10 @@ def test_roundtrip_preserves_connectivity_dtype(ugrid: UnstructuredGrid, tmp_pat
     """
     A round trip returns the connectivity dtype it was given.
 
-    The width of VTK's cell-array storage is a property of the build, not
-    something this library chooses: a binding may use 32-bit storage whenever
-    the values fit, so ``GetCells()`` can hand over int32 before this library is
-    involved at all. Asserting int64 outright therefore tests the binding's
-    storage policy rather than anything here.
-
-    What this library does control is narrower and is what gets asserted:
-    ``force_int32=False`` must not change the dtype, and ``force_int32=True``
-    must narrow it to int32. Values are compared as well as dtypes, so an array
-    that comes back correctly typed but corrupted still fails.
+    VTK's cell-array storage width is a property of the build, so asserting
+    int64 outright would test the binding. What is asserted instead:
+    ``force_int32=False`` does not change the dtype, ``force_int32=True``
+    narrows it. Values are compared too.
     """
     populate_data(ugrid)
 
@@ -489,13 +483,10 @@ def test_force_int32_declines_when_ids_do_not_fit() -> None:
     """
     ``force_int32`` must bound the values, not the array's length.
 
-    Connectivity entries are point ids, so a short cell array in a mesh with
-    more than 2**31 points still holds ids that do not fit in int32 --
-    ``astype`` wraps those silently rather than raising, which corrupts
-    topology on a default write. The guard is asserted at the staging helper
-    because reaching this through :func:`pyvista_zstd.write` needs a real mesh
-    of 2 billion points; what is exercised here is exactly the decision the
-    helper makes, on a cell array VTK is happy to hold.
+    A short cell array in a mesh with more than 2**31 points still holds ids
+    that do not fit in int32, and ``astype`` wraps them silently. Asserted at
+    the staging helper, since reaching it through :func:`pyvista_zstd.write`
+    would need a mesh of 2 billion points.
     """
     connectivity = np.array([0, 1, np.iinfo(np.int32).max + 7], dtype=np.int64)
     offsets = np.array([0, 3], dtype=np.int64)
@@ -519,16 +510,9 @@ def test_file_version_constant_does_not_gate_reads(ugrid: UnstructuredGrid, tmp_
     """
     ``FILE_VERSION`` is published documentation, not the thing that refuses a file.
 
-    The ceiling lives in the core, beside the decoder it describes, so every
-    caller of the C ABI gets one answer. This asserts the Python constant has no
-    say: lowering it below every real version must not make a readable file
-    unreadable. It fails if a version comparison is ever put back on this side --
-    which would refuse files the library can decode, and would leave a C or WASM
-    caller with no gate at all.
-
-    The refusal itself is exercised end to end, against a container genuinely
-    stamped too new, by ``test_unsupported_file_version_is_rejected`` and
-    ``test_append_refuses_an_unreadable_file_version`` in ``test_shuffle.py``.
+    The ceiling lives in the core, so lowering the Python constant below every
+    real version must not make a readable file unreadable. The refusal itself
+    is exercised in ``test_shuffle.py``.
     """
     filename = tmp_path / "future.pv"
     pyvista_zstd.write(ugrid, filename)
@@ -717,11 +701,9 @@ def test_multiblock_duplicate_is_indexable(ugrid: UnstructuredGrid, tmp_path: Pa
     """
     A repeated block is still two slots when reached through the reader index.
 
-    The hierarchy is keyed by dataset UID, and a dataset stored once and
-    referenced twice shares one. Building the child readers from that mapping
-    collapsed the repeat, leaving ``len(reader)`` short of the block count and
-    ``reader[1]`` out of range -- while ``read()`` looked fine, because it did
-    not go through the same walk.
+    The hierarchy is keyed by dataset UID, so a dataset referenced twice
+    shares one; building child readers from that mapping would lose the
+    repeat.
     """
     source = MultiBlock([ugrid, ugrid])
     tmp_filename = tmp_path / "tmp.pv"
@@ -789,12 +771,9 @@ def test_vtk_imports_route_through_pyvista() -> None:
     """
     VTK must be imported through PyVista, never from ``vtkmodules`` or ``vtk``.
 
-    PyVista is not always built against the stock ``vtkmodules`` wheel. When it
-    is built on another binding, a ``vtkmodules`` cell array is a different C++
-    type from the one a PyVista ``PolyData`` accepts, and handing one to the
-    other fails with a bare ``TypeError: SetPolys argument 1:``. That breaks
-    reading of every ``.pv`` file. An identity check cannot catch this on a
-    single-binding install, so assert on the import statements themselves.
+    On a PyVista built against a non-stock binding, a ``vtkmodules`` cell array
+    is a different C++ type from the one ``PolyData`` accepts. A single-binding
+    install cannot catch that at run time, so assert on the imports themselves.
     """
     tree = ast.parse(Path(impl.__file__).read_text(encoding="utf-8"))
     roots = {(node.module or "").split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {
@@ -808,11 +787,7 @@ def test_cell_array_binds_to_pyvista_polydata() -> None:
     """
     Smoke-test the pairing the reader relies on: the cell array must bind.
 
-    ``_segments_to_polydata`` builds a PyVista ``PolyData`` and calls
-    ``SetPolys`` on it with a cell array constructed from the imports under
-    test. This exercises that exact pairing. On a stock single-binding install
-    it passes either way, so it only has teeth where PyVista is built against a
-    binding other than the ``vtkmodules`` wheel.
+    Only has teeth where PyVista is built against a non-stock binding.
     """
     polydata = PolyData()
     polydata.points = np.zeros((3, 3))
@@ -832,18 +807,10 @@ def test_declared_int32_bounds_hold_over_the_corpus(
     """
     Every bound the staging declares must actually bound the values it stands for.
 
-    ``_add_cell_array`` narrows connectivity and offsets to int32 on the strength
-    of a bound derived from what the entries mean -- a point count, a
-    connectivity length -- rather than from scanning them. Reasoning is what
-    makes those bounds right, and reasoning is what a test is for: a bound that
-    came out too small would silently wrap ids on a default write, and no
-    round-trip on a small fixture would notice, because a small fixture never
-    reaches the int32 ceiling either way.
-
-    So intercept the bounds as they are declared and scan against them, which is
-    exactly the work the bound exists to avoid at run time and exactly the work
-    a test should be doing. Erring the other way is safe and not asserted here:
-    too large a bound only declines to narrow.
+    ``_add_cell_array`` narrows on a bound derived from what the entries mean,
+    not from scanning them; too small a bound would wrap ids silently. Here the
+    bounds are intercepted as declared and scanned against. Too large a bound
+    only declines to narrow, so it is not asserted.
     """
     ds = request.getfixturevalue(fixture)
     recorded: list[tuple[np.ndarray, int | None]] = []

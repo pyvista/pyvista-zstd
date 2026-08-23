@@ -1,21 +1,13 @@
 """
 No exception may cross the C ABI.
 
-The entry points are ``extern "C"``, which says nothing about unwinding: a
-``std::bad_alloc`` from a large allocation propagates straight out of one, and
-into a caller -- ctypes, or a C or Rust program linking the library -- that has
-no way to catch it. What the caller sees is a crash, where the header promises a
-status code.
+``extern "C"`` says nothing about unwinding, so every entry point is a
+function-try-block whose handler returns that function's "cannot answer" value.
+This reads the sources rather than running anything: the property is about
+every entry point, not the ones a test happens to reach.
 
-Each entry point is therefore a function-try-block whose handler returns the
-value that function already uses to mean "cannot answer". This test reads the
-sources rather than running anything, because the property is about every entry
-point rather than the ones a test happens to reach, and because the way it gets
-broken is somebody adding the thirty-first.
-
-Two are exempt, and the exemptions are listed rather than argued each time:
-returning a preprocessor constant and returning a string literal from a switch
-over an enum cannot allocate, so there is nothing to catch.
+Two are exempt -- returning a preprocessor constant, and returning a string
+literal from a switch over an enum -- because neither can allocate.
 """
 
 from __future__ import annotations

@@ -1,17 +1,10 @@
 """
 ``ctypes`` binding to the ``pvzstd`` C ABI.
 
-There is no compiled extension module here and no binding framework. The
-C++ core is a plain shared library exposing a C ABI, and this module loads
-it with :mod:`ctypes`. That choice is what lets the same library be consumed as
-a C++ submodule, cross-compiled to WebAssembly, and shipped in a wheel without
-three separate binding layers going out of step.
-
-The core is required, not preferred. There is no second implementation to
-fall to, so a machine without the library cannot read or write these files
-and says so: every entry point raises :class:`CoreUnavailableError` carrying
-the load diagnostics. :func:`available` remains for reporting -- it answers
-"can this machine work", never "which implementation should run".
+The C++ core is a plain shared library exposing a C ABI, loaded here with
+:mod:`ctypes`. It is required: there is no second implementation, so on a
+machine without the library every entry point raises
+:class:`CoreUnavailableError` carrying the load diagnostics.
 """
 
 from __future__ import annotations
@@ -115,9 +108,8 @@ class ContainerFormatError(PvzstdError):
     """
     The bytes are not a ``.pv`` container this build can parse.
 
-    Named separately because callers act on it: a file that fails here is
-    corrupt or not a container at all, rather than one that is well-formed
-    but cannot serve the operation.
+    Named separately because callers act on it: such a file is corrupt or not
+    a container at all, rather than one that cannot serve the operation.
     """
 
 
@@ -125,12 +117,10 @@ class UnsupportedFilterError(PvzstdError, ValueError):
     """
     An array carries a byte filter this build cannot reverse.
 
-    Inherits from :class:`ValueError`, which is what this condition raised
-    before the reader moved into C++.
+    A :class:`ValueError`; the status code is on ``.status``.
     """
 
     def __init__(self, filter_id: int, name: str) -> None:
-        # Wording preserved from the reader this replaced; the code stays on .status.
         super().__init__(
             _STATUS_FILTER,
             message=(
@@ -143,9 +133,8 @@ class UnsupportedFileVersionError(PvzstdError, ValueError):
     """
     The container is stamped with a format version this build cannot decode.
 
-    A :class:`ValueError`, as before the core. The comparison itself is the
-    core's -- it holds the ceiling beside the decoder that ceiling describes
-    -- and this restates the verdict in the wording callers match on.
+    A :class:`ValueError`. The core makes the comparison; this restates the
+    verdict in the wording callers match on.
     """
 
     def __init__(self, found: int, supported: int) -> None:
@@ -165,8 +154,7 @@ class ContainerShapeError(PvzstdError, NotImplementedError):
     """
     The operation has nothing to work on in a container of this shape.
 
-    Inherits from :class:`NotImplementedError`, which is what appending to a
-    MultiBlock raised before the decision moved into C++.
+    A :class:`NotImplementedError` -- appending to a MultiBlock, for instance.
     """
 
 
@@ -174,8 +162,7 @@ class ArrayExistsError(PvzstdError, ValueError):
     """
     The name is taken, and the call would have overwritten it.
 
-    A :class:`ValueError`: the argument is wrong for the file it was given,
-    not a failure of the operation.
+    A :class:`ValueError`: the argument is wrong for the file it was given.
     """
 
 
@@ -221,9 +208,8 @@ def _candidate_paths() -> Iterator[str]:
     """
     Yield places the shared library may live, in priority order.
 
-    The bundled copy inside the package wins over anything on the system
-    search path, so an installed wheel is self-contained and cannot be
-    silently served by an unrelated build sitting in the loader path.
+    The bundled copy inside the package wins over the system search path, so
+    an installed wheel cannot be silently served by an unrelated build.
     """
     override = os.environ.get(_LIBRARY_ENV_VAR)
     if override:
@@ -421,8 +407,6 @@ def library_path() -> str | None:
     """
     Return the file the C++ core was loaded from, or None.
 
-    Useful when diagnosing which of several builds is actually in play.
-
     Returns
     -------
     str | None
@@ -437,9 +421,7 @@ def load_error() -> str | None:
     """
     Return why the C++ core could not be loaded, or None if it did.
 
-    ``available()`` collapses every reason to False, so a missing library, one
-    built against a different ABI, and one that failed to link look identical.
-    This reports the candidates that were tried and what each of them said.
+    Reports the candidates that were tried and what each of them said.
 
     Returns
     -------
@@ -455,9 +437,7 @@ def max_file_version() -> int:
     """
     Return the highest container ``file_version`` the loaded core can decode.
 
-    The number belongs to the decoder, so it is read from the library rather
-    than kept here: a copy on this side could refuse a file the core reads, or
-    accept one it cannot.
+    Read from the library, never copied here.
 
     Returns
     -------
@@ -583,10 +563,8 @@ class CoreReader:
 
         out = np.empty(shape, dtype=dtype)
         if info.nbytes:
-            # The destination's size, not the file's: passing the declared payload
-            # size would authorise exactly what the core is about to produce, so a
-            # payload larger than its announced shape would be written past the end
-            # of this array rather than reported.
+            # The destination's size, not the file's, so an over-long payload is
+            # reported rather than written past the end of this array.
             status = self._lib.pvz_read_array_at(
                 self._live,
                 c_uint64(index),
@@ -659,18 +637,14 @@ class CoreReader:
         """
         Decompress arrays into a name-keyed mapping.
 
-        All wanted frames are handed to the C++ core in one call so it can
-        decompress them in parallel. Doing this one array at a time leaves
-        every core but one idle, which measured *slower* than the Python
-        reader this replaced -- that one batched through zstd's own threaded
-        decompressor.
+        All wanted frames go to the core in one call so it can decompress them
+        in parallel.
 
         Parameters
         ----------
         keep : set[str] | None, optional
-            Names to decompress. When omitted, every array is read. Arrays
-            that are not kept are never decompressed at all -- the saving is
-            the whole frame, not just the copy.
+            Names to decompress. When omitted, every array is read; arrays
+            that are not kept are never decompressed.
         n_threads : int, optional
             Workers to spread the frames over. The default picks from the
             total size; 0 or 1 decompresses inline and negative uses every
@@ -681,14 +655,11 @@ class CoreReader:
         dict[str, numpy.ndarray]
 
         """
-        # Hoisted out of the loop on purpose: profiling put more time in this
-        # Python body than in the C++ decompression it wraps.
         handle = self._live
         dtypes: dict[bytes, np.dtype[Any]] = {}
         empty = np.empty
 
-        # Every header in one crossing: a foreign call per array outweighed the
-        # decompression it was preparing.
+        # Every header in one crossing.
         n_arrays = int(self._lib.pvz_array_count(handle))
         infos = (_ArrayInfo * n_arrays)()
         if n_arrays:
@@ -757,10 +728,8 @@ class CoreReader:
         """
         Return every metadata document as ``(frame_name, json)``, in file order.
 
-        A MultiBlock stores one dataset-metadata frame per block, and the
-        documents refer to each other by UID -- which lives in the frame name,
-        not in the document. Both are needed to rebuild the tree, so they are
-        returned together rather than as two parallel lookups.
+        The UID lives in the frame name, not in the document, and rebuilding a
+        MultiBlock tree needs both.
         """
         live = self._live
         count = int(self._lib.pvz_metadata_count(live))
@@ -799,11 +768,7 @@ class CoreWriter:
     Write a container through the C++ core.
 
     Arrays are staged in call order and emitted on :meth:`write`. The core
-    owns the format decisions -- which arrays get the byte shuffle, which file
-    version that implies, the trailing metadata frame, and the frame index --
-    so this class stages buffers and nothing else. What it is handed, and under
-    what name and dtype, is the caller's; see
-    :mod:`pyvista_zstd.pyvista_zstd` for that half.
+    owns the format decisions; this class stages buffers.
 
     Examples
     --------
@@ -875,9 +840,8 @@ class CoreWriter:
         """
         Stage one named array, in frame order.
 
-        The array is made contiguous if it is not already; a non-contiguous
-        buffer has no single pointer to hand across the ABI. The core borrows
-        that buffer, so it is pinned here until :meth:`write` or
+        Made contiguous if it is not already, since the ABI takes one pointer.
+        The core borrows the buffer, so it is pinned until :meth:`write` or
         :meth:`close`.
         """
         buf = np.ascontiguousarray(arr)
@@ -905,9 +869,7 @@ def _name_collision(path: Path | str, offered: list[str]) -> str:
     """
     Say which name the core refused, by asking it what the file already holds.
 
-    The status says a name was taken but not which one, and the caller offered
-    several. Only reached on the error path, so the extra open costs nothing in
-    the case that matters.
+    The status says a name was taken but not which one. Error path only.
     """
     try:
         with CoreReader(path) as reader:

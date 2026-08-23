@@ -116,9 +116,8 @@ def test_cpp_append_is_byte_identical(tmp_path, label, shuffle) -> None:
     """
     Both entry points into the append produce the same file, byte for byte.
 
-    Not an implementation comparison -- see the module docstring. What a failure
-    here means is that the binding hands the core something different from what
-    the tool hands it, for the same arrays and the same options.
+    A failure means the binding hands the core something different from what
+    the tool hands it, for the same arrays and options.
     """
     seed = tmp_path / f"{label}.pv"
     pz.write(DATASETS[label](), seed, progress_bar=False)
@@ -148,12 +147,10 @@ def test_the_parity_gate_can_fail(tmp_path) -> None:
     """
     Negative control: a wrong dtype spelling must redden the comparison above.
 
-    The format records a dtype *string* ("<f8") in the frame header and a dtype
-    *name* ("float64") in the dataset metadata, for the same array. Getting the
-    second one wrong changes only a few bytes deep inside a compressed metadata
-    frame, and nothing about reading the file back would reveal it. If this test
-    ever passes, the byte comparison has stopped being sensitive to the
-    metadata and every green run above is worth nothing.
+    The format records a dtype string ("<f8") in the frame header and a dtype
+    name ("float64") in the dataset metadata. Getting the second wrong changes
+    only a few bytes inside a compressed metadata frame, and reading the file
+    back would not reveal it.
     """
     seed = tmp_path / "seed.pv"
     pz.write(_sphere(), seed, progress_bar=False)
@@ -178,11 +175,8 @@ def test_auto_shuffle_actually_probes(tmp_path) -> None:
     """
     Under "auto", two multibyte floats get *different* answers.
 
-    Without this, the parity runs above could all be green while the C++ side
-    decided from the dtype alone: every array in the fixture is float or
-    non-float, so a dtype-only rule agrees with the probe on most of them. The
-    disagreement is the only thing that distinguishes the two rules, so it is
-    what gets asserted.
+    A dtype-only rule agrees with the probe on every other array in the
+    fixture, so the disagreement is the only thing that distinguishes them.
     """
     seed = tmp_path / "seed.pv"
     pz.write(_sphere(), seed, progress_bar=False)
@@ -207,10 +201,8 @@ def test_kept_frames_are_copied_not_recompressed(tmp_path) -> None:
     """
     Everything before the first regenerated frame is unchanged, byte for byte.
 
-    This is the property that makes appending cheap, and it is not implied by
-    byte-identity with the reference: an implementation that decompressed and
-    recompressed every frame could still match, as long as it matched exactly.
-    Asserting the prefix separately keeps that distinction measurable.
+    Not implied by byte-identity with the reference: an implementation that
+    recompressed every frame could still match exactly.
     """
     seed = tmp_path / "seed.pv"
     pz.write(_unstructured(), seed, progress_bar=False)

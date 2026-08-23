@@ -1,27 +1,13 @@
 """
 Hold the field-array index and reads to what was appended.
 
-Requires the core, and does not skip without it: the core is the only
-implementation, so a machine that cannot load it has nothing left to pass.
-``PVZSTD_LIBRARY`` selects which build answers.
+Requires the core; ``PVZSTD_LIBRARY`` selects which build answers. The C ABI
+names field arrays the way a caller does -- bare, without the dataset-UID
+prefix or the ``__field_data`` suffix -- and takes that list from the dataset
+metadata rather than by scanning frame names.
 
-The C-ABI names field arrays the way a caller does -- bare, without the
-dataset-UID prefix or the ``__field_data`` suffix the frame carries -- and it
-takes that list from the dataset metadata rather than by scanning frame names.
-
-What these tests pin was established by breaking the implementation on
-purpose: reporting the unstripped frame name reddens four of the five, an
-off-by-one in the resolved index reddens three, stripping any suffix off every
-array reddens two, and resolving against non-field-data arrays reddens one.
-What none of them catch is a *correct* frame-name scan -- stripping exactly one
-``__field_data`` off the end -- because on a well-formed single-dataset
-container that rule and the metadata rule agree on every name. The metadata
-rule is still the right one, since it is what defines the set, but this file is
-not evidence for it.
-
-The reads are compared bit-for-bit against the arrays handed to
-``append_arrays``, which holds the *writer* to account too -- reader-vs-reader
-would agree happily on a file both had mangled.
+Reads are compared bit-for-bit against the arrays handed to ``append_arrays``,
+which holds the writer to account too.
 """
 
 from __future__ import annotations
@@ -98,9 +84,8 @@ def test_find_field_resolves_to_the_frame_the_name_belongs_to(tmp_path) -> None:
     """
     The returned index addresses the block's own frame, not a neighbour's.
 
-    ``pvz_find_field_array`` hands back an index into the ordinary array list,
-    so this checks the two halves agree: the array it points at must be the
-    one whose stored name is built from this bare name.
+    ``pvz_find_field_array`` indexes the ordinary array list, so the array it
+    points at must be the one whose stored name is built from this bare name.
     """
     path, _ = _seed(tmp_path)
     with _capi.CoreReader(path) as reader:
@@ -116,11 +101,8 @@ def test_find_field_declines_arrays_that_are_not_field_data(tmp_path) -> None:
     """
     Negative control: point and cell arrays are not field arrays.
 
-    Both names below are really in the container -- they are just not field
-    data -- so a lookup that answers for them is answering the wrong question.
-    Measured, this is the only test here that a name-matching lookup over the
-    whole array list reddens; the others all still pass, because the arrays it
-    wrongly matches are ones they never ask about.
+    Both names are really in the container, just not field data, so a lookup
+    that answers for them is answering the wrong question.
     """
     path, _ = _seed(tmp_path)
     with _capi.CoreReader(path) as reader:

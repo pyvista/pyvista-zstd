@@ -141,10 +141,8 @@ def test_streamed_blocks_read_back_through_the_reference_reader(tmp_path) -> Non
     """
     The result of streaming is an ordinary container.
 
-    Byte-identity with the append path already implies this, but only while
-    that test passes. If both writers were wrong in the same way the
-    comparison would stay green, so the file is also read back through the
-    reference reader, which knows nothing about either.
+    Read back through the reference reader, which knows nothing about either
+    writer, so two writers wrong in the same way cannot pass.
     """
     container = tmp_path / "stream.pv"
     _seed(container)
@@ -164,15 +162,12 @@ def test_streamed_blocks_read_back_through_the_reference_reader(tmp_path) -> Non
 
 def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> None:
     """
-    The property the whole streaming path exists for.
+    Streaming cost does not grow with what is already committed.
 
-    Asserted against a control measured in the same run, because the absolute
-    numbers are not stable across machines or even across runs on one machine
-    -- page-cache residency dominates them. The fixture also has to keep posing
-    the problem: if the container stops growing, the copying path is never made
-    to repeat any work and this test is measuring nothing. That is checked on
-    the size of the file rather than on how long the control took, because the
-    first is arithmetic and the second is the machine's storage.
+    Asserted against a control measured in the same run; absolute numbers are
+    not stable across machines. The container must keep growing, or the
+    copying path never repeats work and this measures nothing -- checked on
+    file size, which is arithmetic, not on the control's wall time.
     """
     rng = np.random.default_rng(7)
     ds = pv.ImageData(dimensions=(30, 30, 30))
@@ -244,9 +239,8 @@ def test_close_refuses_a_stream_shorter_than_it_declared(tmp_path) -> None:
     """
     A stream that committed fewer sets than declared is an error, not a file.
 
-    Silence here would be the worst outcome available: the container reads
-    back perfectly and is simply missing results, which no reader can tell
-    from a result set that was always that size.
+    Silence would produce a container that reads back perfectly and is simply
+    missing results, which no reader can distinguish from a shorter run.
     """
     container = tmp_path / "short.pv"
     _seed(container)
@@ -268,9 +262,8 @@ def test_a_name_already_in_the_container_is_refused(tmp_path) -> None:
     """
     A colliding field name is refused rather than shadowing the array on disk.
 
-    Two frames can carry the same name -- nothing in the format forbids it --
-    and a reader resolving by name would then silently return whichever one
-    it reached first.
+    Nothing in the format forbids two frames with one name; a reader resolving
+    by name would silently return whichever it reached first.
     """
     container = tmp_path / "collide.pv"
     _seed(container)
@@ -298,21 +291,11 @@ def test_a_commit_that_failed_part_way_poisons_the_stream(tmp_path) -> None:
     """
     After a commit fails mid-write, every later call on that stream is refused.
 
-    The two are not the same kind of refusal as the one above. A duplicate name
-    is caught before anything is touched, so the stream is still good and the
-    caller may carry on. A commit that fails after it has begun -- the tail's
-    frame entries dropped, some frames written, ``body_end`` not yet moved --
-    leaves the stream describing frames that are not where it says they are.
-    Appending on top of that produces a file that parses and gives wrong data,
-    and closing it would present that file as complete.
-
-    The fault is injected by asking for an array of 2**60 bytes: validation
-    passes, mutation starts, and the payload buffer is the first thing that
-    cannot be had. Which failure it is does not matter here -- only that the
-    stream is dead afterwards.
-
-    Removing the ``failed`` flag reddens both assertions below: the append
-    returns 0 and the close returns 0.
+    A duplicate name is caught before anything is touched, so the stream
+    survives it. A commit that fails after it has begun leaves the stream
+    describing frames that are not where it says they are; appending on top
+    would parse and give wrong data. The fault is injected by asking for an
+    array of 2**60 bytes.
     """
     container = tmp_path / "poison.pv"
     _seed(container)

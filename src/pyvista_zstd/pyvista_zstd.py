@@ -64,14 +64,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from pyvista_zstd._capi import CoreReader
 
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter (see ``_FILTER_*`` below), and version 2
-# adds fixed-width cell arrays that store their cell size in dataset metadata
-# instead of writing a redundant offsets frame.
-#
-# The refusal itself is the core's -- it holds the ceiling beside the decoder
-# the ceiling describes, so a caller reaching the library through the C ABI gets
-# the same answer this one does. What is published here is the format constant,
-# and ``test_file_version_matches_the_core`` fails if the two ever disagree.
+# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The
+# core enforces the ceiling; this constant only publishes it.
 FILE_VERSION = 2
 # Version stamped on files that use neither byte filters nor fixed-width cell
 # arrays. Such files stay byte-identical to the legacy format and remain
@@ -130,35 +124,20 @@ VTK_DOUBLE = 11
 # ---------------------------------------------------------------------------
 # Byte-shuffle pre-filter (file_version >= 1)
 # ---------------------------------------------------------------------------
-# The byte-shuffle pre-filter splits an array into byte planes -- all byte-0s,
-# then all byte-1s, ... -- before compression, turning the repetitive
-# sign/exponent planes of an IEEE-754 array into long runs.  It is opt-in
-# (disabled by default); ``"auto"`` considers only multibyte floating-point
-# arrays and keeps the shuffle only when a trial compression confirms it
-# shrinks the data, so ``auto`` never inflates a file.
+# Splits an array into byte planes before compression, turning the repetitive
+# sign/exponent planes of an IEEE-754 array into long runs. Opt-in; ``"auto"``
+# keeps it only when a trial compression confirms it shrinks the data.
 #
-# Applying the filter, deciding ``"auto"``, and writing the per-array filter id
-# all happen in the core.  This module only names the policy -- see
-# :func:`_shuffle_mode`.
-#
-# The core records the filter as an OPTIONAL trailing byte on the array
-# metadata frame; a frame with no trailing byte is unfiltered, which is what
-# keeps unfiltered output byte-identical to the legacy layout.  The id below is
-# declared because it is part of the on-disk format -- nothing in this module
-# branches on it.
+# The core applies the filter and records the id as an optional trailing byte
+# on the array metadata frame. The id is declared here because it is part of
+# the on-disk format; nothing in this module branches on it.
 _FILTER_SHUFFLE = 1
 
 ShuffleSpec = Literal["auto", True, False]
 
 
 def _shuffle_mode(shuffle: ShuffleSpec) -> int:
-    """
-    Translate the API spelling to the core's policy enum.
-
-    The mapping is the whole translation. Which arrays actually get shuffled,
-    and whether ``"auto"`` pays off on a given buffer, is the core's decision;
-    naming the policy is this side's only job.
-    """
+    """Translate the API spelling to the core's policy enum."""
     capi = _capi_module()
     return {
         False: capi.SHUFFLE_NEVER,
@@ -363,11 +342,10 @@ def _capi_module() -> ModuleType:
     """
     Import the ctypes binding lazily.
 
-    Deferred so that importing ``pyvista_zstd`` does not load a shared library,
-    which keeps import cheap and keeps the failure where it can be acted on: a
-    machine without the core raises :class:`~pyvista_zstd._capi.CoreUnavailableError`
-    from the first read or write, naming the candidates it tried, rather than
-    from ``import pyvista_zstd`` with no operation to blame.
+    Deferred so importing ``pyvista_zstd`` does not load a shared library, and
+    so a machine without the core raises
+    :class:`~pyvista_zstd._capi.CoreUnavailableError` from the first read or
+    write rather than from the import.
     """
     from pyvista_zstd import _capi  # noqa: PLC0415 - deliberately deferred
 
@@ -388,22 +366,13 @@ def _narrowed_to_int32(values: NDArray[Any], *, upper_bound: int | None = None) 
     """
     Return *values* as int32 when every entry survives the cast, else unchanged.
 
-    The bound must come from what the entries *mean*, never from the array's
-    length: a cell array's connectivity holds point ids, and a short
-    connectivity array in a huge mesh does not bound them at all. ``astype``
-    wraps an out-of-range id silently rather than raising, so getting this
-    wrong corrupts topology on a default write.
-
-    Pass *upper_bound* when the caller knows that meaning -- connectivity is
+    *upper_bound* must come from what the entries mean -- connectivity is
     bounded by the point count, an offsets array by the length of the
-    connectivity it indexes. That is the same fact the array would have to be
-    scanned to discover, so the scan is pure work: on a 7.8M-entry
-    connectivity it measured 3.3 ms against 0.6 us for the comparison.
+    connectivity it indexes -- never from the array's length. ``astype`` wraps
+    an out-of-range id silently, so an under-estimate corrupts topology.
 
-    Omit it where the meaning is not certain and the array is scanned instead.
-    Erring high only declines to narrow -- a larger file, still correct --
-    whereas erring low is the silent wrap this guard exists to prevent, so an
-    unsure caller passes nothing rather than a guess.
+    Omit it when the meaning is not certain; the array is scanned instead.
+    Erring high only declines to narrow, which is correct if larger.
 
     Ids are non-negative by construction, so only the upper end is checked.
     """
@@ -554,9 +523,8 @@ def _add_arrays_ugrid(
             force_int32=force_int32,
             max_entry=max_point_id,  # a face is a list of point ids
         )
-        # The face locations index into the face stream rather than into the
-        # points, and its extent is not to hand here -- scanned rather than
-        # guessed, which costs a pass over the shortest of these arrays.
+        # Face locations index into the face stream, not the points, and that
+        # extent is not to hand here -- so it is scanned, not guessed.
         _add_cell_array(
             ds_id,
             arrays,
@@ -784,9 +752,6 @@ class Writer:
             )
 
         if progress_bar:
-            # The frames are compressed in one call inside the core, so there
-            # is no longer a Python-side loop to report from. Say so rather
-            # than accept the argument and silently show nothing.
             warnings.warn(
                 "`progress_bar` no longer has any effect: frames are written by the C++ core in a single call.",
                 DeprecationWarning,
@@ -795,12 +760,8 @@ class Writer:
 
         self._add_ds_arrays(self._ds, force_int32=force_int32)
 
-        # The format decisions belong to the core: each array's byte filter,
-        # the file version that implies, the trailing metadata frame and the
-        # frame index. This side stages arrays in frame order -- which is not
-        # nothing, since which frames exist follows from how a dataset is
-        # marshalled (see _add_cell_array on homogeneous cells, and
-        # _narrowed_to_int32 on the dtype a cell array is recorded with).
+        # The core owns the format decisions; this side stages arrays in
+        # frame order.
         capi = _capi_module()
         with capi.CoreWriter() as writer:
             writer.set_level(level)
@@ -1025,13 +986,7 @@ except ImportError:
 
 
 def _warn_backend_deprecated(backend: object) -> None:
-    """
-    Warn that ``backend=`` is deprecated, and ignore it.
-
-    The selector existed to pick between two implementations. Only the C++
-    core remains, so the argument is accepted, warned about and disregarded
-    rather than kept as a way to select the sole implementation.
-    """
+    """Warn that ``backend=`` is deprecated, and ignore it."""
     if backend is None:
         return
     msg = (
@@ -1254,16 +1209,10 @@ class Reader:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
             raise ValueError(msg)
 
-        # Opening the core maps the file, validates the trailer and decompresses
-        # every metadata frame. All of that used to be done a second time here,
-        # in Python, over an mmap of the same bytes.
         try:
             core = self._core_reader()
         except _capi_module().ContainerFormatError as err:
-            # The trailer check moved into the core, whose message names the
-            # trailer rather than the file. Callers were told "File may be
-            # corrupted" and catch on that, so the wording is restored here
-            # rather than left to change under them.
+            # Callers catch on this wording, so keep it.
             msg = f"'{self._filename}' did not parse as a pyvista-zstd container. File may be corrupted."
             raise RuntimeError(msg) from err
         self._frame_decompressed, self._compressed_sizes = core.frame_sizes()
@@ -1374,10 +1323,9 @@ class Reader:
         """
         Decompress a dataset's arrays through the C++ core.
 
-        The dataset-metadata frame is not an array frame -- the core lifts it
-        out into JSON and does not report it among the arrays -- so it is taken
-        from the parked documents by name. A MultiBlock carries one per block,
-        which is why the lookup is by name and not "the" dataset metadata.
+        The core lifts the dataset-metadata frame out into JSON and does not
+        report it among the arrays, so it is taken from the parked documents
+        by name -- a MultiBlock carries one per block.
         """
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
         capi = _capi_module()
@@ -1521,10 +1469,7 @@ class Reader:
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
             return self._read_ds(self._ds_metadata.uid, n_threads)
 
-        # The hierarchy was assembled from the core's metadata at open, and each
-        # block reads through the same entry point an indexed read uses. Doing
-        # it here a second way is what let ``reader.read()`` and ``reader[i]``
-        # drift apart in what they applied to a block.
+        # Same entry point as an indexed read, so the two cannot drift apart.
         return self._ds_reader.read(n_threads)
 
     def _segments_to_ds(self, ds_id: str, segments: dict[str, Any]) -> DataSet:

@@ -49,10 +49,8 @@ inline void ParallelStride(int workers, uint64_t count, Fn fn) {
     }
   };
 
-  // Joins whatever was spawned, on every exit from this function. A
-  // std::thread vector destructed with a joinable member calls std::terminate,
-  // which is what the throwing emplace_back below would otherwise reach --
-  // past the ABI guard, which cannot catch it.
+  // Joins whatever was spawned, on every exit: a std::thread vector destructed
+  // with a joinable member calls std::terminate.
   struct Joiner {
     std::vector<std::thread> pool;
     ~Joiner() {
@@ -70,10 +68,7 @@ inline void ParallelStride(int workers, uint64_t count, Fn fn) {
       ++spawned;
     }
   } catch (...) {
-    // Thread creation is a resource request and can be refused. The work is
-    // still owed, so the caller's stripe below covers slice 0 and this loop
-    // covers the slices whose thread never started; a slower answer, not a
-    // failed one.
+    // Thread creation can be refused; run the un-spawned stripes inline.
     for (int w = spawned + 1; w < workers; ++w) stride(w);
   }
   stride(0);

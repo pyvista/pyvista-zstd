@@ -1,18 +1,16 @@
 """
 Build the pvzstd C++ core and bundle it into the wheel.
 
-The library is the package: an install that did not get one cannot read or
-write a container at all. That is why the build is required rather than
-best-effort -- a best-effort default would ship a wheel that imports cleanly
-and then fails on first use.
+The library is the package, so the build is required rather than best-effort.
+``PVZSTD_BUILD_CORE``:
 
   unset  required -- a C++ build failure is a build failure
-  1      required -- same; kept because CI and cibuildwheel set it explicitly
-  0      skipped  -- never invoke CMake, and the install is unusable until a
+  1      required -- same; CI and cibuildwheel set it explicitly
+  0      skipped  -- never invoke CMake. The install is unusable until a
                      library arrives from elsewhere (``PVZSTD_LIBRARY``, or
-                     one dropped into the package's ``lib/``). For building
-                     docs and for CI jobs that test a separate CMake build;
-                     never for a wheel anyone installs.
+                     one dropped into the package's ``lib/``). For docs builds
+                     and CI jobs testing a separate CMake build; never for a
+                     wheel anyone installs.
 """
 
 from __future__ import annotations
@@ -67,12 +65,9 @@ def _macos_architectures() -> str:
     """
     Return the macOS architectures to build for, or an empty string.
 
-    ``CMAKE_OSX_ARCHITECTURES`` wins when set. Otherwise the value is recovered
-    from ``ARCHFLAGS``, which is how wheel builders request a cross-build: they
-    export ``ARCHFLAGS=-arch x86_64`` and say nothing about CMake. Ignoring it
-    silently produces a library for the host architecture inside a wheel
-    labelled for the other one -- caught here only because the wheel repair
-    step refused it.
+    ``CMAKE_OSX_ARCHITECTURES`` wins when set; otherwise the value comes from
+    ``ARCHFLAGS``, which is how wheel builders request a cross-build. Ignoring
+    it puts a host-architecture library inside a wheel labelled for the other.
     """
     explicit = os.environ.get("CMAKE_OSX_ARCHITECTURES", "").strip()
     if explicit:
@@ -188,13 +183,10 @@ if bdist_wheel is not None:
         """
         Tag the wheel by platform only, never by interpreter.
 
-        ``has_ext_modules`` above makes setuptools reach for the full
-        ``cp312-cp312-linux_x86_64`` tag, which is what a CPython extension
-        module needs. This library is not one: it is a plain C shared object
-        loaded through ctypes, with no reference to the CPython ABI at all, so
-        a single build serves every supported interpreter. Left alone, the
-        stricter tag would multiply the wheel matrix by the number of Python
-        versions and gain nothing.
+        ``has_ext_modules`` makes setuptools reach for the full
+        ``cp312-cp312-linux_x86_64`` tag. This library is a plain C shared
+        object loaded through ctypes with no CPython ABI reference, so one
+        build serves every supported interpreter.
         """
 
         def get_tag(self) -> tuple[str, str, str]:

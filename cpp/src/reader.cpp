@@ -87,11 +87,10 @@ uint64_t DtypeItemsize(const char *dtype) {
 
 // Whether the declared payload size agrees with the header's shape and dtype.
 //
-// Nothing else checks this, and the mismatch is a buffer overrun produced by a
-// file: reads honour the declared payload size while callers size destinations
-// from shape and dtype, so a "10 float64" header over an 8000-byte payload writes
-// 8000 bytes into 80. An unrecognised dtype spelling is left unchecked rather than
-// rejected, since the format carries whatever numpy spelled.
+// A mismatch is a file-driven buffer overrun: reads honour the declared payload
+// size while callers size destinations from shape and dtype. An unrecognised
+// dtype spelling is left unchecked, since the format carries whatever numpy
+// spelled.
 bool DeclaredSizeAgrees(const std::vector<uint64_t> &shape, const char *dtype, uint64_t nbytes) {
   uint64_t n = DtypeItemsize(dtype);
   if (n == 0) return true;
@@ -213,11 +212,9 @@ struct pvz_reader {
 
 namespace {
 
-// One decompression context per thread, reused across frames -- zstd asks for a
-// context allocated once and one per thread, and `thread_local` gives both without
-// putting a handle in the ABI we cannot revise later. A container is many small
-// frames, so one-shot ZSTD_decompress() paid setup per frame. nullptr if it could
-// not be allocated; callers fall back to the one-shot entry point.
+// One decompression context per thread, reused across frames: zstd wants a
+// context allocated once per thread, and a container is many small frames.
+// nullptr if it could not be allocated; callers fall back to one-shot decode.
 ZSTD_DCtx *ThreadDCtx() {
   struct Holder {
     ZSTD_DCtx *ctx = ZSTD_createDCtx();
@@ -408,13 +405,9 @@ pvz_status pvz_open_versioned(const char *path, pvz_reader **out, uint32_t *file
     reader->arrays.push_back(entry);
   }
 
-  // Refuse a container this build cannot decode, before anything is read out of
-  // it. The version is the format's own statement of what it takes to read a
-  // file, so the ceiling belongs beside the decoder rather than in one of its
-  // front ends -- a C, WASM or Python caller all get the same answer, and none
-  // of them can drift by keeping its own copy of the number. A newer file may
-  // transform payloads in a way this build cannot invert, which would hand back
-  // corrupt values rather than fail.
+  // Refuse a container this build cannot decode before reading anything out of
+  // it: a newer file may transform payloads in a way this build cannot invert.
+  // The ceiling lives here, beside the decoder, so every front end agrees.
   if (reader->has_file_metadata) {
     long long version = 0;
     if (pvzstd::json::MemberInt(reader->file_metadata, "file_version", &version) && version >= 0) {

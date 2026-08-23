@@ -6,10 +6,7 @@ tool reads a container with the C++ reader and writes it back with the C++
 writer, so one run exercises both halves and the comparison is against real
 reference bytes rather than against our own idea of what they should be.
 
-Byte-identity is a deliberately harsher gate than round-trip fidelity, and it
-has already earned its keep: it caught a one-byte-per-array divergence on
-*empty* arrays, where the reference records a filter id that shuffling nothing
-would never reveal.
+Byte-identity is a deliberately harsher gate than round-trip fidelity.
 """
 
 from __future__ import annotations
@@ -93,14 +90,10 @@ def _bulk() -> pv.DataSet:
     """
     Big enough that the worker-count rule actually resolves to a worker.
 
-    Every other fixture here is well under a megabyte, so ``_set_n_threads``
-    returns 0 for all of them and both sides compress single-threaded. That
-    made the whole worker-count reproduction -- the thing the module docstring
-    calls load-bearing -- untested: breaking it deliberately left the suite
-    green. Two thresholds have to be cleared at once, and this dataset clears
-    both: 2 MiB, above which the reference asks for a worker at all, and 1 MiB
-    per frame, above which zstd's threaded and unthreaded output stop being
-    byte-identical.
+    Two thresholds must be cleared at once: 2 MiB, above which the reference
+    asks for a worker at all, and 1 MiB per frame, above which zstd's threaded
+    and unthreaded output stop being byte-identical. Every other fixture here
+    is well under a megabyte, so both sides compress single-threaded.
     """
     rng = np.random.default_rng(21)
     ds = pv.ImageData(dimensions=(64, 64, 64))
@@ -164,9 +157,7 @@ def test_empty_arrays_still_record_their_filter(tmp_path) -> None:
     """
     Regression: an empty multibyte array is *recorded* as filtered.
 
-    Shuffling nothing is a no-op, so nothing about the data reveals this --
-    only the one header byte does. Skipping it produced a file that read back
-    perfectly and was three bytes short.
+    Shuffling nothing is a no-op, so only the one header byte reveals this.
     """
     src = tmp_path / "polydata.pv"
     pz.write(_sphere(), src, shuffle=True, progress_bar=False)

@@ -11,11 +11,7 @@ emitting a fresh index. No previously-written compressed frame is re-read or
 re-compressed, which is what makes the cost proportional to what is added rather
 than to the size of the file.
 
-That edit is implemented in the C++ core. This module is its Python surface: it
-validates what a caller can get wrong, marshals arrays across the C ABI, and
-hands back numpy. It does not decide anything about the format -- not which
-frames are copied, not whether a block is byte-shuffled, not what file version
-that implies, and not when the result is committed.
+That edit is implemented in the C++ core; this module is its Python surface.
 
 On-disk layout
 --------------
@@ -139,8 +135,7 @@ def append_arrays(
         return
 
     capi = _capi_module()
-    # ``None`` means "whatever the file records", which the core resolves by
-    # reading the container -- the level is not re-derived here.
+    # ``None`` means "whatever the file records"; the core resolves it.
     resolved = capi.LEVEL_FROM_FILE if level is None else int(level)
     capi.append_arrays(path, arrays, level=resolved, shuffle=_shuffle_mode(shuffle))
 
@@ -187,6 +182,11 @@ class AppendReader:
     parses the index and the per-array headers when the file is opened, so
     repeated single-block reads are cheap.
 
+    The file stays open until :meth:`close` is called or the reader is
+    garbage-collected. On Windows an open reader blocks
+    :func:`append_arrays` from committing to the same path, so use the
+    reader as a context manager when both happen in one scope.
+
     Parameters
     ----------
     filename : pathlib.Path | str
@@ -197,10 +197,8 @@ class AppendReader:
     Examples
     --------
     >>> from pyvista_zstd.append import AppendReader
-    >>> r = AppendReader("data.pv")  # doctest: +SKIP
-    >>> r.field_array_names  # doctest: +SKIP
-    ['col_0000', 'col_0001']
-    >>> col = r.read_array("col_0001")  # doctest: +SKIP
+    >>> with AppendReader("data.pv") as r:  # doctest: +SKIP
+    ...     col = r.read_array("col_0001")
 
     """
 
@@ -224,12 +222,7 @@ class AppendReader:
         """
         The C++ reader to serve everything from.
 
-        Opened once and kept, because the mapping it holds is what makes a
-        second single-block read cheap. Resolved lazily so constructing a
-        reader and never using it costs nothing.
-
-        No availability check: there is no second path to fall to, so the
-        load failure itself is what gets raised, carrying its diagnostics.
+        Opened lazily and kept, so a second single-block read is cheap.
         """
         if self._core is None:
             self._core = _capi_module().CoreReader(self._path)
@@ -245,9 +238,7 @@ class AppendReader:
         """
         Mapping ``name -> ArrayInfo(shape, dtype)`` for field arrays.
 
-        The shape and dtype come from the frame header rather than from the
-        dataset metadata's copy of them. They are two spellings of one fact,
-        and the header is the one the payload is actually read against.
+        Taken from the frame header, which is what the payload is read against.
         """
         reader = self._core_reader
         info: dict[str, ArrayInfo] = {}
@@ -276,3 +267,17 @@ class AppendReader:
     def read_arrays(self, names: Iterable[str]) -> dict[str, NDArray]:
         """Decompress and return several field arrays by name."""
         return {n: self.read_array(n) for n in names}
+
+    def close(self) -> None:
+        """Release the file. Further reads reopen it."""
+        if self._core is not None:
+            self._core.close()
+            self._core = None
+
+    def __enter__(self) -> AppendReader:  # noqa: PYI034
+        """Return self; the file opens on first use."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Release the file."""
+        self.close()

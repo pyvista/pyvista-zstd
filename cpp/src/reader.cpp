@@ -32,6 +32,10 @@ constexpr uint64_t kTrailerCountBytes = 8;
 constexpr uint64_t kIndexEntryBytes = 16;
 constexpr char kDsMetadataSuffix[] = "__ds_metadata";
 constexpr char kFileMetadataSuffix[] = "__pyvista_zstd_metadata";
+// The .zvtk-era spelling of the same frame. Accepted so a legacy container
+// reaches the reader at all; which one a file used is reported by name through
+// pvz_metadata_name_at, because the caller may want to say so.
+constexpr char kLegacyFileMetadataSuffix[] = "__zvtk_metadata";
 constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
 constexpr char kFieldDataSuffix[] = "__field_data";
 constexpr size_t kUidNChar = 16;
@@ -193,6 +197,14 @@ struct pvz_reader {
   std::string file_metadata;
   bool has_ds_metadata = false;
   bool has_file_metadata = false;
+  // Every metadata document, in file order, paired with the frame name it came
+  // under. The two strings above hold only the last of each kind, which cannot
+  // describe a MultiBlock.
+  std::vector<std::string> metadata_names;
+  std::vector<std::string> metadata_docs;
+  // Trailer sizes, in file order, so a caller does not have to re-read them.
+  std::vector<uint64_t> frame_decompressed;
+  std::vector<uint64_t> frame_compressed;
   // Root dataset's field-data blocks, in metadata order. Empty for MultiBlock.
   std::vector<std::string> field_names;
   std::vector<int64_t> field_indices;  // into `arrays`; -1 if the frame is gone
@@ -325,6 +337,15 @@ pvz_status pvz_open(const char *path, pvz_reader **out) try {
     sizes[static_cast<size_t>(i)] = LoadU64(p + 8);
   }
 
+  // Banked before the frame walk: the walk consumes the metadata frames and
+  // reports only arrays, so afterwards there is no longer a per-frame view.
+  reader->frame_decompressed = sizes;
+  reader->frame_compressed.resize(static_cast<size_t>(n_frames));
+  for (uint64_t i = 0; i < n_frames; ++i) {
+    const uint64_t prev = (i == 0) ? 0 : ends[static_cast<size_t>(i - 1)];
+    reader->frame_compressed[static_cast<size_t>(i)] = ends[static_cast<size_t>(i)] - prev;
+  }
+
   // MultiBlock has no single root, so its metadata frame abandons the field-array
   // index rather than guessing which block owns it.
   std::string ds_id;
@@ -363,7 +384,8 @@ pvz_status pvz_open(const char *path, pvz_reader **out) try {
     }
 
     const bool is_ds = EndsWith(entry.name, kDsMetadataSuffix);
-    const bool is_file = EndsWith(entry.name, kFileMetadataSuffix);
+    const bool is_file = EndsWith(entry.name, kFileMetadataSuffix) ||
+                         EndsWith(entry.name, kLegacyFileMetadataSuffix);
     if (is_ds || is_file) {
       std::vector<uint8_t> payload;
       st = DecompressFrame(raw.data() + entry.payload_start,
@@ -373,6 +395,8 @@ pvz_status pvz_open(const char *path, pvz_reader **out) try {
         return st;
       }
       std::string json(reinterpret_cast<const char *>(payload.data()), payload.size());
+      reader->metadata_names.push_back(entry.name);
+      reader->metadata_docs.push_back(json);
       if (is_ds) {
         reader->ds_metadata = json;
         reader->has_ds_metadata = true;
@@ -592,6 +616,45 @@ const char *pvz_file_metadata_json(const pvz_reader *reader) try {
   return reader->file_metadata.c_str();
 } catch (...) {
   return nullptr;
+}
+
+uint64_t pvz_metadata_count(const pvz_reader *reader) try {
+  if (reader == nullptr) return 0;
+  return reader->metadata_docs.size();
+} catch (...) {
+  return 0;
+}
+
+const char *pvz_metadata_name_at(const pvz_reader *reader, uint64_t index) try {
+  if (reader == nullptr || index >= reader->metadata_names.size()) return nullptr;
+  return reader->metadata_names[static_cast<size_t>(index)].c_str();
+} catch (...) {
+  return nullptr;
+}
+
+const char *pvz_metadata_json_at(const pvz_reader *reader, uint64_t index) try {
+  if (reader == nullptr || index >= reader->metadata_docs.size()) return nullptr;
+  return reader->metadata_docs[static_cast<size_t>(index)].c_str();
+} catch (...) {
+  return nullptr;
+}
+
+uint64_t pvz_frame_count(const pvz_reader *reader) try {
+  if (reader == nullptr) return 0;
+  return reader->frame_decompressed.size();
+} catch (...) {
+  return 0;
+}
+
+pvz_status pvz_frame_sizes(const pvz_reader *reader, uint64_t *decompressed,
+                           uint64_t *compressed) try {
+  if (reader == nullptr) return PVZ_E_INVALID;
+  const size_t n = reader->frame_decompressed.size();
+  if (decompressed != nullptr) std::memcpy(decompressed, reader->frame_decompressed.data(), n * 8);
+  if (compressed != nullptr) std::memcpy(compressed, reader->frame_compressed.data(), n * 8);
+  return PVZ_OK;
+} catch (...) {
+  return PVZ_E_NOMEM;
 }
 
 const char *pvz_status_message(pvz_status status) {

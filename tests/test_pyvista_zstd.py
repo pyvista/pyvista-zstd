@@ -674,6 +674,44 @@ def test_multiblock_duplicate(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     assert mblock_out[0] is mblock_out[1]
 
 
+def test_multiblock_duplicate_is_indexable(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """
+    A repeated block is still two slots when reached through the reader index.
+
+    The hierarchy is keyed by dataset UID, and a dataset stored once and
+    referenced twice shares one. Building the child readers from that mapping
+    collapsed the repeat, leaving ``len(reader)`` short of the block count and
+    ``reader[1]`` out of range -- while ``read()`` looked fine, because it did
+    not go through the same walk.
+    """
+    source = MultiBlock([ugrid, ugrid])
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(source, tmp_filename)
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    assert len(reader) == source.n_blocks
+    # Equal, not identical: sharing holds within one read, and these are two
+    # calls. What is asserted here is that the second slot exists at all.
+    assert reader[1].read() == reader[0].read()
+
+
+def test_multiblock_two_empty_blocks(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Two empty blocks share the empty-dataset UID and must stay two blocks."""
+    mblock = MultiBlock()
+    mblock["a"] = None
+    mblock["real"] = ugrid
+    mblock["b"] = None
+
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(mblock, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    assert out.n_blocks == mblock.n_blocks
+    assert [out.get_block_name(i) for i in range(out.n_blocks)] == ["a", "real", "b"]
+    assert out["a"] is None
+    assert out["b"] is None
+
+
 def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
     """Test read/write explicit structured grid."""
     populate_data(esgrid)

@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 3u
+#define PVZSTD_ABI_VERSION 4u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -123,9 +123,49 @@ PVZSTD_API const char *pvz_field_array_name_at(const pvz_reader *reader, uint64_
 PVZSTD_API int64_t pvz_find_field_array(const pvz_reader *reader, const char *name);
 
 /* The two JSON metadata documents, NUL-terminated and owned by the reader.
- * Either may be NULL if the container did not carry it. */
+ * Either may be NULL if the container did not carry it.
+ *
+ * pvz_ds_metadata_json reports the LAST dataset-metadata document met, which is
+ * the only one for a single-dataset container and an arbitrary block's for a
+ * MultiBlock. Use the by-index family below to assemble a hierarchy. */
 PVZSTD_API const char *pvz_ds_metadata_json(const pvz_reader *reader);
 PVZSTD_API const char *pvz_file_metadata_json(const pvz_reader *reader);
+
+/* ---- Every metadata document, by index ----
+ *
+ * A MultiBlock stores one dataset-metadata frame per block plus one per nested
+ * MultiBlock, and a caller rebuilding the tree needs all of them together with
+ * the frame name each was stored under -- the name carries the block's UID, and
+ * the documents reference each other by UID alone.
+ *
+ * Order is file order. The file-metadata document is included, so a caller can
+ * tell a legacy container from a current one by the name rather than by
+ * re-reading the file: this build accepts both "__pyvista_zstd_metadata" and
+ * the legacy "__zvtk_metadata", and only the name distinguishes them. */
+
+/* Number of metadata documents the container carried. */
+PVZSTD_API uint64_t pvz_metadata_count(const pvz_reader *reader);
+
+/* Frame name of metadata document `index`, owned by the reader, or NULL. */
+PVZSTD_API const char *pvz_metadata_name_at(const pvz_reader *reader, uint64_t index);
+
+/* JSON of metadata document `index`, owned by the reader, or NULL. */
+PVZSTD_API const char *pvz_metadata_json_at(const pvz_reader *reader, uint64_t index);
+
+/* ---- Frame sizes ----
+ *
+ * Two frames per array, (header, payload), in file order -- including the
+ * metadata frames, which are not reported as arrays. These are the trailer's
+ * own numbers, so a caller needing them no longer has to parse the trailer
+ * itself to answer "how big is this file decompressed". */
+
+/* Total frame count, always even. */
+PVZSTD_API uint64_t pvz_frame_count(const pvz_reader *reader);
+
+/* Fill two caller-owned arrays of pvz_frame_count() entries. Either pointer may
+ * be NULL to skip that half. */
+PVZSTD_API pvz_status pvz_frame_sizes(const pvz_reader *reader, uint64_t *decompressed,
+                                      uint64_t *compressed);
 
 /* Every entry point below reports failure as a status code and never lets an
  * exception cross this boundary: a caller reaching it through ctypes or another

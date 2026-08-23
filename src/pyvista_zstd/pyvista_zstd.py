@@ -12,7 +12,6 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
 import json
-import mmap
 from pathlib import Path
 import struct
 from typing import TYPE_CHECKING
@@ -57,9 +56,6 @@ from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 import zstandard as zstd
-from zstandard import BufferSegment
-from zstandard import BufferWithSegments
-from zstandard import BufferWithSegmentsCollection
 
 if TYPE_CHECKING:  # pragma: no cover
     from types import ModuleType
@@ -441,18 +437,6 @@ def _format_bytes(size: float) -> str:
     return f"{size:.1f}TB"
 
 
-def _set_n_threads(n_threads: int | None, n_bytes: int, max_manual_threads: int = 8) -> int:
-    # Maximum number of set threads before relying on zstandard to
-    # automatically set them
-
-    if n_threads is None:
-        size_mb = n_bytes / 1024**2
-        n_threads = int(size_mb // 2)  # rough guess
-        n_threads = -1 if n_threads > max_manual_threads else n_threads
-
-    return n_threads
-
-
 def _add_cell_array(  # noqa: PLR0913
     ds_id: str,
     arrays: dict[str, np.ndarray],
@@ -831,65 +815,6 @@ class Writer:
         self._refs = []
 
 
-def _reconstruct_array(
-    meta_segment: BufferSegment,
-    arr_segment: BufferSegment,
-) -> tuple[str, NDArray[Any]]:
-    """
-    Reconstruct a NumPy array from a single decompressed Zstd frame.
-
-    Frame layout:
-    ``[name_len:uint32][name:bytes][ndim:uint32][shape:Q*ndim][dtype:16 bytes][array data]``.
-
-    """
-    meta_buf = memoryview(meta_segment)
-
-    offset = 0
-    name_len = struct.unpack_from("<I", meta_buf, offset)[0]
-    offset += 4
-    name = meta_buf[offset : offset + name_len].tobytes().decode("utf-8")
-    offset += name_len
-
-    ndim = struct.unpack_from("<I", meta_buf, offset)[0]
-    offset += 4
-
-    shape = tuple(struct.unpack_from(f"<{ndim}Q", meta_buf, offset))
-    offset += 8 * ndim
-
-    dtype_str = meta_buf[offset : offset + UID_N_CHAR].tobytes().strip().decode("utf-8")
-    offset += UID_N_CHAR
-
-    # Optional trailing filter byte (file_version >= 1).  Legacy frames have
-    # none, so a missing byte means _FILTER_NONE -- keeping old files readable.
-    filter_id = _FILTER_NONE
-    if offset < len(meta_buf):
-        filter_id = struct.unpack_from("<B", meta_buf, offset)[0]
-
-    dtype = np.dtype(dtype_str)
-    data_buf = memoryview(arr_segment)
-    if filter_id == _FILTER_NONE:
-        data = np.frombuffer(data_buf, dtype=dtype).reshape(shape)
-    elif filter_id == _FILTER_SHUFFLE:
-        # Invert the byte-plane split, then view as the original dtype.
-        data = _unshuffle_bytes(data_buf, dtype.itemsize).view(dtype).reshape(shape)
-    else:
-        # An unknown filter id means this build cannot reverse the on-disk
-        # transform; reading the bytes as-is would corrupt the array, so fail.
-        msg = f"Unsupported per-array filter id {filter_id} for array '{name}'. Upgrade `pyvista-zstd` to read it."
-        raise ValueError(msg)
-    return name, data
-
-
-def _raw_segments_to_arrays(
-    segments_raw: BufferWithSegmentsCollection,
-) -> dict[str, NDArray[Any]]:
-    segments = {}
-    for ii in range(int(len(segments_raw) / 2)):
-        name, arr = _reconstruct_array(segments_raw[ii * 2], segments_raw[ii * 2 + 1])
-        segments[name] = arr
-    return segments
-
-
 def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
     # add point and cell data
     point_data = ds.point_data
@@ -1182,8 +1107,12 @@ class _DataSetReader:
         if isinstance(metadata, MultiBlockMetadata):
             if metadata.children_ds is None:
                 return
-            for child in metadata.children_ds.values():
-                self._children.append(_DataSetReader(child, parent))
+            # Walk ``children``, not ``children_ds``. The mapping is keyed by
+            # UID, and a MultiBlock may hold the same dataset in two slots (or
+            # two empty ones), so iterating the mapping loses the repeat and
+            # leaves fewer readers than the block has keys.
+            for child_uid in metadata.children:
+                self._children.append(_DataSetReader(metadata.children_ds[child_uid], parent))
 
     def __getitem__(self, idx: int) -> _DataSetReader:
         if not isinstance(self._meta, MultiBlockMetadata):
@@ -1203,13 +1132,26 @@ class _DataSetReader:
             return EMPTY_DS
         return self._meta.uid
 
-    def read(self) -> DataSet | MultiBlock:
+    def read(self, n_threads: int | None = None) -> DataSet | MultiBlock:
+        return self._read_shared({}, n_threads)
+
+    def _read_shared(self, built: dict[str, DataSet], n_threads: int | None) -> DataSet | MultiBlock:
+        """
+        Read this node, reusing datasets already built in this call.
+
+        A dataset stored once and referenced from two blocks comes back as one
+        object in both, which is how it was written and what callers compare
+        with ``is``. Decompressing it twice would also cost twice.
+        """
         if isinstance(self._meta, DataSetMetadata):
-            return self._parent._read_ds(self.uid)  # noqa: SLF001
+            uid = self.uid
+            if uid not in built:
+                built[uid] = self._parent._read_ds(uid, n_threads)  # noqa: SLF001
+            return built[uid]
         if isinstance(self._meta, MultiBlockMetadata):
             mb = MultiBlock()
             for key, child in zip(self._meta.children_keys, self._children, strict=True):
-                mb[key] = child.read()
+                mb[key] = child._read_shared(built, n_threads)  # noqa: SLF001
             return mb
 
         if self._meta is None:
@@ -1313,68 +1255,29 @@ class Reader:
         self._selected_point_arrays: set[str] | None = None
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
-        self._one_dataset: bool | None = None
         self._core: CoreReader | None = None
 
         if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
             raise ValueError(msg)
 
-        with self._filename.open("rb") as f:
-            f.seek(-8, 2)
-            num_frames = struct.unpack("<Q", f.read(8))[0]
+        # Opening the core maps the file, validates the trailer and decompresses
+        # every metadata frame. All of that used to be done a second time here,
+        # in Python, over an mmap of the same bytes.
+        try:
+            core = self._core_reader()
+        except _capi_module().ContainerFormatError as err:
+            # The trailer check moved into the core, whose message names the
+            # trailer rather than the file. Callers were told "File may be
+            # corrupted" and catch on that, so the wording is restored here
+            # rather than left to change under them.
+            msg = f"'{self._filename}' did not parse as a pyvista-zstd container. File may be corrupted."
+            raise RuntimeError(msg) from err
+        self._frame_decompressed, self._compressed_sizes = core.frame_sizes()
+        self._metadata_documents = dict(core.metadata_documents())
 
-            max_frames = 1_000_000
-            if num_frames == 0 or num_frames > max_frames:
-                msg = "Bad number of frames. File may be corrupted."
-                raise RuntimeError(msg)
-
-            f.seek(-(8 + num_frames * UID_N_CHAR), 2)
-            meta_data = f.read(num_frames * UID_N_CHAR)
-            frame_meta = [
-                struct.unpack("<QQ", meta_data[i * UID_N_CHAR : (i + 1) * UID_N_CHAR]) for i in range(num_frames)
-            ]
-            frame_starts = [0] + [end for end, _ in frame_meta[:-1]]
-            frame_ends = [end for end, _ in frame_meta]
-            sizes = [dsz for _, dsz in frame_meta]
-            self._decompressed_sizes = struct.pack(f"={len(sizes)}Q", *sizes)
-            self._mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-
-        # store compressed frame sizes
-        sizes = []
-        for i in range(len(frame_ends)):
-            if i == 0:
-                sizes.append(frame_ends[0])
-            else:
-                sizes.append(frame_ends[i] - frame_ends[i - 1])
-        self._compressed_sizes = np.array(sizes, dtype=np.uint64)
-
-        # prepare the metadata frame and decompress it
-        segments_bytes = b"".join(
-            struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends, strict=True)
-        )
-
-        if not segments_bytes:
-            msg = "Empty segments. File may be corrupted."
-            raise RuntimeError(msg)
-
-        self._frames = BufferWithSegments(self._mm, segments_bytes)
-
-        # The core decompresses both metadata frames at open, so reading them here
-        # too would be the same zstd work twice. Measured cold, the 182us the core
-        # adds to open is arriving at the library, not using it: ~220us deferred
-        # `import _capi` plus ~175us dlopen and prototype binding, both once per
-        # process, against +6us for the trailer parse this duplicates.
-        core = self._core_reader()
-
-        # Still fall back per-file: the core parks metadata it can lift cheaply
-        # and reports nothing for the shapes it does not, which is a property of
-        # the file rather than of a choice of implementation.
-        from_core = self._file_metadata_from_core(core)
-        self._metadata = self._load_file_metadata() if from_core is None else from_core
-
-        ds_from_core = self._root_ds_meta_from_core(core)
-        self._ds_metadata = self._load_root_dataset_meta() if ds_from_core is None else ds_from_core
+        self._metadata = self._file_metadata_from_core()
+        self._ds_metadata = self._root_ds_meta_from_core()
 
         self.__ds_reader: _DataSetReader | None = None
 
@@ -1393,43 +1296,18 @@ class Reader:
 
         return self.__ds_reader
 
-    def _load_root_dataset_meta(self) -> DataSetMetadata | MultiBlockMetadata:
+    @staticmethod
+    def _ds_meta_from_json(frame_name: str, raw: str) -> DataSetMetadata | MultiBlockMetadata:
         """
-        Return the root dataset metadata.
+        Decode one dataset-metadata document.
 
-        There may be more than one dataset if it's a multi-block dataset, but
-        there's always a root dataset.
+        The class comes from the frame's name, not from the contents: a lone
+        document may be either kind and the two overlap in what they carry.
         """
-        for frame_name in self._metadata.frame_names:
-            if frame_name.endswith(DS_METADATA_KEY):
-                return self._load_ds_meta(frame_name)
-
-        msg = "No dataset metadata found"  # pragma: no cover
-        raise RuntimeError(msg)  # pragma: no cover
-
-    def _decompress_pair(self, key: str) -> tuple[str, NDArray[Any]]:
-        """
-        Decompress the single (header, payload) frame pair named *key*.
-
-        Used for the metadata frames, which are small enough that threading
-        them costs more than it saves.
-        """
-        index = self._metadata.frame_names.index(key) * 2  # times two for metadata
-        dctx = zstd.ZstdDecompressor()
-
-        # read in only the segment
-        segments = dctx.multi_decompress_to_buffer(
-            [self._frames[index], self._frames[index + 1]],
-            decompressed_sizes=self._decompressed_sizes[index * 8 : (index + 2) * 8],
-            threads=0,  # tiny
-        )
-        return _reconstruct_array(*segments)
-
-    def _load_ds_meta(self, key: str) -> DataSetMetadata | MultiBlockMetadata:
-        name, arr = self._decompress_pair(key)
-        if name.endswith(MULTIBLOCK_METADATA_KEY):
+        arr = np.frombuffer(raw.encode("utf-8"), dtype=np.uint8)
+        if frame_name.endswith(MULTIBLOCK_METADATA_KEY):
             return MultiBlockMetadata.from_array(arr)
-        if name.endswith(DS_METADATA_KEY):
+        if frame_name.endswith(DS_METADATA_KEY):
             return DataSetMetadata.from_array(arr)
 
         msg = "Metadata key invalid."  # pragma: no cover
@@ -1443,40 +1321,12 @@ class Reader:
         This an array containing 64-bit unsigned integers containing the
         decompressed sizes in bytes of each frame.
         """
-        return np.frombuffer(self._decompressed_sizes, dtype=np.uint64)
+        return self._frame_decompressed
 
     @property
     def nbytes(self) -> int:
         """Return the size of the decompressed dataset."""
         return int(self.decompressed_sizes.sum())
-
-    def _load_file_metadata(self) -> ZstdFileMetadata:
-        """Load the metadata from the pyvista-zstd file without full decompression."""
-        dctx = zstd.ZstdDecompressor()
-
-        # read in only the last segment
-        segments = dctx.multi_decompress_to_buffer(
-            [self._frames[-2], self._frames[-1]],
-            decompressed_sizes=self._decompressed_sizes[-UID_N_CHAR:],
-            threads=0,  # tiny
-        )
-        name, arr = _reconstruct_array(*segments)
-        if name == LEGACY_FILE_METADATA_KEY:
-            # FutureWarning (not DeprecationWarning) because this is aimed at
-            # end users re-saving their data files, and Python's default
-            # warning filters hide DeprecationWarning from non-__main__ code.
-            warnings.warn(
-                f"'{self._filename}' is a legacy zvtk file. Support for the "
-                "'.zvtk' format will be removed in a future release; re-save "
-                "it with `pyvista_zstd.write(pyvista_zstd.read(path), new_path)`.",
-                FutureWarning,
-                stacklevel=2,
-            )
-        elif name != FILE_METADATA_KEY:  # pragma: no cover
-            msg = "File metadata not found in pyvista-zstd file."
-            raise RuntimeError(msg)
-
-        return self._checked_file_metadata(arr.tobytes().decode("utf-8"))
 
     def _checked_file_metadata(self, raw: str) -> ZstdFileMetadata:
         """Parse file metadata JSON, refusing a file newer than this build."""
@@ -1495,65 +1345,66 @@ class Reader:
 
         return metadata
 
-    def _file_metadata_from_core(self, core: CoreReader) -> ZstdFileMetadata | None:
+    def _file_metadata_from_core(self) -> ZstdFileMetadata:
         """
-        Return the file metadata the core already decompressed, if it has it.
+        Return the file metadata, and warn if the container is a legacy one.
 
-        ``None`` sends the caller down the Python path. That happens for a
-        legacy container: the core recognises the metadata frame by the suffix
-        ``__pyvista_zstd_metadata``, which ``__zvtk_metadata`` does not end
-        with, so legacy files land on the Python path and keep the deprecation
-        warning it raises.
+        The core accepts both spellings of the frame and reports which one the
+        file used, so the deprecation notice is raised from the name rather
+        than by parsing the trailer a second time to find out.
         """
-        raw = core.file_metadata_json
-        return None if raw is None else self._checked_file_metadata(raw)
+        raw = self._metadata_documents.get(FILE_METADATA_KEY)
+        if raw is None:
+            raw = self._metadata_documents.get(LEGACY_FILE_METADATA_KEY)
+            if raw is None:  # pragma: no cover
+                msg = "File metadata not found in pyvista-zstd file."
+                raise RuntimeError(msg)
+            # FutureWarning (not DeprecationWarning) because this is aimed at
+            # end users re-saving their data files, and Python's default
+            # warning filters hide DeprecationWarning from non-__main__ code.
+            warnings.warn(
+                f"'{self._filename}' is a legacy zvtk file. Support for the "
+                "'.zvtk' format will be removed in a future release; re-save "
+                "it with `pyvista_zstd.write(pyvista_zstd.read(path), new_path)`.",
+                FutureWarning,
+                stacklevel=3,
+            )
 
-    def _root_ds_meta_from_core(self, core: CoreReader) -> DataSetMetadata | MultiBlockMetadata | None:
+        return self._checked_file_metadata(raw)
+
+    def _root_ds_meta_from_core(self) -> DataSetMetadata | MultiBlockMetadata:
         """
-        Return the root dataset metadata the core already decompressed, if it is the root.
+        Return the root dataset's metadata.
 
-        The core keeps one dataset-metadata document and overwrites it with
-        each frame it meets, so what it holds is the *last* one. That is the
-        root only when the container carries exactly one, which is why this
-        counts them rather than trusting the document to be the right one.
-        The class is chosen from the frame's name, not guessed from the
-        contents, because a lone frame may be either kind.
+        The root is the first dataset-metadata frame in the file, which is the
+        order ``frame_names`` records; the core's documents are keyed by name
+        rather than ordered by role, so the order comes from there.
         """
-        names = [name for name in (self._metadata.frame_names or ()) if name.endswith(DS_METADATA_KEY)]
-        if len(names) != 1:
-            return None
+        for frame_name in self._metadata.frame_names or ():
+            if frame_name.endswith(DS_METADATA_KEY):
+                raw = self._metadata_documents.get(frame_name)
+                if raw is None:  # pragma: no cover - named but not carried
+                    break
+                return self._ds_meta_from_json(frame_name, raw)
 
-        raw = core.ds_metadata_json
-        if raw is None:  # pragma: no cover - a named frame the core did not keep
-            return None
+        msg = "No dataset metadata found"  # pragma: no cover
+        raise RuntimeError(msg)  # pragma: no cover
 
-        arr = np.frombuffer(raw.encode("utf-8"), dtype=np.uint8)
-        if names[0].endswith(MULTIBLOCK_METADATA_KEY):
-            return MultiBlockMetadata.from_array(arr)
-        return DataSetMetadata.from_array(arr)
-
-    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str]) -> dict[str, NDArray[Any]]:
+    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str], n_threads: int | None) -> dict[str, NDArray[Any]]:
         """
         Decompress a dataset's arrays through the C++ core.
 
-        The dataset-metadata frame is not an array frame -- the C++ reader
-        lifts it out into JSON and does not report it among the arrays -- and a
-        MultiBlock file carries one per dataset, so it is decompressed here
-        rather than taken from the C++ reader's single slot.
+        The dataset-metadata frame is not an array frame -- the core lifts it
+        out into JSON and does not report it among the arrays -- so it is taken
+        from the parked documents by name. A MultiBlock carries one per block,
+        which is why the lookup is by name and not "the" dataset metadata.
         """
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
+        capi = _capi_module()
         reader = self._core_reader()
-        segments = reader.read_arrays(keep=keep - {meta_key})
-
-        # Taken from the core's parked JSON rather than pulled through zstd again.
-        # The core keeps one slot, so this only holds for a single-dataset file --
-        # MultiBlock has one such frame per dataset.
-        raw = reader.ds_metadata_json if self._holds_one_dataset() else None
-
-        if raw is None:
-            _, segments[meta_key] = self._decompress_pair(meta_key)
-        else:
-            segments[meta_key] = np.frombuffer(raw.encode("utf-8"), dtype=np.uint8)
+        threads = capi.THREADS_AUTO if n_threads is None else n_threads
+        segments = reader.read_arrays(keep=keep - {meta_key}, n_threads=threads)
+        segments[meta_key] = np.frombuffer(self._metadata_documents[meta_key].encode("utf-8"), dtype=np.uint8)
         return segments
 
     def _core_reader(self) -> CoreReader:
@@ -1576,15 +1427,6 @@ class Reader:
             self._core = reader
         return reader
 
-    def _holds_one_dataset(self) -> bool:
-        """Whether the file carries exactly one dataset-metadata frame."""
-        cached = self._one_dataset
-        if cached is None:
-            names = self._metadata.frame_names or ()
-            cached = sum(1 for name in names if name.endswith(DS_METADATA_KEY)) == 1
-            self._one_dataset = cached
-        return cached
-
     def _selected_frame_names(self, ds_id: str) -> set[str]:
         """
         Return the frame names to decompress for one dataset.
@@ -1605,7 +1447,7 @@ class Reader:
         return {f for f in names if f.startswith(ds_id)}
 
     # @profile
-    def _read_ds(self, ds_id: str) -> DataSet:
+    def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
         """Read a single dataset."""
         # map frame indices to names using metadata
         frame_names = self._metadata.frame_names
@@ -1621,45 +1463,26 @@ class Reader:
 
         # Frame-addressed, so downselecting skips the decompression too, not
         # just the copy into the dataset.
-        segments = self._read_ds_segments_cpp(ds_id, selected_frame_names)
+        segments = self._read_ds_segments_cpp(ds_id, selected_frame_names, n_threads)
         return self._segments_to_ds(ds_id, segments)
 
-    def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901, PLR0912
+    def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901
         """Read metadata hierarchy from the pyvista-zstd file."""
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
             msg = "Can only index a MultiBlock compressed pyvista-zstd file."
             raise TypeError(msg)
 
-        # find only metadata frames
-        frame_names = self._metadata.frame_names
-        selected_frames = []
-        sizes = []
-        for ii, name in enumerate(frame_names):
-            idx = ii * 2  # double for metadata
-            if name.endswith((MULTIBLOCK_METADATA_KEY, DS_METADATA_KEY)):
-                selected_frames.extend([self._frames[idx], self._frames[idx + 1]])
-                sizes.append(self._decompressed_sizes[idx * 8 : (idx + 2) * 8])
-
-        d_sizes_bytes = b"".join(sizes)
-        dctx = zstd.ZstdDecompressor()
-        segments_raw = dctx.multi_decompress_to_buffer(
-            selected_frames,
-            decompressed_sizes=d_sizes_bytes,
-            threads=0,
-        )
-        segments = _raw_segments_to_arrays(segments_raw)
-
-        # decode metadata objects
+        # decode metadata objects -- the core decompressed every one of these
+        # at open, so the hierarchy is assembled from documents it already holds
         mblock_meta: dict[str, MultiBlockMetadata] = {}
         dataset_meta: dict[str, DataSetMetadata] = {}
-        for key, segment in segments.items():
+        for key, raw in self._metadata_documents.items():
             if key.endswith(MULTIBLOCK_METADATA_KEY):
-                mb_meta = MultiBlockMetadata.from_array(segment)
+                mb_meta = MultiBlockMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
                 mblock_meta[mb_meta.uid] = mb_meta
             elif key.endswith(DS_METADATA_KEY):
                 uid = key[:UID_N_CHAR]
-                ds_meta = DataSetMetadata.from_array(segment)
-                dataset_meta[uid] = ds_meta
+                dataset_meta[uid] = DataSetMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
 
         # assemble hierarchy tree by wiring children to their metadata
         for uid, m in mblock_meta.items():
@@ -1684,7 +1507,7 @@ class Reader:
 
         return _DataSetReader(mblock_meta[root_uid], self)
 
-    def read(self, n_threads: int | None = None) -> DataSet:  # noqa: C901
+    def read(self, n_threads: int | None = None) -> DataSet:
         """
         Read in the dataset from the pyvista-zstd file.
 
@@ -1714,56 +1537,13 @@ class Reader:
 
         """
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
-            # ``n_threads`` does not reach here: a single dataset is read
-            # through the core, which chooses its own decompression threading.
-            # It still applies to the MultiBlock path below.
-            return self._read_ds(self._ds_metadata.uid)
+            return self._read_ds(self._ds_metadata.uid, n_threads)
 
-        # read everything
-        n_threads = _set_n_threads(n_threads, self.nbytes)
-
-        dctx = zstd.ZstdDecompressor()
-        segments_raw = dctx.multi_decompress_to_buffer(
-            self._frames,
-            decompressed_sizes=self._decompressed_sizes,
-            threads=n_threads,
-        )
-        segments = _raw_segments_to_arrays(segments_raw)
-
-        mblock_meta = []
-        dataset_map: dict[str, DataSet] = {}
-        for key, segment in segments.items():
-            if key.endswith(MULTIBLOCK_METADATA_KEY):
-                mblock_meta.append(MultiBlockMetadata.from_array(segment))
-            elif key.endswith(DS_METADATA_KEY):
-                uid = key[:UID_N_CHAR]
-                dataset_map[uid] = self._segments_to_ds(key[:UID_N_CHAR], segments)
-
-        # Build empty MultiBlock objects for every multiblock metadata entry.
-        multiblock_map: dict[str, MultiBlock] = {m.uid: MultiBlock() for m in mblock_meta}
-
-        # Populate each MultiBlock using its children list. Children may be
-        # datasets or other multiblocks (nested multiblocks).
-        for m in mblock_meta:
-            mb = multiblock_map[m.uid]
-            for child_key, child_uid in zip(m.children_keys, m.children, strict=True):
-                if child_uid in multiblock_map:
-                    mb[child_key] = multiblock_map[child_uid]
-                elif child_uid in dataset_map:
-                    mb[child_key] = dataset_map[child_uid]
-                elif child_uid == EMPTY_DS:
-                    mb[child_key] = None
-                else:  # pragma: no cover
-                    msg = f"Multiblock child '{child_uid}' not found for multiblock '{m.uid}'"
-                    raise RuntimeError(msg)
-
-        # Return the top-level multiblock identified by the root metadata uid.
-        root_uid = self._ds_metadata.uid
-        if root_uid not in multiblock_map:  # pragma: no cover
-            msg = "Top-level multiblock metadata not found."
-            raise RuntimeError(msg)
-
-        return multiblock_map[root_uid]
+        # The hierarchy was assembled from the core's metadata at open, and each
+        # block reads through the same entry point an indexed read uses. Doing
+        # it here a second way is what let ``reader.read()`` and ``reader[i]``
+        # drift apart in what they applied to a block.
+        return self._ds_reader.read(n_threads)
 
     def _segments_to_ds(self, ds_id: str, segments: dict[str, Any]) -> DataSet:
         meta_arr = segments[f"{ds_id}{DS_METADATA_KEY}"]

@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ABI_VERSION",
     "ArrayExistsError",
+    "ContainerFormatError",
     "ContainerShapeError",
     "CoreReader",
     "CoreUnavailableError",
@@ -55,7 +56,7 @@ __all__ = [
     "load_error",
 ]
 
-ABI_VERSION = 3
+ABI_VERSION = 4
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -77,6 +78,7 @@ SHUFFLE_AUTO = 2
 _LIBRARY_ENV_VAR = "PVZSTD_LIBRARY"
 
 _STATUS_OK = 0
+_STATUS_FORMAT = 2
 _STATUS_FILTER = 6
 _STATUS_UNSUPPORTED = 8
 _STATUS_EXISTS = 9
@@ -102,6 +104,16 @@ class PvzstdError(RuntimeError):
             message = f"{described} ({detail})" if detail else described
         super().__init__(message)
         self.status = status
+
+
+class ContainerFormatError(PvzstdError):
+    """
+    The bytes are not a ``.pv`` container this build can parse.
+
+    Named separately because callers act on it: a file that fails here is
+    corrupt or not a container at all, which is a different report from an
+    operation the container is well-formed for but cannot serve.
+    """
 
 
 class UnsupportedFilterError(PvzstdError, ValueError):
@@ -210,6 +222,12 @@ _load_error: str | None = None
 
 def _bind(lib: ctypes.CDLL) -> None:
     """Declare every signature. ctypes defaults are wrong for 64-bit returns."""
+    _bind_reader(lib)
+    _bind_writer(lib)
+
+
+def _bind_reader(lib: ctypes.CDLL) -> None:
+    """Reader-side entry points, plus the two that belong to no handle."""
     lib.pvz_abi_version.restype = c_uint32
     lib.pvz_abi_version.argtypes = []
 
@@ -263,6 +281,24 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.pvz_file_metadata_json.restype = c_char_p
     lib.pvz_file_metadata_json.argtypes = [c_void_p]
 
+    lib.pvz_metadata_count.restype = c_uint64
+    lib.pvz_metadata_count.argtypes = [c_void_p]
+
+    lib.pvz_metadata_name_at.restype = c_char_p
+    lib.pvz_metadata_name_at.argtypes = [c_void_p, c_uint64]
+
+    lib.pvz_metadata_json_at.restype = c_char_p
+    lib.pvz_metadata_json_at.argtypes = [c_void_p, c_uint64]
+
+    lib.pvz_frame_count.restype = c_uint64
+    lib.pvz_frame_count.argtypes = [c_void_p]
+
+    lib.pvz_frame_sizes.restype = c_int
+    lib.pvz_frame_sizes.argtypes = [c_void_p, POINTER(c_uint64), POINTER(c_uint64)]
+
+
+def _bind_writer(lib: ctypes.CDLL) -> None:
+    """Writer-side entry points, plus the handle-less append."""
     lib.pvz_writer_create.restype = c_int
     lib.pvz_writer_create.argtypes = [POINTER(c_void_p)]
 
@@ -385,8 +421,11 @@ def load_error() -> str | None:
 
 
 def _check(status: int, detail: str = "") -> None:
-    if status != _STATUS_OK:
-        raise PvzstdError(status, detail)
+    if status == _STATUS_OK:
+        return
+    if status == _STATUS_FORMAT:
+        raise ContainerFormatError(status, detail)
+    raise PvzstdError(status, detail)
 
 
 class CoreReader:
@@ -659,6 +698,45 @@ class CoreReader:
         """Return the file metadata JSON document, or None."""
         raw = self._lib.pvz_file_metadata_json(self._live)
         return None if raw is None else raw.decode("utf-8")
+
+    def metadata_documents(self) -> list[tuple[str, str]]:
+        """
+        Return every metadata document as ``(frame_name, json)``, in file order.
+
+        A MultiBlock stores one dataset-metadata frame per block, and the
+        documents refer to each other by UID -- which lives in the frame name,
+        not in the document. Both are needed to rebuild the tree, so they are
+        returned together rather than as two parallel lookups.
+        """
+        live = self._live
+        count = int(self._lib.pvz_metadata_count(live))
+        documents = []
+        for index in range(count):
+            name = self._lib.pvz_metadata_name_at(live, c_uint64(index))
+            raw = self._lib.pvz_metadata_json_at(live, c_uint64(index))
+            if name is None or raw is None:  # pragma: no cover - count said otherwise
+                continue
+            documents.append((name.decode("utf-8"), raw.decode("utf-8")))
+        return documents
+
+    def frame_sizes(self) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
+        """
+        Return ``(decompressed, compressed)`` sizes per frame, in file order.
+
+        Two frames per array, ``(header, payload)``, and the metadata frames are
+        included -- so these index the file, not :meth:`array_names`.
+        """
+        count = int(self._lib.pvz_frame_count(self._live))
+        decompressed = np.empty(count, dtype=np.uint64)
+        compressed = np.empty(count, dtype=np.uint64)
+        _check(
+            self._lib.pvz_frame_sizes(
+                self._live,
+                decompressed.ctypes.data_as(POINTER(c_uint64)),
+                compressed.ctypes.data_as(POINTER(c_uint64)),
+            )
+        )
+        return decompressed, compressed
 
 
 class CoreWriter:

@@ -458,16 +458,10 @@ def test_roundtrip_preserves_connectivity_dtype(ugrid: UnstructuredGrid, tmp_pat
     """
     A round trip returns the connectivity dtype it was given.
 
-    The width of VTK's cell-array storage is a property of the build, not
-    something this library chooses: a binding may use 32-bit storage whenever
-    the values fit, so ``GetCells()`` can hand over int32 before this library is
-    involved at all. Asserting int64 outright therefore tests the binding's
-    storage policy rather than anything here.
-
-    What this library does control is narrower and is what gets asserted:
-    ``force_int32=False`` must not change the dtype, and ``force_int32=True``
-    must narrow it to int32. Values are compared as well as dtypes, so an array
-    that comes back correctly typed but corrupted still fails.
+    VTK's cell-array storage width is a property of the build, so asserting
+    int64 outright would test the binding. What is asserted instead:
+    ``force_int32=False`` does not change the dtype, ``force_int32=True``
+    narrows it. Values are compared too.
     """
     populate_data(ugrid)
 
@@ -485,24 +479,53 @@ def test_roundtrip_preserves_connectivity_dtype(ugrid: UnstructuredGrid, tmp_pat
     assert np.array_equal(ugrid_out.cell_connectivity, ugrid.cell_connectivity)
 
 
-def test_future_version_is_rejected(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+def test_force_int32_declines_when_ids_do_not_fit() -> None:
     """
-    Reading a file newer than this build supports is a hard error, not a warning.
+    ``force_int32`` must bound the values, not the array's length.
 
-    A future format may use a byte-filter this reader cannot invert, which would
-    silently corrupt array values; refuse the file instead of warning-and-reading.
+    A short cell array in a mesh with more than 2**31 points still holds ids
+    that do not fit in int32, and ``astype`` wraps them silently. Asserted at
+    the staging helper, since reaching it through :func:`pyvista_zstd.write`
+    would need a mesh of 2 billion points.
+    """
+    connectivity = np.array([0, 1, np.iinfo(np.int32).max + 7], dtype=np.int64)
+    offsets = np.array([0, 3], dtype=np.int64)
+
+    int64_vtk = impl.vtkTypeInt64Array().GetDataType()
+    cell_array = impl.vtkCellArray()
+    cell_array.SetData(
+        impl.numpy_to_vtk(offsets, deep=True, array_type=int64_vtk),
+        impl.numpy_to_vtk(connectivity, deep=True, array_type=int64_vtk),
+    )
+
+    arrays: dict[str, np.ndarray] = {}
+    impl._add_cell_array("ds", arrays, "cells", cell_array, {}, force_int32=True)  # noqa: SLF001
+
+    stored = arrays["dscells_connectivity"]
+    assert stored.dtype == np.int64, "an id past int32 was narrowed anyway"
+    assert np.array_equal(stored, connectivity)
+
+
+def test_file_version_constant_does_not_gate_reads(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """
+    ``FILE_VERSION`` is published documentation, not the thing that refuses a file.
+
+    The ceiling lives in the core, so lowering the Python constant below every
+    real version must not make a readable file unreadable. The refusal itself
+    is exercised in ``test_shuffle.py``.
     """
     filename = tmp_path / "future.pv"
-
-    orig_version = pyvista_zstd.FILE_VERSION
     pyvista_zstd.write(ugrid, filename)
 
+    orig_version = pyvista_zstd.pyvista_zstd.FILE_VERSION
     pyvista_zstd.pyvista_zstd.FILE_VERSION = -1
     try:
-        with pytest.raises(ValueError, match="newer than the version supported"):
-            pyvista_zstd.read(filename)
+        recovered = pyvista_zstd.read(filename)
     finally:
         pyvista_zstd.pyvista_zstd.FILE_VERSION = orig_version
+
+    assert recovered.n_points == ugrid.n_points
+    assert recovered.n_cells == ugrid.n_cells
 
 
 def test_reader_repr(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
@@ -674,6 +697,42 @@ def test_multiblock_duplicate(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     assert mblock_out[0] is mblock_out[1]
 
 
+def test_multiblock_duplicate_is_indexable(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """
+    A repeated block is still two slots when reached through the reader index.
+
+    The hierarchy is keyed by dataset UID, so a dataset referenced twice
+    shares one; building child readers from that mapping would lose the
+    repeat.
+    """
+    source = MultiBlock([ugrid, ugrid])
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(source, tmp_filename)
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    assert len(reader) == source.n_blocks
+    # Equal, not identical: sharing holds within one read, and these are two
+    # calls. What is asserted here is that the second slot exists at all.
+    assert reader[1].read() == reader[0].read()
+
+
+def test_multiblock_two_empty_blocks(ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """Two empty blocks share the empty-dataset UID and must stay two blocks."""
+    mblock = MultiBlock()
+    mblock["a"] = None
+    mblock["real"] = ugrid
+    mblock["b"] = None
+
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(mblock, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    assert out.n_blocks == mblock.n_blocks
+    assert [out.get_block_name(i) for i in range(out.n_blocks)] == ["a", "real", "b"]
+    assert out["a"] is None
+    assert out["b"] is None
+
+
 def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
     """Test read/write explicit structured grid."""
     populate_data(esgrid)
@@ -712,12 +771,9 @@ def test_vtk_imports_route_through_pyvista() -> None:
     """
     VTK must be imported through PyVista, never from ``vtkmodules`` or ``vtk``.
 
-    PyVista is not always built against the stock ``vtkmodules`` wheel. When it
-    is built on another binding, a ``vtkmodules`` cell array is a different C++
-    type from the one a PyVista ``PolyData`` accepts, and handing one to the
-    other fails with a bare ``TypeError: SetPolys argument 1:``. That breaks
-    reading of every ``.pv`` file. An identity check cannot catch this on a
-    single-binding install, so assert on the import statements themselves.
+    On a PyVista built against a non-stock binding, a ``vtkmodules`` cell array
+    is a different C++ type from the one ``PolyData`` accepts. A single-binding
+    install cannot catch that at run time, so assert on the imports themselves.
     """
     tree = ast.parse(Path(impl.__file__).read_text(encoding="utf-8"))
     roots = {(node.module or "").split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {
@@ -731,12 +787,44 @@ def test_cell_array_binds_to_pyvista_polydata() -> None:
     """
     Smoke-test the pairing the reader relies on: the cell array must bind.
 
-    ``_segments_to_polydata`` builds a PyVista ``PolyData`` and calls
-    ``SetPolys`` on it with a cell array constructed from the imports under
-    test. This exercises that exact pairing. On a stock single-binding install
-    it passes either way, so it only has teeth where PyVista is built against a
-    binding other than the ``vtkmodules`` wheel.
+    Only has teeth where PyVista is built against a non-stock binding.
     """
     polydata = PolyData()
     polydata.points = np.zeros((3, 3))
     polydata.SetPolys(impl.vtkCellArray())
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    ["ugrid", "ugrid_polyhedra", "polydata", "esgrid", "multi_block_nested"],
+)
+def test_declared_int32_bounds_hold_over_the_corpus(
+    fixture: str,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Every bound the staging declares must actually bound the values it stands for.
+
+    ``_add_cell_array`` narrows on a bound derived from what the entries mean,
+    not from scanning them; too small a bound would wrap ids silently. Here the
+    bounds are intercepted as declared and scanned against. Too large a bound
+    only declines to narrow, so it is not asserted.
+    """
+    ds = request.getfixturevalue(fixture)
+    recorded: list[tuple[np.ndarray, int | None]] = []
+    unbounded = impl._narrowed_to_int32  # noqa: SLF001
+
+    def _recording(values: np.ndarray, *, upper_bound: int | None = None) -> np.ndarray:
+        recorded.append((np.asarray(values).copy(), upper_bound))
+        return unbounded(values, upper_bound=upper_bound)
+
+    monkeypatch.setattr(impl, "_narrowed_to_int32", _recording)
+    pyvista_zstd.write(ds, tmp_path / "bounds.pv")
+
+    declared = [(values, bound) for values, bound in recorded if bound is not None]
+    assert declared, "no cell array was staged with a declared bound; the wiring is gone"
+    for values, bound in declared:
+        if values.size:
+            assert int(values.max()) <= bound, f"declared bound {bound} is below the largest entry {int(values.max())}"

@@ -1,6 +1,9 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools-scm>=8", "setuptools>=64"]
+# cmake drives the C++ core in setup.py; listed so a source build does not need
+# one installed system-wide. The core is the library -- a build that cannot
+# compile it fails rather than producing an importable package.
+requires = ["cmake>=3.16", "setuptools-scm>=8", "setuptools>=64"]
 
 [project]
 authors = [{ name = "The PyVista developers", email = "info@pyvista.org" }]
@@ -13,7 +16,9 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
-dependencies = ["pyvista>=0.45.0", "tqdm>=4.0.0", "zstandard>=0.24.0"]
+# The core links zstd itself; nothing under ``src/`` imports the ``zstandard``
+# Python bindings, so they are a test dependency, not a runtime one.
+dependencies = ["pyvista>=0.45.0", "tqdm>=4.0.0"]
 description = "VTK zstandard compression library."
 dynamic = ["version"]
 license = "MIT"
@@ -43,7 +48,7 @@ docs = [
   "sphinx-notfound-page==1.1.0",
   "sphinx==9.1.0",
 ]
-tests = ["pytest-cov==7.1.0", "pytest>=6.2.0"]
+tests = ["pytest-cov==7.1.0", "pytest>=6.2.0", "zstandard>=0.24.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -53,6 +58,20 @@ fallback_version = "0.0.0.dev0"
 git_describe_command = "git describe --dirty --tags --long --match v*"
 tag_regex = "^v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:[abrc][0-9]+)?(?:\\.post[0-9]+)?(?:\\.dev[0-9]+)?)$"
 version_file = "src/pyvista_zstd/_version.py"
+
+# Per-interpreter manylinux image, which only a config file can express -- an
+# env var applies one image to every build and outranks these overrides.
+#
+# NumPy 2.3 dropped Python 3.10 and glibc 2.17 together. 3.10 is pinned to
+# NumPy <= 2.2.6, the last release with a cp310 manylinux2014 wheel, so the old
+# image still resolves; 3.12 resolves NumPy 2.5.x, whose lowest x86_64 tag is
+# manylinux_2_27 and which will not build on the 2014 image's gcc 10.2.1.
+[tool.cibuildwheel]
+manylinux-x86_64-image = "manylinux_2_28"
+
+[[tool.cibuildwheel.overrides]]
+manylinux-x86_64-image = "manylinux2014"
+select = "cp310-*"
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -79,6 +98,10 @@ required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.per-file-ignores]
 "doc/**" = ["INP001"]
+# A build script prints its progress and shells out to the tool it drives.
+# `cmake` comes from PATH on purpose: an absolute path would break the cmake
+# wheel this build depends on.
+"setup.py" = ["S603", "S607", "T201"]
 "tests/**" = ["ANN001", "INP001", "S101"]
 
 [tool.ruff.lint.pyupgrade]

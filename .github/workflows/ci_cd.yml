@@ -35,6 +35,7 @@ jobs:
         run: pip install uv
 
       - name: Install pytest-pyvista with test dependencies
+        # The core builds here; the gallery examples call write() and read().
         run: uv pip install --system .[docs]
 
       - name: Setup headless display
@@ -86,7 +87,15 @@ jobs:
         run: uv pip install --system vtk==${{ matrix.vtk-version }}
 
       - name: Install with test dependencies
+        env:
+          PVZSTD_BUILD_CORE: "1"
         run: uv pip install --system .[tests]
+
+      - name: Confirm the C++ core is present
+        run: |
+          python -c "
+          from pyvista_zstd import _capi
+          print('C++ core loaded from', _capi.library_path())"
 
       - name: Unit Testing
         run: pytest -vv
@@ -117,10 +126,14 @@ jobs:
         with:
           python-version: 3.13
 
-      - name: Build distributions
+      - name: Build the sdist
+        # Per-platform wheels come from the C++ Core workflow; this sdist
+        # builds the core at install time.
+        env:
+          PVZSTD_BUILD_CORE: "0"
         run: |
           pip install build
-          python -m build
+          python -m build --sdist
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,0 +1,12 @@
+# Matches the C++ already in cpp/ rather than imposing a new style.
+#
+# The commit adding this file also reformats cpp/, which is not a no-op: a local
+# clang-format 21.1.7 reported zero diffs against these settings while the pinned
+# hook rewrote include order and directive indentation inside #if blocks. The tree
+# is normalised to the pinned version so later diffs are real changes.
+---
+Language: Cpp
+BasedOnStyle: Google
+ColumnLimit: 100
+DerivePointerAlignment: false
+PointerAlignment: Right

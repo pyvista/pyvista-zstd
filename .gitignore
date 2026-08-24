@@ -121,3 +121,9 @@ venv/
 
 # Ignore tags file
 tags
+__pycache__/
+*.egg-info/
+build/
+dist/
+src/pyvista_zstd/lib/
+src/pyvista_zstd/_version.py

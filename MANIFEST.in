@@ -1,0 +1,9 @@
+# The C++ sources are the library; a source install cannot build without them.
+graft cpp
+include LICENSE
+include README.rst
+recursive-include tests *.py
+recursive-include doc/format *.md
+prune cpp/build
+global-exclude *.pyc
+global-exclude __pycache__

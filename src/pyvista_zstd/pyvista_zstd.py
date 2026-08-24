@@ -12,9 +12,7 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
 import json
-import mmap
 from pathlib import Path
-import struct
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
@@ -22,6 +20,8 @@ import warnings
 
 import numpy as np
 import pyvista as pv
+
+from pyvista_zstd import _capi
 
 # Import VTK through PyVista rather than from ``vtkmodules`` directly, so the
 # classes constructed here always come from the same VTK binding PyVista itself
@@ -56,21 +56,16 @@ from pyvista.core.pointset import PointSet
 from pyvista.core.pointset import PolyData
 from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
-from tqdm import tqdm
-import zstandard as zstd
-from zstandard import BufferSegment
-from zstandard import BufferWithSegments
-from zstandard import BufferWithSegmentsCollection
 
 if TYPE_CHECKING:  # pragma: no cover
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
+    from pyvista_zstd._capi import CoreReader
+
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter (see ``_FILTER_*`` below), and version 2
-# adds fixed-width cell arrays that store their cell size in dataset metadata
-# instead of writing a redundant offsets frame. A reader refuses any file
-# whose ``file_version`` exceeds this value.
+# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The
+# core enforces the ceiling; this constant only publishes it.
 FILE_VERSION = 2
 # Version stamped on files that use neither byte filters nor fixed-width cell
 # arrays. Such files stay byte-identical to the legacy format and remain
@@ -82,6 +77,8 @@ FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
+# The cell arrays an ExplicitStructuredGrid needs to be cast back into one.
+ESGRID_BLOCK_KEYS = ("BLOCK_I", "BLOCK_J", "BLOCK_K")
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
 OFFSET_SUFFIX = "_offset"
@@ -127,79 +124,25 @@ VTK_DOUBLE = 11
 # ---------------------------------------------------------------------------
 # Byte-shuffle pre-filter (file_version >= 1)
 # ---------------------------------------------------------------------------
-# zstd alone barely compresses raw IEEE-754 float arrays because the volatile
-# mantissa bytes are interleaved with the highly repetitive sign/exponent
-# bytes.  Splitting an array into byte planes -- all byte-0s, then all
-# byte-1s, ... -- before compression turns those repetitive planes into long
-# runs, lifting the ratio substantially (e.g. ~1.5x on smooth float64) while
-# often *speeding up* compression.  This is the classic HDF5/Blosc "shuffle"
-# filter.  It is fully reversible and gated behind ``file_version >= 1``.
+# Splits an array into byte planes before compression, turning the repetitive
+# sign/exponent planes of an IEEE-754 array into long runs. Opt-in; ``"auto"``
+# keeps it only when a trial compression confirms it shrinks the data.
 #
-# The per-array filter id is stored as an OPTIONAL trailing byte on the array
-# metadata frame.  Legacy frames carry no trailing byte, so a reader treats a
-# missing byte as ``_FILTER_NONE`` -- this keeps unfiltered output and on-disk
-# layout byte-identical to the legacy format.
-_FILTER_NONE = 0
+# The core applies the filter and records the id as an optional trailing byte
+# on the array metadata frame. The id is declared here because it is part of
+# the on-disk format; nothing in this module branches on it.
 _FILTER_SHUFFLE = 1
 
-# The byte-shuffle pre-filter is opt-in (disabled by default).  ``shuffle="auto"``
-# considers only multibyte floating-point arrays -- the payloads that can
-# benefit -- and then keeps the shuffle only when a trial compression confirms
-# it actually shrinks the data, so ``auto`` never inflates a file (shuffling
-# already-regular data, e.g. small coordinate ramps, can otherwise hurt).
 ShuffleSpec = Literal["auto", True, False]
 
-# Sample budget for the ``auto`` probe.  Arrays at or below this many bytes are
-# evaluated exactly (the whole array is trial-compressed both ways); larger
-# arrays are decided from a representative contiguous middle sample, keeping the
-# probe cheap on big payloads where shuffle reliably wins.
-_SHUFFLE_PROBE_BYTES = 1 << 20  # 1 MiB
 
-
-def _auto_shuffle_beneficial(arr: np.ndarray, level: int) -> bool:
-    """Trial-compress a sample raw vs shuffled; keep shuffle only if it's smaller."""
-    itemsize = arr.dtype.itemsize
-    flat = np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
-    n_elem = flat.size // itemsize
-    if n_elem == 0:
-        return False
-    n_sample = min(n_elem, max(1, _SHUFFLE_PROBE_BYTES // itemsize))
-    start = (n_elem - n_sample) // 2  # centered, representative of bulk data
-    sample = flat[start * itemsize : (start + n_sample) * itemsize]
-    shuffled = sample.reshape(n_sample, itemsize).T.reshape(-1)
-    cctx = zstd.ZstdCompressor(level=level)
-    return len(cctx.compress(shuffled.tobytes())) < len(cctx.compress(sample.tobytes()))
-
-
-def _resolve_shuffle(arr: np.ndarray, shuffle: ShuffleSpec, level: int | None = None) -> bool:
-    """Return whether ``arr`` should be byte-shuffled under ``shuffle``."""
-    if shuffle is False:
-        return False
-    if arr.dtype.itemsize <= 1:
-        return False  # nothing to interleave
-    if shuffle is True:
-        return True
-    # "auto": multibyte floating-point (real or complex) only ...
-    if arr.dtype.kind not in ("f", "c"):
-        return False
-    # ... and only when the probe shows it pays off.  Without a level to probe
-    # with, fall back to the dtype gate.
-    if level is None:
-        return True
-    return _auto_shuffle_beneficial(arr, level)
-
-
-def _shuffle_bytes(arr: np.ndarray) -> np.ndarray:
-    """Split a contiguous array into byte planes (uint8, 1-D)."""
-    itemsize = arr.dtype.itemsize
-    flat = np.ascontiguousarray(arr).reshape(-1).view(np.uint8)
-    return flat.reshape(-1, itemsize).T.reshape(-1)
-
-
-def _unshuffle_bytes(buf: memoryview | bytes, itemsize: int) -> np.ndarray:
-    """Invert :func:`_shuffle_bytes`, returning a contiguous uint8 array."""
-    flat = np.frombuffer(buf, dtype=np.uint8)
-    return flat.reshape(itemsize, -1).T.reshape(-1)
+def _shuffle_mode(shuffle: ShuffleSpec) -> int:
+    """Translate the API spelling to the core's policy enum."""
+    return {
+        False: _capi.SHUFFLE_NEVER,
+        True: _capi.SHUFFLE_ALWAYS,
+        "auto": _capi.SHUFFLE_AUTO,
+    }[shuffle]
 
 
 @dataclass(slots=True, frozen=True)
@@ -404,16 +347,25 @@ def _format_bytes(size: float) -> str:
     return f"{size:.1f}TB"
 
 
-def _set_n_threads(n_threads: int | None, n_bytes: int, max_manual_threads: int = 8) -> int:
-    # Maximum number of set threads before relying on zstandard to
-    # automatically set them
+def _narrowed_to_int32(values: NDArray[Any], *, upper_bound: int | None = None) -> NDArray[Any]:
+    """
+    Return *values* as int32 when every entry survives the cast, else unchanged.
 
-    if n_threads is None:
-        size_mb = n_bytes / 1024**2
-        n_threads = int(size_mb // 2)  # rough guess
-        n_threads = -1 if n_threads > max_manual_threads else n_threads
+    *upper_bound* must come from what the entries mean -- connectivity is
+    bounded by the point count, an offsets array by the length of the
+    connectivity it indexes -- never from the array's length. ``astype`` wraps
+    an out-of-range id silently, so an under-estimate corrupts topology.
 
-    return n_threads
+    Omit it when the meaning is not certain; the array is scanned instead.
+    Erring high only declines to narrow, which is correct if larger.
+
+    Ids are non-negative by construction, so only the upper end is checked.
+    """
+    if upper_bound is None:
+        upper_bound = int(values.max()) if values.size else 0
+    if upper_bound > np.iinfo(np.int32).max:
+        return values
+    return values.astype(np.int32, copy=False)
 
 
 def _add_cell_array(  # noqa: PLR0913
@@ -424,7 +376,16 @@ def _add_cell_array(  # noqa: PLR0913
     fixed_cell_sizes: dict[str, int],
     *,
     force_int32: bool = False,
+    max_entry: int | None = None,
 ) -> None:
+    """
+    Stage a cell array's connectivity, and its offsets when the cells vary in size.
+
+    *max_entry* is the largest value the connectivity can hold, where the caller
+    knows it: entries are ids into some other array, so that array's extent
+    bounds them without looking. Leave it None to have the values scanned. It
+    only ever governs the int32 narrowing -- see :func:`_narrowed_to_int32`.
+    """
     if not cell_array:
         return
 
@@ -432,15 +393,16 @@ def _add_cell_array(  # noqa: PLR0913
     cell_size = cell_array.IsHomogeneous()
 
     # compress to int32 whenever possible
-    if force_int32 and connectivity.size <= np.iinfo(np.int32).max:
-        connectivity = connectivity.astype(np.int32, copy=False)
+    if force_int32:
+        connectivity = _narrowed_to_int32(connectivity, upper_bound=max_entry)
 
     if cell_size > 0:
         fixed_cell_sizes[name] = cell_size
     else:
         offsets = vtk_to_numpy(cell_array.GetOffsetsArray())
-        if force_int32 and connectivity.size <= np.iinfo(np.int32).max:
-            offsets = offsets.astype(np.int32, copy=False)
+        if force_int32:
+            # An offset indexes into the connectivity, so its length is the bound.
+            offsets = _narrowed_to_int32(offsets, upper_bound=connectivity.size)
         arrays[f"{ds_id}{name}{OFFSET_SUFFIX}"] = offsets
     arrays[f"{ds_id}{name}{CONNECTIVITY_SUFFIX}"] = connectivity
 
@@ -485,10 +447,23 @@ def _add_arrays_polydata(
 ) -> None:
     ds_id = _make_ds_id(ds)
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
-    _add_cell_array(ds_id, arrays, POLYS, ds.GetPolys(), fixed_cell_sizes, force_int32=force_int32)
-    _add_cell_array(ds_id, arrays, LINES, ds.GetLines(), fixed_cell_sizes, force_int32=force_int32)
-    _add_cell_array(ds_id, arrays, STRIPS, ds.GetStrips(), fixed_cell_sizes, force_int32=force_int32)
-    _add_cell_array(ds_id, arrays, VERTS, ds.GetVerts(), fixed_cell_sizes, force_int32=force_int32)
+    # Every one of these holds point ids, so the point count bounds them all.
+    max_point_id = ds.n_points - 1
+    for name, cells in (
+        (POLYS, ds.GetPolys()),
+        (LINES, ds.GetLines()),
+        (STRIPS, ds.GetStrips()),
+        (VERTS, ds.GetVerts()),
+    ):
+        _add_cell_array(
+            ds_id,
+            arrays,
+            name,
+            cells,
+            fixed_cell_sizes,
+            force_int32=force_int32,
+            max_entry=max_point_id,
+        )
 
 
 def _add_arrays_ugrid(
@@ -504,7 +479,16 @@ def _add_arrays_ugrid(
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
     arrays[f"{ds_id}{CELL_TYPES_KEY}"] = ds.celltypes
 
-    _add_cell_array(ds_id, arrays, CELLS, ds.GetCells(), fixed_cell_sizes, force_int32=force_int32)
+    max_point_id = ds.n_points - 1
+    _add_cell_array(
+        ds_id,
+        arrays,
+        CELLS,
+        ds.GetCells(),
+        fixed_cell_sizes,
+        force_int32=force_int32,
+        max_entry=max_point_id,
+    )
 
     has_polyhedra = bool(np.any(ds.celltypes == pv.CellType.POLYHEDRON))
     if has_polyhedra:
@@ -522,7 +506,10 @@ def _add_arrays_ugrid(
             ds.GetPolyhedronFaces(),
             fixed_cell_sizes,
             force_int32=force_int32,
+            max_entry=max_point_id,  # a face is a list of point ids
         )
+        # Face locations index into the face stream, not the points, and that
+        # extent is not to hand here -- so it is scanned, not guessed.
         _add_cell_array(
             ds_id,
             arrays,
@@ -588,7 +575,9 @@ def write(  # noqa: PLR0913
     force_int32 : bool, default: True
         Write cell topology as int32 whenever possible. Only applies to
         :class:`pyvista.PolyData` and
-        :class:`pyvista.UnstructuredGrid`.
+        :class:`pyvista.UnstructuredGrid`. A mesh whose point ids do not fit
+        in int32 keeps its wider topology; the request is a preference, not a
+        promise to narrow.
     progress_bar : bool, default: False
         Show a progress bar while writing to disk.
     level : int, default: 3
@@ -634,23 +623,6 @@ def _make_ds_id(ds: DataSet) -> str:
     """Make a unique dataset ID using the memory address."""
     # padded for 32-bit
     return f"{id(ds):016x}"
-
-
-def _pack_array_metadata(name: str, arr: np.ndarray, filter_id: int = _FILTER_NONE) -> bytes:
-    parts = [
-        struct.pack("<I", len(name)),
-        name.encode("utf-8"),
-        struct.pack("<I", arr.ndim),
-    ]
-    parts.extend(struct.pack("<Q", dim) for dim in arr.shape)
-    parts.append(arr.dtype.str.encode("utf-8").ljust(UID_N_CHAR, b" "))
-    # Append the filter id ONLY when a filter is in use.  Omitting it for the
-    # common unfiltered case keeps the metadata frame byte-identical to the
-    # legacy layout, so legacy readers are unaffected and new readers parsing
-    # an old frame see no trailing byte (-> _FILTER_NONE).
-    if filter_id != _FILTER_NONE:
-        parts.append(struct.pack("<B", filter_id))
-    return b"".join(parts)
 
 
 class Writer:
@@ -764,122 +736,28 @@ class Writer:
                 stacklevel=2,
             )
 
+        if progress_bar:
+            warnings.warn(
+                "`progress_bar` no longer has any effect: frames are written by the C++ core in a single call.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         self._add_ds_arrays(self._ds, force_int32=force_int32)
 
-        # optimal number of threads is based on how much we're writing to disk
-        n_bytes = sum([arr.nbytes for arr in self._arrays.values()])
-        n_threads = _set_n_threads(n_threads, n_bytes)
-
-        # Decide each array's byte-filter up front so the file version can
-        # record which optional encodings were used. A file using neither
-        # stays at FILE_VERSION_UNFILTERED and remains readable by older
-        # releases.
-        filters = {
-            name: (_FILTER_SHUFFLE if _resolve_shuffle(arr, shuffle, level) else _FILTER_NONE)
-            for name, arr in self._arrays.items()
-        }
-        any_filtered = any(f != _FILTER_NONE for f in filters.values())
-        if self._uses_fixed_width_cells:
-            version = FILE_VERSION_FIXED_WIDTH_CELLS
-        elif any_filtered:
-            version = FILE_VERSION_SHUFFLE
-        else:
-            version = FILE_VERSION_UNFILTERED
-
-        # finally, append file metadata as the final frame
-        file_meta = ZstdFileMetadata(
-            frame_names=list(self._arrays.keys()),  # frame order matters
-            compression_level=level,
-            file_version=version,
-        )
-        self._arrays[FILE_METADATA_KEY] = file_meta.to_array()
-        filters[FILE_METADATA_KEY] = _FILTER_NONE  # JSON blob: never shuffled
-
-        # data to compress must include array metadata and the array.  A
-        # shuffled array yields a fresh byte-plane buffer; otherwise the raw
-        # bytes are a zero-copy uint8 view.
-        data: list[bytes] = []
-        for name, arr in self._arrays.items():
-            filter_id = filters[name]
-            arr_bytes = _shuffle_bytes(arr).data if filter_id == _FILTER_SHUFFLE else arr.ravel().view(np.uint8).data
-            data.extend([_pack_array_metadata(name, arr, filter_id), arr_bytes])
-
-        # Compress multiple pieces of data as a single function call to minimize overhead
-        frame_meta: list[tuple[float, float]] = []  # (compressed_end, decompressed_size)
-        offset = 0
-        with self._filename.open("wb") as fout:
-            cctx = zstd.ZstdCompressor(level=level, threads=n_threads)
-            buff_seg = cctx.multi_compress_to_buffer(data, threads=n_threads)
-            for ii, cdata in enumerate(tqdm(buff_seg, disable=not progress_bar, desc="Writing frames")):
-                offset += fout.write(cdata)
-                frame_meta.append((offset, len(data[ii])))
-
-            # finally, write out compressed and decompressed size of each segment
-            # 16 bytes per frame
-            fout.writelines(struct.pack("<QQ", off, dsz) for off, dsz in frame_meta)
-            fout.write(struct.pack("<Q", len(frame_meta)))  # total frames at very end
+        # The core owns the format decisions; this side stages arrays in
+        # frame order.
+        with _capi.CoreWriter() as writer:
+            writer.set_level(level)
+            writer.set_threads(_capi.THREADS_AUTO if n_threads is None else n_threads)
+            writer.set_shuffle(_shuffle_mode(shuffle))
+            writer.set_fixed_width_cells(enabled=self._uses_fixed_width_cells)
+            for name, arr in self._arrays.items():
+                writer.add_array(name, arr)
+            writer.write(self._filename)
 
         # no need to hold onto any references as all IDs have been written
         self._refs = []
-
-
-def _reconstruct_array(
-    meta_segment: BufferSegment,
-    arr_segment: BufferSegment,
-) -> tuple[str, NDArray[Any]]:
-    """
-    Reconstruct a NumPy array from a single decompressed Zstd frame.
-
-    Frame layout:
-    ``[name_len:uint32][name:bytes][ndim:uint32][shape:Q*ndim][dtype:16 bytes][array data]``.
-
-    """
-    meta_buf = memoryview(meta_segment)
-
-    offset = 0
-    name_len = struct.unpack_from("<I", meta_buf, offset)[0]
-    offset += 4
-    name = meta_buf[offset : offset + name_len].tobytes().decode("utf-8")
-    offset += name_len
-
-    ndim = struct.unpack_from("<I", meta_buf, offset)[0]
-    offset += 4
-
-    shape = tuple(struct.unpack_from(f"<{ndim}Q", meta_buf, offset))
-    offset += 8 * ndim
-
-    dtype_str = meta_buf[offset : offset + UID_N_CHAR].tobytes().strip().decode("utf-8")
-    offset += UID_N_CHAR
-
-    # Optional trailing filter byte (file_version >= 1).  Legacy frames have
-    # none, so a missing byte means _FILTER_NONE -- keeping old files readable.
-    filter_id = _FILTER_NONE
-    if offset < len(meta_buf):
-        filter_id = struct.unpack_from("<B", meta_buf, offset)[0]
-
-    dtype = np.dtype(dtype_str)
-    data_buf = memoryview(arr_segment)
-    if filter_id == _FILTER_NONE:
-        data = np.frombuffer(data_buf, dtype=dtype).reshape(shape)
-    elif filter_id == _FILTER_SHUFFLE:
-        # Invert the byte-plane split, then view as the original dtype.
-        data = _unshuffle_bytes(data_buf, dtype.itemsize).view(dtype).reshape(shape)
-    else:
-        # An unknown filter id means this build cannot reverse the on-disk
-        # transform; reading the bytes as-is would corrupt the array, so fail.
-        msg = f"Unsupported per-array filter id {filter_id} for array '{name}'. Upgrade `pyvista-zstd` to read it."
-        raise ValueError(msg)
-    return name, data
-
-
-def _raw_segments_to_arrays(
-    segments_raw: BufferWithSegmentsCollection,
-) -> dict[str, NDArray[Any]]:
-    segments = {}
-    for ii in range(int(len(segments_raw) / 2)):
-        name, arr = _reconstruct_array(segments_raw[ii * 2], segments_raw[ii * 2 + 1])
-        segments[name] = arr
-    return segments
 
 
 def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
@@ -941,7 +819,33 @@ def _segments_to_esgrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> ExplicitStructuredGrid:
-    return _segments_to_ugrid(ds_id, segments, metadata).cast_to_explicit_structured_grid()
+    """
+    Rebuild an explicit structured grid from its frames.
+
+    The cast is driven by the ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` cell arrays,
+    so they have to be on the grid before it happens. The caller attaches cell
+    data only after this returns, which is why they are pulled from the
+    segments here rather than left to the general path -- without this the
+    cast sees a grid with no cell data at all and refuses every file.
+    """
+    ugrid = _segments_to_ugrid(ds_id, segments, metadata)
+
+    missing = []
+    for name in ESGRID_BLOCK_KEYS:
+        key = f"{ds_id}{name}{CELL_DATA_SUFFIX}"
+        if key in segments:
+            ugrid.cell_data.set_array(np.asarray(segments[key]), name)
+        else:
+            missing.append(name)
+    if missing:
+        msg = (
+            f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
+            "These cell arrays define the i/j/k blocking and are required by "
+            "the cast; do not exclude them via selected_cell_arrays."
+        )
+        raise ValueError(msg)
+
+    return ugrid.cast_to_explicit_structured_grid()
 
 
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:
@@ -1065,7 +969,24 @@ except ImportError:
     has_scheme = None  # type: ignore[assignment]
 
 
-def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
+def _warn_backend_deprecated(backend: object) -> None:
+    """Warn that ``backend=`` is deprecated, and ignore it."""
+    if backend is None:
+        return
+    msg = (
+        "The 'backend' argument is deprecated and no longer has any effect. "
+        "The C++ core is the only implementation, so there is nothing to "
+        "select between. Remove the argument."
+    )
+    warnings.warn(msg, DeprecationWarning, stacklevel=3)
+
+
+def read(
+    filename: Path | str,
+    n_threads: int | None = None,
+    *,
+    backend: str | None = None,
+) -> DataSet:
     """
     Decompress a ``pyvista-zstd`` file.
 
@@ -1077,8 +998,12 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     filename : pathlib.Path | str
         Path to the file.
     n_threads : None | int, optional
-        Number of threads to use. If omitted, the best number of threads to
-        decompress the file will be used.
+        Workers to spread the frames over. If omitted, the count is chosen
+        from the total size being decompressed. ``-1`` uses all available
+        cores and ``0`` disables multi-threading. Frames are independent, so
+        this changes how long the read takes and nothing about its result.
+    backend : str, optional
+        Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
     Returns
     -------
@@ -1099,6 +1024,7 @@ def read(filename: Path | str, n_threads: int | None = None) -> DataSet:
     """
     if has_scheme is not None and has_scheme(str(filename)):
         raise LocalFileRequiredError
+    _warn_backend_deprecated(backend)
     return Reader(filename).read(n_threads=n_threads)
 
 
@@ -1115,8 +1041,12 @@ class _DataSetReader:
         if isinstance(metadata, MultiBlockMetadata):
             if metadata.children_ds is None:
                 return
-            for child in metadata.children_ds.values():
-                self._children.append(_DataSetReader(child, parent))
+            # Walk ``children``, not ``children_ds``. The mapping is keyed by
+            # UID, and a MultiBlock may hold the same dataset in two slots (or
+            # two empty ones), so iterating the mapping loses the repeat and
+            # leaves fewer readers than the block has keys.
+            for child_uid in metadata.children:
+                self._children.append(_DataSetReader(metadata.children_ds[child_uid], parent))
 
     def __getitem__(self, idx: int) -> _DataSetReader:
         if not isinstance(self._meta, MultiBlockMetadata):
@@ -1136,13 +1066,26 @@ class _DataSetReader:
             return EMPTY_DS
         return self._meta.uid
 
-    def read(self) -> DataSet | MultiBlock:
+    def read(self, n_threads: int | None = None) -> DataSet | MultiBlock:
+        return self._read_shared({}, n_threads)
+
+    def _read_shared(self, built: dict[str, DataSet], n_threads: int | None) -> DataSet | MultiBlock:
+        """
+        Read this node, reusing datasets already built in this call.
+
+        A dataset stored once and referenced from two blocks comes back as one
+        object in both, which is how it was written and what callers compare
+        with ``is``. Decompressing it twice would also cost twice.
+        """
         if isinstance(self._meta, DataSetMetadata):
-            return self._parent._read_ds(self.uid)  # noqa: SLF001
+            uid = self.uid
+            if uid not in built:
+                built[uid] = self._parent._read_ds(uid, n_threads)  # noqa: SLF001
+            return built[uid]
         if isinstance(self._meta, MultiBlockMetadata):
             mb = MultiBlock()
             for key, child in zip(self._meta.children_keys, self._children, strict=True):
-                mb[key] = child.read()
+                mb[key] = child._read_shared(built, n_threads)  # noqa: SLF001
             return mb
 
         if self._meta is None:
@@ -1228,58 +1171,40 @@ class Reader:
 
     """
 
-    def __init__(self, filename: Path | str) -> None:
-        """Initialize the decompressor."""
+    def __init__(
+        self,
+        filename: Path | str,
+        *,
+        backend: str | None = None,
+    ) -> None:
+        """
+        Initialize the decompressor.
+
+        ``backend`` is deprecated and ignored.
+        """
+        _warn_backend_deprecated(backend)
         self._filename = Path(filename)
         self._selected_point_arrays: set[str] | None = None
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
+        self._core: CoreReader | None = None
 
         if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
             raise ValueError(msg)
 
-        with self._filename.open("rb") as f:
-            f.seek(-8, 2)
-            num_frames = struct.unpack("<Q", f.read(8))[0]
+        try:
+            core = self._core_reader()
+        except _capi.ContainerFormatError as err:
+            # Callers catch on this wording, so keep it.
+            msg = f"'{self._filename}' did not parse as a pyvista-zstd container. File may be corrupted."
+            raise RuntimeError(msg) from err
+        self._frame_decompressed, self._compressed_sizes = core.frame_sizes()
+        self._metadata_documents = dict(core.metadata_documents())
 
-            max_frames = 1_000_000
-            if num_frames == 0 or num_frames > max_frames:
-                msg = "Bad number of frames. File may be corrupted."
-                raise RuntimeError(msg)
+        self._metadata = self._file_metadata_from_core()
+        self._ds_metadata = self._root_ds_meta_from_core()
 
-            f.seek(-(8 + num_frames * UID_N_CHAR), 2)
-            meta_data = f.read(num_frames * UID_N_CHAR)
-            frame_meta = [
-                struct.unpack("<QQ", meta_data[i * UID_N_CHAR : (i + 1) * UID_N_CHAR]) for i in range(num_frames)
-            ]
-            frame_starts = [0] + [end for end, _ in frame_meta[:-1]]
-            frame_ends = [end for end, _ in frame_meta]
-            sizes = [dsz for _, dsz in frame_meta]
-            self._decompressed_sizes = struct.pack(f"={len(sizes)}Q", *sizes)
-            self._mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-
-        # store compressed frame sizes
-        sizes = []
-        for i in range(len(frame_ends)):
-            if i == 0:
-                sizes.append(frame_ends[0])
-            else:
-                sizes.append(frame_ends[i] - frame_ends[i - 1])
-        self._compressed_sizes = np.array(sizes, dtype=np.uint64)
-
-        # prepare the metadata frame and decompress it
-        segments_bytes = b"".join(
-            struct.pack("=QQ", start, end - start) for start, end in zip(frame_starts, frame_ends, strict=True)
-        )
-
-        if not segments_bytes:
-            msg = "Empty segments. File may be corrupted."
-            raise RuntimeError(msg)
-
-        self._frames = BufferWithSegments(self._mm, segments_bytes)
-        self._metadata = self._load_file_metadata()
-        self._ds_metadata = self._load_root_dataset_meta()
         self.__ds_reader: _DataSetReader | None = None
 
     def __getitem__(self, idx: int) -> _DataSetReader:
@@ -1297,35 +1222,18 @@ class Reader:
 
         return self.__ds_reader
 
-    def _load_root_dataset_meta(self) -> DataSetMetadata | MultiBlockMetadata:
+    @staticmethod
+    def _ds_meta_from_json(frame_name: str, raw: str) -> DataSetMetadata | MultiBlockMetadata:
         """
-        Return the root dataset metadata.
+        Decode one dataset-metadata document.
 
-        There may be more than one dataset if it's a multi-block dataset, but
-        there's always a root dataset.
+        The class comes from the frame's name, not from the contents: a lone
+        document may be either kind and the two overlap in what they carry.
         """
-        for frame_name in self._metadata.frame_names:
-            if frame_name.endswith(DS_METADATA_KEY):
-                return self._load_ds_meta(frame_name)
-
-        msg = "No dataset metadata found"  # pragma: no cover
-        raise RuntimeError(msg)  # pragma: no cover
-
-    def _load_ds_meta(self, key: str) -> DataSetMetadata | MultiBlockMetadata:
-        index = self._metadata.frame_names.index(key) * 2  # times two for metadata
-        dctx = zstd.ZstdDecompressor()
-
-        # read in only the segment
-        segments = dctx.multi_decompress_to_buffer(
-            [self._frames[index], self._frames[index + 1]],
-            decompressed_sizes=self._decompressed_sizes[index * 8 : (index + 2) * 8],
-            threads=0,  # tiny
-        )
-
-        name, arr = _reconstruct_array(*segments)
-        if name.endswith(MULTIBLOCK_METADATA_KEY):
+        arr = np.frombuffer(raw.encode("utf-8"), dtype=np.uint8)
+        if frame_name.endswith(MULTIBLOCK_METADATA_KEY):
             return MultiBlockMetadata.from_array(arr)
-        if name.endswith(DS_METADATA_KEY):
+        if frame_name.endswith(DS_METADATA_KEY):
             return DataSetMetadata.from_array(arr)
 
         msg = "Metadata key invalid."  # pragma: no cover
@@ -1339,25 +1247,31 @@ class Reader:
         This an array containing 64-bit unsigned integers containing the
         decompressed sizes in bytes of each frame.
         """
-        return np.frombuffer(self._decompressed_sizes, dtype=np.uint64)
+        return self._frame_decompressed
 
     @property
     def nbytes(self) -> int:
         """Return the size of the decompressed dataset."""
         return int(self.decompressed_sizes.sum())
 
-    def _load_file_metadata(self) -> ZstdFileMetadata:
-        """Load the metadata from the pyvista-zstd file without full decompression."""
-        dctx = zstd.ZstdDecompressor()
+    def _file_metadata_from_core(self) -> ZstdFileMetadata:
+        """
+        Return the file metadata, and warn if the container is a legacy one.
 
-        # read in only the last segment
-        segments = dctx.multi_decompress_to_buffer(
-            [self._frames[-2], self._frames[-1]],
-            decompressed_sizes=self._decompressed_sizes[-UID_N_CHAR:],
-            threads=0,  # tiny
-        )
-        name, arr = _reconstruct_array(*segments)
-        if name == LEGACY_FILE_METADATA_KEY:
+        The core accepts both spellings of the frame and reports which one the
+        file used, so the deprecation notice is raised from the name rather
+        than by parsing the trailer a second time to find out.
+
+        Nothing here decides whether the container is readable: a version this
+        build cannot decode was refused when the core opened the file, so by the
+        time this runs the document is one this build understands.
+        """
+        raw = self._metadata_documents.get(FILE_METADATA_KEY)
+        if raw is None:
+            raw = self._metadata_documents.get(LEGACY_FILE_METADATA_KEY)
+            if raw is None:  # pragma: no cover
+                msg = "File metadata not found in pyvista-zstd file."
+                raise RuntimeError(msg)
             # FutureWarning (not DeprecationWarning) because this is aimed at
             # end users re-saving their data files, and Python's default
             # warning filters hide DeprecationWarning from non-__main__ code.
@@ -1366,26 +1280,82 @@ class Reader:
                 "'.zvtk' format will be removed in a future release; re-save "
                 "it with `pyvista_zstd.write(pyvista_zstd.read(path), new_path)`.",
                 FutureWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
-        elif name != FILE_METADATA_KEY:  # pragma: no cover
-            msg = "File metadata not found in pyvista-zstd file."
-            raise RuntimeError(msg)
 
-        metadata = ZstdFileMetadata.from_json(arr.tobytes().decode("utf-8"))
+        return ZstdFileMetadata.from_json(raw)
 
-        if metadata.file_version > FILE_VERSION:
-            # Refuse rather than warn-and-continue: a newer file may use a
-            # byte-filter this build cannot invert, which would silently
-            # corrupt array values instead of failing cleanly.
-            msg = (
-                f"The file version {metadata.file_version} of this pyvista-zstd file is "
-                f"newer than the version supported by this library {FILE_VERSION}. "
-                "Upgrade `pyvista-zstd` to read it."
-            )
-            raise ValueError(msg)
+    def _root_ds_meta_from_core(self) -> DataSetMetadata | MultiBlockMetadata:
+        """
+        Return the root dataset's metadata.
 
-        return metadata
+        The root is the first dataset-metadata frame in the file, which is the
+        order ``frame_names`` records; the core's documents are keyed by name
+        rather than ordered by role, so the order comes from there.
+        """
+        for frame_name in self._metadata.frame_names or ():
+            if frame_name.endswith(DS_METADATA_KEY):
+                raw = self._metadata_documents.get(frame_name)
+                if raw is None:  # pragma: no cover - named but not carried
+                    break
+                return self._ds_meta_from_json(frame_name, raw)
+
+        msg = "No dataset metadata found"  # pragma: no cover
+        raise RuntimeError(msg)  # pragma: no cover
+
+    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str], n_threads: int | None) -> dict[str, NDArray[Any]]:
+        """
+        Decompress a dataset's arrays through the C++ core.
+
+        The core lifts the dataset-metadata frame out into JSON and does not
+        report it among the arrays, so it is taken from the parked documents
+        by name -- a MultiBlock carries one per block.
+        """
+        meta_key = f"{ds_id}{DS_METADATA_KEY}"
+        reader = self._core_reader()
+        threads = _capi.THREADS_AUTO if n_threads is None else n_threads
+        segments = reader.read_arrays(keep=keep - {meta_key}, n_threads=threads)
+        segments[meta_key] = np.frombuffer(self._metadata_documents[meta_key].encode("utf-8"), dtype=np.uint8)
+        return segments
+
+    def _core_reader(self) -> CoreReader:
+        """
+        Return the C++ reader for this file, opened once and kept.
+
+        Opening one maps the file and parses the trailer and every array
+        header. This object did all of that in __init__ already, so building a
+        fresh C++ reader per dataset paid for a second copy of it on every
+        read -- and a MultiBlock paid once per dataset.
+
+        Holding it does not weaken any guarantee that was being offered: the
+        frame index and the mapping are both taken in __init__ and kept, so a
+        reader has always been a snapshot of the file as it was when opened.
+        It is released when this object is, the same way the mapping is.
+        """
+        reader = self._core
+        if reader is None:
+            reader = _capi.CoreReader(self._filename)
+            self._core = reader
+        return reader
+
+    def _selected_frame_names(self, ds_id: str) -> set[str]:
+        """
+        Return the frame names to decompress for one dataset.
+
+        Applies the array selection, then narrows to frames belonging to
+        *ds_id* -- a MultiBlock file holds several datasets' frames side by
+        side and only this one's are wanted.
+        """
+        excluded = set()
+        for name in self.available_point_arrays - self.selected_point_arrays:
+            excluded.add(f"{ds_id}{name}{POINT_DATA_SUFFIX}")
+        for name in self.available_cell_arrays - self.selected_cell_arrays:
+            excluded.add(f"{ds_id}{name}{CELL_DATA_SUFFIX}")
+        for name in self.available_field_arrays - self.selected_field_arrays:
+            excluded.add(f"{ds_id}{name}{FIELD_DATA_SUFFIX}")
+
+        names = set(self._metadata.frame_names) - excluded
+        return {f for f in names if f.startswith(ds_id)}
 
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
@@ -1396,94 +1366,34 @@ class Reader:
             msg = "Frame names not found in metadata."
             raise RuntimeError(msg)
 
-        excluded = set()
-        for name in self.available_point_arrays - self.selected_point_arrays:
-            excluded.add(f"{ds_id}{name}{POINT_DATA_SUFFIX}")
-        for name in self.available_cell_arrays - self.selected_cell_arrays:
-            excluded.add(f"{ds_id}{name}{CELL_DATA_SUFFIX}")
-        for name in self.available_field_arrays - self.selected_field_arrays:
-            excluded.add(f"{ds_id}{name}{FIELD_DATA_SUFFIX}")
+        selected_frame_names = self._selected_frame_names(ds_id)
 
-        selected_frames = []
-        sizes = []
-        selected_frame_names = set(frame_names) - excluded
-
-        # downselect to the matching dataset id
-        selected_frame_names = {f for f in selected_frame_names if f.startswith(ds_id)}
-
-        n_frames = len(frame_names)
-        if len(selected_frame_names) == n_frames:
-            # Decompress with multi-threaded buffer API
-            dctx = zstd.ZstdDecompressor()
-            segments_raw = dctx.multi_decompress_to_buffer(
-                self._frames,
-                decompressed_sizes=self._decompressed_sizes,
-                threads=_set_n_threads(n_threads, self.nbytes),
-            )
-
-        elif selected_frame_names:
-            for ii, frame_name in enumerate(frame_names):
-                if not frame_name.startswith(ds_id):
-                    continue
-                if frame_name in selected_frame_names:
-                    idx = ii * 2  # double for metadata
-                    selected_frames.extend([self._frames[idx], self._frames[idx + 1]])
-                    # 8 bytes per frame
-                    sizes.append(self._decompressed_sizes[idx * 8 : (idx + 2) * 8])
-
-            # Decompress with multi-threaded buffer API
-            d_sizes_bytes = b"".join(sizes)
-            ds_size = np.frombuffer(d_sizes_bytes, dtype=np.uint64).sum()
-            n_threads = _set_n_threads(n_threads, ds_size)
-            dctx = zstd.ZstdDecompressor()
-            segments_raw = dctx.multi_decompress_to_buffer(
-                selected_frames,
-                decompressed_sizes=d_sizes_bytes,
-                threads=n_threads,
-            )
-        else:  # pragma: no cover
+        if not selected_frame_names:  # pragma: no cover
             msg = "No selected frames"
             raise RuntimeError(msg)
 
-        segments = _raw_segments_to_arrays(segments_raw)
+        # Frame-addressed, so downselecting skips the decompression too, not
+        # just the copy into the dataset.
+        segments = self._read_ds_segments_cpp(ds_id, selected_frame_names, n_threads)
         return self._segments_to_ds(ds_id, segments)
 
-    def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901, PLR0912
+    def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901
         """Read metadata hierarchy from the pyvista-zstd file."""
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
             msg = "Can only index a MultiBlock compressed pyvista-zstd file."
             raise TypeError(msg)
 
-        # find only metadata frames
-        frame_names = self._metadata.frame_names
-        selected_frames = []
-        sizes = []
-        for ii, name in enumerate(frame_names):
-            idx = ii * 2  # double for metadata
-            if name.endswith((MULTIBLOCK_METADATA_KEY, DS_METADATA_KEY)):
-                selected_frames.extend([self._frames[idx], self._frames[idx + 1]])
-                sizes.append(self._decompressed_sizes[idx * 8 : (idx + 2) * 8])
-
-        d_sizes_bytes = b"".join(sizes)
-        dctx = zstd.ZstdDecompressor()
-        segments_raw = dctx.multi_decompress_to_buffer(
-            selected_frames,
-            decompressed_sizes=d_sizes_bytes,
-            threads=0,
-        )
-        segments = _raw_segments_to_arrays(segments_raw)
-
-        # decode metadata objects
+        # decode metadata objects -- the core decompressed every one of these
+        # at open, so the hierarchy is assembled from documents it already holds
         mblock_meta: dict[str, MultiBlockMetadata] = {}
         dataset_meta: dict[str, DataSetMetadata] = {}
-        for key, segment in segments.items():
+        for key, raw in self._metadata_documents.items():
             if key.endswith(MULTIBLOCK_METADATA_KEY):
-                mb_meta = MultiBlockMetadata.from_array(segment)
+                mb_meta = MultiBlockMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
                 mblock_meta[mb_meta.uid] = mb_meta
             elif key.endswith(DS_METADATA_KEY):
                 uid = key[:UID_N_CHAR]
-                ds_meta = DataSetMetadata.from_array(segment)
-                dataset_meta[uid] = ds_meta
+                dataset_meta[uid] = DataSetMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
 
         # assemble hierarchy tree by wiring children to their metadata
         for uid, m in mblock_meta.items():
@@ -1508,15 +1418,17 @@ class Reader:
 
         return _DataSetReader(mblock_meta[root_uid], self)
 
-    def read(self, n_threads: int | None = None) -> DataSet:  # noqa: C901
+    def read(self, n_threads: int | None = None) -> DataSet:
         """
         Read in the dataset from the pyvista-zstd file.
 
         Parameters
         ----------
         n_threads : int, optional
-            Number of threads to use when reading. A value of ``-1`` uses all
-            available cores and ``0`` disables multi-threading.
+            Workers to spread the frames over. A value of ``-1`` uses all
+            available cores and ``0`` disables multi-threading. Frames are
+            independent, so this changes how long the read takes and nothing
+            about its result.
 
         Examples
         --------
@@ -1540,51 +1452,8 @@ class Reader:
         if not isinstance(self._ds_metadata, MultiBlockMetadata):
             return self._read_ds(self._ds_metadata.uid, n_threads)
 
-        # read everything
-        n_threads = _set_n_threads(n_threads, self.nbytes)
-
-        dctx = zstd.ZstdDecompressor()
-        segments_raw = dctx.multi_decompress_to_buffer(
-            self._frames,
-            decompressed_sizes=self._decompressed_sizes,
-            threads=n_threads,
-        )
-        segments = _raw_segments_to_arrays(segments_raw)
-
-        mblock_meta = []
-        dataset_map: dict[str, DataSet] = {}
-        for key, segment in segments.items():
-            if key.endswith(MULTIBLOCK_METADATA_KEY):
-                mblock_meta.append(MultiBlockMetadata.from_array(segment))
-            elif key.endswith(DS_METADATA_KEY):
-                uid = key[:UID_N_CHAR]
-                dataset_map[uid] = self._segments_to_ds(key[:UID_N_CHAR], segments)
-
-        # Build empty MultiBlock objects for every multiblock metadata entry.
-        multiblock_map: dict[str, MultiBlock] = {m.uid: MultiBlock() for m in mblock_meta}
-
-        # Populate each MultiBlock using its children list. Children may be
-        # datasets or other multiblocks (nested multiblocks).
-        for m in mblock_meta:
-            mb = multiblock_map[m.uid]
-            for child_key, child_uid in zip(m.children_keys, m.children, strict=True):
-                if child_uid in multiblock_map:
-                    mb[child_key] = multiblock_map[child_uid]
-                elif child_uid in dataset_map:
-                    mb[child_key] = dataset_map[child_uid]
-                elif child_uid == EMPTY_DS:
-                    mb[child_key] = None
-                else:  # pragma: no cover
-                    msg = f"Multiblock child '{child_uid}' not found for multiblock '{m.uid}'"
-                    raise RuntimeError(msg)
-
-        # Return the top-level multiblock identified by the root metadata uid.
-        root_uid = self._ds_metadata.uid
-        if root_uid not in multiblock_map:  # pragma: no cover
-            msg = "Top-level multiblock metadata not found."
-            raise RuntimeError(msg)
-
-        return multiblock_map[root_uid]
+        # Same entry point as an indexed read, so the two cannot drift apart.
+        return self._ds_reader.read(n_threads)
 
     def _segments_to_ds(self, ds_id: str, segments: dict[str, Any]) -> DataSet:
         meta_arr = segments[f"{ds_id}{DS_METADATA_KEY}"]

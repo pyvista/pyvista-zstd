@@ -103,6 +103,21 @@ def test_the_same_container_reads_identically_from_a_path_and_from_memory(contai
         assert np.array_equal(left_compressed, right_compressed)
 
 
+def test_the_dataset_read_out_of_memory_matches_the_one_written(container: Path) -> None:
+    """The public read reaches the same dataset through bytes as through a path."""
+    from_path = pz.read(container)
+    from_memory = pz.read_buffer(container.read_bytes())
+
+    assert type(from_path) is type(from_memory)
+    assert np.array_equal(from_path.points, from_memory.points)
+    for attr in ("point_data", "cell_data", "field_data"):
+        left, right = getattr(from_path, attr), getattr(from_memory, attr)
+        assert set(left.keys()) == set(right.keys()), attr
+        for key in left:
+            assert left[key].dtype == right[key].dtype, (attr, key)
+            assert np.array_equal(left[key], right[key]), (attr, key)
+
+
 def test_the_reader_survives_the_bytes_object_going_out_of_scope(container: Path) -> None:
     """The reader holds the buffer, so a caller dropping its own name is safe."""
     reader = _capi.CoreReader(buffer=container.read_bytes())
@@ -227,3 +242,26 @@ def test_the_core_reader_takes_exactly_one_source(container: Path) -> None:
         _capi.CoreReader()
     with pytest.raises(TypeError):
         _capi.CoreReader(container, buffer=container.read_bytes())
+
+
+def test_the_public_reader_takes_exactly_one_source(container: Path) -> None:
+    """The same rule at the public surface, so neither layer guesses."""
+    with pytest.raises(TypeError):
+        pz.Reader()
+    with pytest.raises(TypeError):
+        pz.Reader(container, buffer=container.read_bytes())
+
+
+def test_a_buffer_is_judged_by_its_bytes_and_not_by_a_suffix(container: Path) -> None:
+    """
+    The suffix check belongs to the path, not to the container.
+
+    A path ending in something else is refused before anything is read; a
+    buffer has no name to refuse, so what it holds has to decide.
+    """
+    with pytest.raises(ValueError, match="Filename must end in"):
+        pz.Reader(container.with_suffix(".txt"))
+
+    assert pz.Reader(buffer=container.read_bytes()) is not None
+    with pytest.raises(RuntimeError, match="File may be corrupted"):
+        pz.Reader(buffer=b"not a container at all, but it is bytes")

@@ -1028,6 +1028,38 @@ def read(
     return Reader(filename).read(n_threads=n_threads)
 
 
+def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: int | None = None) -> DataSet:
+    """
+    Decompress a ``pyvista-zstd`` container already held in memory.
+
+    :func:`read` for bytes rather than a path -- an archive member, a response
+    body, or a build with no filesystem to open a path on. The bytes are
+    borrowed, not copied, and must not be modified while the read is running.
+
+    This is a convenience function that uses :class:`Reader`. Use that class to
+    finely tune reading.
+
+    Parameters
+    ----------
+    data : bytes | bytearray | memoryview | numpy.ndarray
+        A whole ``.pv`` or ``.zvtk`` container, contiguous.
+    n_threads : None | int, optional
+        Workers to spread the frames over, exactly as in :func:`read`.
+
+    Returns
+    -------
+    pyvista.DataSet
+
+    Examples
+    --------
+    >>> from pathlib import Path
+    >>> import pyvista_zstd
+    >>> ds = pyvista_zstd.read_buffer(Path("dataset.pv").read_bytes())
+
+    """
+    return Reader(buffer=data).read(n_threads=n_threads)
+
+
 class _DataSetReader:
     def __init__(
         self,
@@ -1126,10 +1158,21 @@ class Reader:
     * For files containing a :class:`pyvista.MultiBlock`, select which blocks
       to read in.
 
+    A container already resident is read by passing ``buffer`` instead of
+    ``filename`` -- an archive member, a response body, or a build with no
+    filesystem to open a path on. Those bytes are borrowed rather than copied
+    and are held for the reader's life, so they must not be modified meanwhile.
+
     Parameters
     ----------
-    filename : pathlib.Path | str
+    filename : pathlib.Path | str, optional
         Path to the file. Must end in ``.pv``.
+    buffer : bytes | bytearray | memoryview | numpy.ndarray, optional
+        A whole container, contiguous. Exactly one of *filename* and *buffer*
+        is given; a buffer has no suffix to check, so its bytes decide whether
+        it is a container.
+    backend : str, optional
+        Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
     Examples
     --------
@@ -1169,12 +1212,19 @@ class Reader:
       Z Bounds:   -5.000e-01, 5.000e-01
       N Arrays:   0
 
+    Read the same container out of memory instead of off disk.
+
+    >>> from pathlib import Path
+    >>> raw = Path("sphere.pv").read_bytes()
+    >>> ds_in = pyvista_zstd.Reader(buffer=raw).read()
+
     """
 
     def __init__(
         self,
-        filename: Path | str,
+        filename: Path | str | None = None,
         *,
+        buffer: bytes | bytearray | memoryview | NDArray[Any] | None = None,
         backend: str | None = None,
     ) -> None:
         """
@@ -1183,13 +1233,19 @@ class Reader:
         ``backend`` is deprecated and ignored.
         """
         _warn_backend_deprecated(backend)
-        self._filename = Path(filename)
+        if (filename is None) == (buffer is None):
+            msg = "Reader takes exactly one of `filename` and `buffer`"
+            raise TypeError(msg)
+
+        self._filename = None if filename is None else Path(filename)
+        self._buffer = buffer
         self._selected_point_arrays: set[str] | None = None
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
         self._core: CoreReader | None = None
 
-        if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
+        # Only a path carries a suffix to judge; a buffer is judged by its bytes.
+        if self._filename is not None and self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
             raise ValueError(msg)
 
@@ -1197,7 +1253,7 @@ class Reader:
             core = self._core_reader()
         except _capi.ContainerFormatError as err:
             # Callers catch on this wording, so keep it.
-            msg = f"'{self._filename}' did not parse as a pyvista-zstd container. File may be corrupted."
+            msg = f"'{self._source}' did not parse as a pyvista-zstd container. File may be corrupted."
             raise RuntimeError(msg) from err
         self._frame_decompressed, self._compressed_sizes = core.frame_sizes()
         self._metadata_documents = dict(core.metadata_documents())
@@ -1206,6 +1262,11 @@ class Reader:
         self._ds_metadata = self._root_ds_meta_from_core()
 
         self.__ds_reader: _DataSetReader | None = None
+
+    @property
+    def _source(self) -> str:
+        """Name this container came under, for messages and for the repr."""
+        return "<memory>" if self._filename is None else str(self._filename)
 
     def __getitem__(self, idx: int) -> _DataSetReader:
         """Return an indexed reader."""
@@ -1276,7 +1337,7 @@ class Reader:
             # end users re-saving their data files, and Python's default
             # warning filters hide DeprecationWarning from non-__main__ code.
             warnings.warn(
-                f"'{self._filename}' is a legacy zvtk file. Support for the "
+                f"'{self._source}' is a legacy zvtk file. Support for the "
                 "'.zvtk' format will be removed in a future release; re-save "
                 "it with `pyvista_zstd.write(pyvista_zstd.read(path), new_path)`.",
                 FutureWarning,
@@ -1320,10 +1381,12 @@ class Reader:
 
     def _core_reader(self) -> CoreReader:
         """
-        Return the C++ reader for this file, opened once and kept.
+        Return the C++ reader for this container, opened once and kept.
 
-        Opening one maps the file and parses the trailer and every array
-        header. This object did all of that in __init__ already, so building a
+        Opening one takes the container's bytes -- mapping the file, or
+        borrowing the buffer :meth:`from_buffer` was given -- and parses the
+        trailer and every array header. This object did all of that already at
+        construction, so building a
         fresh C++ reader per dataset paid for a second copy of it on every
         read -- and a MultiBlock paid once per dataset.
 
@@ -1334,7 +1397,7 @@ class Reader:
         """
         reader = self._core
         if reader is None:
-            reader = _capi.CoreReader(self._filename)
+            reader = _capi.CoreReader(self._filename) if self._buffer is None else _capi.CoreReader(buffer=self._buffer)
             self._core = reader
         return reader
 
@@ -1673,7 +1736,7 @@ class Reader:
         ds_md = self._ds_metadata
         header = [
             f"pyvista_zstd.Reader ({hex(id(self))})",
-            f"  File:               {self._filename}",
+            f"  File:               {self._source}",
             f"  File Version:       {self._metadata.file_version}",
             f"  Compression:        {self._metadata.compression}",
             f"  Compression Level:  {self._metadata.compression_level}",

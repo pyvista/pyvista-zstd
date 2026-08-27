@@ -1034,7 +1034,10 @@ def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: 
 
     :func:`read` for bytes rather than a path -- an archive member, a response
     body, or a build with no filesystem to open a path on. The bytes are
-    borrowed, not copied, and must not be modified while the read is running.
+    borrowed, not copied, and must not be modified while the read is running:
+    a write into them is not detected, so the dataset comes back with undefined
+    contents and no error to say so. A resize is detected, and raises
+    :class:`BufferError` rather than corrupting anything.
 
     This is a convenience function that uses :class:`Reader`. Use that class to
     finely tune reading.
@@ -1162,6 +1165,10 @@ class Reader:
     ``filename`` -- an archive member, a response body, or a build with no
     filesystem to open a path on. Those bytes are borrowed rather than copied
     and are held for the reader's life, so they must not be modified meanwhile.
+    Writing into them is not detected: the arrays read afterwards hold
+    undefined contents, and no error is raised to say so. Resizing them is
+    detected -- the borrow pins the buffer, so a resize raises
+    :class:`BufferError` rather than corrupting anything.
 
     Parameters
     ----------

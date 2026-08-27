@@ -456,8 +456,12 @@ class CoreReader:
     A container already resident is opened by passing ``buffer`` instead of
     ``path``. The core borrows those bytes rather than copying them, so the
     reader keeps a reference for as long as it is open and the caller must not
-    modify them meanwhile. Everything past the two opens is identical, refusals
-    for a damaged or crafted container included.
+    modify them meanwhile. A write into them is not detected -- the offsets and
+    sizes were read at open time, so the arrays read afterwards hold undefined
+    contents with no error to say so. A resize is: the borrow pins the buffer,
+    and resizing it raises :class:`BufferError` rather than corrupting
+    anything. Everything past the two opens is identical, refusals for a
+    damaged or crafted container included.
 
     Parameters
     ----------

@@ -1,0 +1,11 @@
+@PACKAGE_INIT@
+
+# pvzstd links zstd PRIVATE and its public headers are a pure C ABI that
+# never names a zstd type, so zstd is an implementation detail and this
+# package does not need to re-find it: the default shared build already
+# bakes zstd's object code into libpvzstd. See the "Install / export"
+# comment in cpp/CMakeLists.txt for the static-build caveat.
+
+include("${CMAKE_CURRENT_LIST_DIR}/pvzstdTargets.cmake")
+
+check_required_components(pvzstd)

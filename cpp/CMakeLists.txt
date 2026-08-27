@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(pvzstd LANGUAGES CXX)
+# Tracks the released version line, so `find_package(pvzstd 0.3)` means what a
+# reader expects. It cannot be derived: the Python distribution's version comes
+# from git tags through setuptools_scm and has no value at configure time. Bump
+# it when the release line moves. The real compatibility contract for a C or C++
+# consumer is PVZSTD_ABI_VERSION in the public header, which is checked for
+# equality rather than as a floor.
+project(pvzstd VERSION 0.3.1 LANGUAGES CXX)
 
 option(PVZSTD_BUILD_TOOLS "Build the pvzstd_dump conformance tool" ON)
 option(PVZSTD_BUILD_SHARED "Build a shared library (needed for the ctypes binding)" ON)
@@ -111,6 +117,10 @@ else()
   add_library(pvzstd STATIC src/reader.cpp src/writer.cpp src/append.cpp src/stream.cpp)
 endif()
 
+# Namespaced alias so a submodule / FetchContent consumer links the same
+# target name (pvzstd::pvzstd) that find_package(pvzstd) yields below.
+add_library(pvzstd::pvzstd ALIAS pvzstd)
+
 target_include_directories(pvzstd PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
@@ -146,8 +156,57 @@ if(PVZSTD_BUILD_TOOLS)
 endif()
 
 include(GNUInstallDirs)
+
+# --- Install / export ---------------------------------------------------
+#
+# zstd is linked PRIVATE (see target_link_libraries(pvzstd ...) above), and
+# the public headers are a pure C ABI that never names a zstd type, so zstd
+# is purely an implementation detail here, not something a consumer needs
+# to find. That holds cleanly for the default shared build
+# (PVZSTD_BUILD_SHARED=ON): a PRIVATE link into a shared library folds
+# zstd's object code into libpvzstd itself, so the installed library is
+# self-contained regardless of whether zstd was vendored or found on the
+# system.
+#
+# It does NOT hold for a static build (PVZSTD_BUILD_SHARED=OFF): CMake does
+# not fold a PRIVATE static link dependency's object code into the
+# resulting archive, so libpvzstd.a still needs zstd's symbols resolved at
+# the downstream link step, and this export does not declare that
+# dependency for a consumer -- zstd (vendored or system) is treated purely
+# as this build's own implementation detail, not a re-exported one. With a
+# system zstd a consumer can supply that themselves. With
+# PVZSTD_ZSTD_PROVIDER=vendored, zstd is pulled in via FetchContent as an
+# internal build-tree dependency; its own CMakeLists happens to install its
+# own findable "zstd" package alongside ours when install() runs (a side
+# effect of FetchContent adding it as a subdirectory, not something this
+# project arranges or guarantees), so it is not strictly unfindable, but
+# relying on that is fragile and not something to design around. Prefer the
+# default shared build for anything that will be installed and linked
+# downstream.
+set(PVZSTD_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/pvzstd")
+
 install(TARGETS pvzstd
+        EXPORT pvzstdTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+install(EXPORT pvzstdTargets
+        FILE pvzstdTargets.cmake
+        NAMESPACE pvzstd::
+        DESTINATION ${PVZSTD_INSTALL_CMAKEDIR})
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/pvzstdConfig.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/pvzstdConfig.cmake"
+  INSTALL_DESTINATION "${PVZSTD_INSTALL_CMAKEDIR}")
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/pvzstdConfigVersion.cmake"
+  COMPATIBILITY SameMajorVersion)
+
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/pvzstdConfig.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/pvzstdConfigVersion.cmake"
+  DESTINATION "${PVZSTD_INSTALL_CMAKEDIR}")

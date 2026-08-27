@@ -469,8 +469,11 @@ extern "C" {
 
 pvzstd_status pvzstd_open_versioned(const char *path, pvzstd_reader **out,
                                     uint32_t *file_version) try {
+  // Cleared before the argument check, not after: a refused open leaves *out at
+  // NULL on every path out of here, so a caller who did not initialise it is
+  // not left holding whatever was in that slot.
+  if (out != nullptr) *out = nullptr;
   if (path == nullptr || out == nullptr) return PVZSTD_E_INVALID;
-  *out = nullptr;
 
   // Owning: the parse below refuses the container on eleven paths and can throw
   // from a decompression sized by a field read out of the file, and every one of
@@ -502,8 +505,10 @@ pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
 
 pvzstd_status pvzstd_open_memory_versioned(const void *data, uint64_t size, pvzstd_reader **out,
                                            uint32_t *file_version) try {
+  // As in pvzstd_open_versioned: cleared first, so a NULL `data` or a zero
+  // `size` leaves *out at NULL rather than untouched.
+  if (out != nullptr) *out = nullptr;
   if (data == nullptr || size == 0 || out == nullptr) return PVZSTD_E_INVALID;
-  *out = nullptr;
 
   std::unique_ptr<pvzstd_reader> reader(new (std::nothrow) pvzstd_reader());
   if (reader == nullptr) return PVZSTD_E_NOMEM;

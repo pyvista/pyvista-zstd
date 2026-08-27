@@ -40,6 +40,10 @@ STATUS_INVALID = 7
 # sees a tiny index and accepts the file.
 POISON_FRAME_COUNT = 2**60 + 2
 
+# Written into an out-parameter before a call that must refuse, so the assert
+# that it came back NULL is about the callee and not about ctypes' zeroing.
+POISON_HANDLE = 0xDEADBEEF
+
 
 def _dataset() -> pv.DataSet:
     rng = np.random.default_rng(11)
@@ -195,11 +199,39 @@ def test_a_zero_size_buffer_is_invalid() -> None:
 def test_a_null_pointer_is_invalid() -> None:
     """NULL with a plausible size must be refused, not dereferenced."""
     lib = _capi._load()  # noqa: SLF001
-    handle = ctypes.c_void_p()
+    # Poisoned, not zeroed: ctypes zero-initialises, so a handle left at its
+    # default would pass whether or not the refusal cleared it.
+    handle = ctypes.c_void_p(POISON_HANDLE)
     status = lib.pvzstd_open_memory(None, ctypes.c_uint64(1024), ctypes.byref(handle))
 
     assert int(status) == STATUS_INVALID
-    assert handle.value is None
+    assert handle.value is None, "a refused open left *out holding what the caller had there"
+
+
+def test_every_refusal_leaves_the_out_pointer_at_null() -> None:
+    """
+    Both doors clear *out before deciding, so no refusal hands back a stale value.
+
+    A caller who checks the handle rather than the status -- or who reuses one
+    across two opens -- otherwise reads whatever was in that slot.
+    """
+    lib = _capi._load()  # noqa: SLF001
+    raw = np.frombuffer(b"not a container", dtype=np.uint8)
+    data = ctypes.c_void_p(raw.ctypes.data)
+
+    # A NULL pointer, a zero size, and bytes that are not a container, through
+    # the memory door; a NULL path and a missing file through the file door.
+    refusals = {
+        "null data": (lib.pvzstd_open_memory, (None, ctypes.c_uint64(1024))),
+        "zero size": (lib.pvzstd_open_memory, (data, ctypes.c_uint64(0))),
+        "not a container": (lib.pvzstd_open_memory, (data, ctypes.c_uint64(raw.nbytes))),
+        "null path": (lib.pvzstd_open, (None,)),
+        "missing file": (lib.pvzstd_open, (b"no/such/container.pv",)),
+    }
+    for case, (entry, args) in refusals.items():
+        handle = ctypes.c_void_p(POISON_HANDLE)
+        assert int(entry(*args, ctypes.byref(handle))) != _capi._STATUS_OK, case  # noqa: SLF001
+        assert handle.value is None, case
 
 
 def test_a_null_out_pointer_is_invalid() -> None:

@@ -545,11 +545,12 @@ int64_t pvzstd_find_array(const pvzstd_reader *reader, const char *name) try {
 
 pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint64_t index, void *dst,
                                    uint64_t dst_size) try {
-  if (reader == nullptr || dst == nullptr) return PVZSTD_E_INVALID;
+  if (reader == nullptr) return PVZSTD_E_INVALID;
   if (index >= reader->arrays.size()) return PVZSTD_E_RANGE;
   const ArrayEntry &e = reader->arrays[static_cast<size_t>(index)];
   if (dst_size < e.nbytes) return PVZSTD_E_RANGE;
   if (e.nbytes == 0) return PVZSTD_OK;
+  if (dst == nullptr) return PVZSTD_E_INVALID;
 
   const uint8_t *src = reader->map.data() + e.payload_start;
   const uint64_t src_size = e.payload_end - e.payload_start;

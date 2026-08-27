@@ -105,6 +105,48 @@ def test_a_library_without_the_symbols_is_a_load_failure() -> None:
     assert verdict == "CoreUnavailableError", done.stdout
 
 
+def test_read_array_at_accepts_a_null_destination_for_a_zero_byte_array(tmp_path: Path) -> None:
+    """A zero-byte read must succeed even with a null destination.
+
+    ``pv.Sphere()`` has no lines, verts, or strips, so its
+    ``lines_connectivity``, ``verts_connectivity`` and ``strips_connectivity``
+    frames are zero bytes. numpy always hands back a non-null pointer for a
+    zero-size array, so going through :meth:`CoreReader.read_at` cannot
+    exercise a null destination the way a C or C++ caller sizing its buffer
+    from ``nbytes`` would; this reads every array through the raw ctypes
+    entry point instead, passing ``None`` whenever ``nbytes`` is zero.
+    """
+    ds = pv.Sphere()
+    path = tmp_path / "empty_topology.pv"
+    write(ds, path)
+
+    with _capi.CoreReader(str(path)) as reader:
+        count = len(reader)
+        assert count > 0
+
+        saw_empty = False
+        for index in range(count):
+            info = reader._info(index)  # noqa: SLF001
+            nbytes = int(info.nbytes)
+            if nbytes == 0:
+                saw_empty = True
+                dst = None
+            else:
+                buf = np.empty(nbytes, dtype=np.uint8)
+                dst = buf.ctypes.data_as(ctypes.c_void_p)
+
+            status = reader._lib.pvzstd_read_array_at(  # noqa: SLF001
+                reader._live,  # noqa: SLF001
+                ctypes.c_uint64(index),
+                dst,
+                ctypes.c_uint64(nbytes),
+            )
+            name = info.name.decode("utf-8")
+            assert status == _capi._STATUS_OK, f"array {index} ({name}, {nbytes} bytes) returned {status}"  # noqa: SLF001
+
+        assert saw_empty, "need at least one zero-byte array for this test to mean anything"
+
+
 def test_read_arrays_decodes_the_same_bytes_at_every_thread_setting(container: str) -> None:
     """The worker count is a schedule, not an answer: every setting decodes the same bytes."""
     settings = [_capi.THREADS_AUTO, 0, 1, 2, -1]

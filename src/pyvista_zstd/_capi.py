@@ -50,23 +50,23 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 8
+ABI_VERSION = 9
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
 
-# Mirrors PVZ_SLOT_NONE: the core writes this into a "which one" out-parameter
+# Mirrors PVZSTD_SLOT_NONE: the core writes this into a "which one" out-parameter
 # when the failure it is reporting is not about one of the call's own arrays.
 _SLOT_NONE = 2**64 - 1
 
-# Mirrors PVZ_LEVEL_FROM_FILE: append at whatever level the container records,
+# Mirrors PVZSTD_LEVEL_FROM_FILE: append at whatever level the container records,
 # so added blocks match the ones already there.
 LEVEL_FROM_FILE = -1000
 
-# Mirrors PVZ_THREADS_AUTO: let the C++ core pick from hardware concurrency.
+# Mirrors PVZSTD_THREADS_AUTO: let the C++ core pick from hardware concurrency.
 THREADS_AUTO = -2
 
-# Mirrors pvz_shuffle_mode. AUTO is not "decide in Python and pass a bool": the
+# Mirrors pvzstd_shuffle_mode. AUTO is not "decide in Python and pass a bool": the
 # core runs the trial compression itself, so the policy has one home.
 SHUFFLE_NEVER = 0
 SHUFFLE_ALWAYS = 1
@@ -242,42 +242,42 @@ def _bind(lib: ctypes.CDLL) -> None:
 
 def _bind_reader(lib: ctypes.CDLL) -> None:
     """Reader-side entry points, plus the two that belong to no handle."""
-    lib.pvz_abi_version.restype = c_uint32
-    lib.pvz_abi_version.argtypes = []
+    lib.pvzstd_abi_version.restype = c_uint32
+    lib.pvzstd_abi_version.argtypes = []
 
-    lib.pvz_status_message.restype = c_char_p
-    lib.pvz_status_message.argtypes = [c_int]
+    lib.pvzstd_status_message.restype = c_char_p
+    lib.pvzstd_status_message.argtypes = [c_int]
 
-    lib.pvz_open.restype = c_int
-    lib.pvz_open.argtypes = [c_char_p, POINTER(c_void_p)]
+    lib.pvzstd_open.restype = c_int
+    lib.pvzstd_open.argtypes = [c_char_p, POINTER(c_void_p)]
 
-    lib.pvz_open_versioned.restype = c_int
-    lib.pvz_open_versioned.argtypes = [c_char_p, POINTER(c_void_p), POINTER(c_uint32)]
+    lib.pvzstd_open_versioned.restype = c_int
+    lib.pvzstd_open_versioned.argtypes = [c_char_p, POINTER(c_void_p), POINTER(c_uint32)]
 
-    lib.pvz_max_file_version.restype = c_uint32
-    lib.pvz_max_file_version.argtypes = []
+    lib.pvzstd_max_file_version.restype = c_uint32
+    lib.pvzstd_max_file_version.argtypes = []
 
-    lib.pvz_close.restype = None
-    lib.pvz_close.argtypes = [c_void_p]
+    lib.pvzstd_close.restype = None
+    lib.pvzstd_close.argtypes = [c_void_p]
 
     # Without an explicit restype ctypes truncates this to a C int.
-    lib.pvz_array_count.restype = c_uint64
-    lib.pvz_array_count.argtypes = [c_void_p]
+    lib.pvzstd_array_count.restype = c_uint64
+    lib.pvzstd_array_count.argtypes = [c_void_p]
 
-    lib.pvz_array_info_at.restype = c_int
-    lib.pvz_array_info_at.argtypes = [c_void_p, c_uint64, POINTER(_ArrayInfo)]
+    lib.pvzstd_array_info_at.restype = c_int
+    lib.pvzstd_array_info_at.argtypes = [c_void_p, c_uint64, POINTER(_ArrayInfo)]
 
-    lib.pvz_array_info_range.restype = c_int
-    lib.pvz_array_info_range.argtypes = [c_void_p, c_uint64, c_uint64, POINTER(_ArrayInfo)]
+    lib.pvzstd_array_info_range.restype = c_int
+    lib.pvzstd_array_info_range.argtypes = [c_void_p, c_uint64, c_uint64, POINTER(_ArrayInfo)]
 
-    lib.pvz_find_array.restype = c_int64
-    lib.pvz_find_array.argtypes = [c_void_p, c_char_p]
+    lib.pvzstd_find_array.restype = c_int64
+    lib.pvzstd_find_array.argtypes = [c_void_p, c_char_p]
 
-    lib.pvz_read_array_at.restype = c_int
-    lib.pvz_read_array_at.argtypes = [c_void_p, c_uint64, c_void_p, c_uint64]
+    lib.pvzstd_read_array_at.restype = c_int
+    lib.pvzstd_read_array_at.argtypes = [c_void_p, c_uint64, c_void_p, c_uint64]
 
-    lib.pvz_read_arrays.restype = c_int
-    lib.pvz_read_arrays.argtypes = [
+    lib.pvzstd_read_arrays.restype = c_int
+    lib.pvzstd_read_arrays.argtypes = [
         c_void_p,
         POINTER(c_uint64),
         c_uint64,
@@ -287,59 +287,59 @@ def _bind_reader(lib: ctypes.CDLL) -> None:
         POINTER(c_uint64),
     ]
 
-    lib.pvz_field_array_count.restype = c_uint64
-    lib.pvz_field_array_count.argtypes = [c_void_p]
+    lib.pvzstd_field_array_count.restype = c_uint64
+    lib.pvzstd_field_array_count.argtypes = [c_void_p]
 
-    lib.pvz_field_array_name_at.restype = c_char_p
-    lib.pvz_field_array_name_at.argtypes = [c_void_p, c_uint64]
+    lib.pvzstd_field_array_name_at.restype = c_char_p
+    lib.pvzstd_field_array_name_at.argtypes = [c_void_p, c_uint64]
 
-    lib.pvz_find_field_array.restype = c_int64
-    lib.pvz_find_field_array.argtypes = [c_void_p, c_char_p]
+    lib.pvzstd_find_field_array.restype = c_int64
+    lib.pvzstd_find_field_array.argtypes = [c_void_p, c_char_p]
 
-    lib.pvz_ds_metadata_json.restype = c_char_p
-    lib.pvz_ds_metadata_json.argtypes = [c_void_p]
+    lib.pvzstd_ds_metadata_json.restype = c_char_p
+    lib.pvzstd_ds_metadata_json.argtypes = [c_void_p]
 
-    lib.pvz_file_metadata_json.restype = c_char_p
-    lib.pvz_file_metadata_json.argtypes = [c_void_p]
+    lib.pvzstd_file_metadata_json.restype = c_char_p
+    lib.pvzstd_file_metadata_json.argtypes = [c_void_p]
 
-    lib.pvz_metadata_count.restype = c_uint64
-    lib.pvz_metadata_count.argtypes = [c_void_p]
+    lib.pvzstd_metadata_count.restype = c_uint64
+    lib.pvzstd_metadata_count.argtypes = [c_void_p]
 
-    lib.pvz_metadata_name_at.restype = c_char_p
-    lib.pvz_metadata_name_at.argtypes = [c_void_p, c_uint64]
+    lib.pvzstd_metadata_name_at.restype = c_char_p
+    lib.pvzstd_metadata_name_at.argtypes = [c_void_p, c_uint64]
 
-    lib.pvz_metadata_json_at.restype = c_char_p
-    lib.pvz_metadata_json_at.argtypes = [c_void_p, c_uint64]
+    lib.pvzstd_metadata_json_at.restype = c_char_p
+    lib.pvzstd_metadata_json_at.argtypes = [c_void_p, c_uint64]
 
-    lib.pvz_frame_count.restype = c_uint64
-    lib.pvz_frame_count.argtypes = [c_void_p]
+    lib.pvzstd_frame_count.restype = c_uint64
+    lib.pvzstd_frame_count.argtypes = [c_void_p]
 
-    lib.pvz_frame_sizes.restype = c_int
-    lib.pvz_frame_sizes.argtypes = [c_void_p, POINTER(c_uint64), POINTER(c_uint64), c_uint64]
+    lib.pvzstd_frame_sizes.restype = c_int
+    lib.pvzstd_frame_sizes.argtypes = [c_void_p, POINTER(c_uint64), POINTER(c_uint64), c_uint64]
 
 
 def _bind_writer(lib: ctypes.CDLL) -> None:
     """Writer-side entry points, plus the handle-less append."""
-    lib.pvz_writer_create.restype = c_int
-    lib.pvz_writer_create.argtypes = [POINTER(c_void_p)]
+    lib.pvzstd_writer_create.restype = c_int
+    lib.pvzstd_writer_create.argtypes = [POINTER(c_void_p)]
 
-    lib.pvz_writer_free.restype = None
-    lib.pvz_writer_free.argtypes = [c_void_p]
+    lib.pvzstd_writer_free.restype = None
+    lib.pvzstd_writer_free.argtypes = [c_void_p]
 
-    lib.pvz_writer_set_level.restype = c_int
-    lib.pvz_writer_set_level.argtypes = [c_void_p, c_int]
+    lib.pvzstd_writer_set_level.restype = c_int
+    lib.pvzstd_writer_set_level.argtypes = [c_void_p, c_int]
 
-    lib.pvz_writer_set_threads.restype = c_int
-    lib.pvz_writer_set_threads.argtypes = [c_void_p, c_int]
+    lib.pvzstd_writer_set_threads.restype = c_int
+    lib.pvzstd_writer_set_threads.argtypes = [c_void_p, c_int]
 
-    lib.pvz_writer_set_shuffle.restype = c_int
-    lib.pvz_writer_set_shuffle.argtypes = [c_void_p, c_int]
+    lib.pvzstd_writer_set_shuffle.restype = c_int
+    lib.pvzstd_writer_set_shuffle.argtypes = [c_void_p, c_int]
 
-    lib.pvz_writer_set_fixed_width_cells.restype = c_int
-    lib.pvz_writer_set_fixed_width_cells.argtypes = [c_void_p, c_int]
+    lib.pvzstd_writer_set_fixed_width_cells.restype = c_int
+    lib.pvzstd_writer_set_fixed_width_cells.argtypes = [c_void_p, c_int]
 
-    lib.pvz_writer_add_array_borrowed.restype = c_int
-    lib.pvz_writer_add_array_borrowed.argtypes = [
+    lib.pvzstd_writer_add_array_borrowed.restype = c_int
+    lib.pvzstd_writer_add_array_borrowed.argtypes = [
         c_void_p,
         c_char_p,
         c_char_p,
@@ -349,11 +349,11 @@ def _bind_writer(lib: ctypes.CDLL) -> None:
         c_uint64,
     ]
 
-    lib.pvz_writer_write.restype = c_int
-    lib.pvz_writer_write.argtypes = [c_void_p, c_char_p]
+    lib.pvzstd_writer_write.restype = c_int
+    lib.pvzstd_writer_write.argtypes = [c_void_p, c_char_p]
 
-    lib.pvz_append_arrays.restype = c_int
-    lib.pvz_append_arrays.argtypes = [
+    lib.pvzstd_append_arrays.restype = c_int
+    lib.pvzstd_append_arrays.argtypes = [
         c_char_p,
         POINTER(_AppendArray),
         c_uint64,
@@ -380,7 +380,7 @@ def _load() -> ctypes.CDLL:
             # symbol makes an older library fail here, at the missing
             # attribute, before the check below can name the mismatch.
             _bind(lib)
-            found = int(lib.pvz_abi_version())
+            found = int(lib.pvzstd_abi_version())
         except (OSError, AttributeError) as exc:
             attempts.append(f"{candidate}: {exc}")
             continue
@@ -423,7 +423,7 @@ def max_file_version() -> int:
     int
 
     """
-    return int(_load().pvz_max_file_version())
+    return int(_load().pvzstd_max_file_version())
 
 
 def _check(status: int, detail: str = "") -> None:
@@ -465,9 +465,9 @@ class CoreReader:
         # decision to refuse is the core's, and is already made by the time this
         # returns.
         found = c_uint32(0)
-        status = lib.pvz_open_versioned(str(path).encode("utf-8"), byref(handle), byref(found))
+        status = lib.pvzstd_open_versioned(str(path).encode("utf-8"), byref(handle), byref(found))
         if status == _STATUS_VERSION:
-            raise UnsupportedFileVersionError(int(found.value), int(lib.pvz_max_file_version()))
+            raise UnsupportedFileVersionError(int(found.value), int(lib.pvzstd_max_file_version()))
         _check(status, str(path))
         self._handle = handle
 
@@ -483,7 +483,7 @@ class CoreReader:
     def close(self) -> None:
         """Release the C++ reader. Safe to call more than once."""
         if self._handle is not None:
-            self._lib.pvz_close(self._handle)
+            self._lib.pvzstd_close(self._handle)
             self._handle = None
 
     def __del__(self) -> None:
@@ -502,11 +502,11 @@ class CoreReader:
 
     def __len__(self) -> int:
         """Return the number of arrays, excluding the JSON metadata frames."""
-        return int(self._lib.pvz_array_count(self._live))
+        return int(self._lib.pvzstd_array_count(self._live))
 
     def _info(self, index: int) -> _ArrayInfo:
         info = _ArrayInfo()
-        _check(self._lib.pvz_array_info_at(self._live, c_uint64(index), byref(info)), f"index {index}")
+        _check(self._lib.pvzstd_array_info_at(self._live, c_uint64(index), byref(info)), f"index {index}")
         return info
 
     def names(self) -> list[str]:
@@ -544,7 +544,7 @@ class CoreReader:
         if info.nbytes:
             # The destination's size, not the file's, so an over-long payload is
             # reported rather than written past the end of this array.
-            status = self._lib.pvz_read_array_at(
+            status = self._lib.pvzstd_read_array_at(
                 self._live,
                 c_uint64(index),
                 c_void_p(out.ctypes.data),
@@ -570,7 +570,7 @@ class CoreReader:
         int | None
 
         """
-        found = int(self._lib.pvz_find_array(self._live, name.encode("utf-8")))
+        found = int(self._lib.pvzstd_find_array(self._live, name.encode("utf-8")))
         return None if found < 0 else found
 
     def field_array_names(self) -> list[str]:
@@ -587,10 +587,10 @@ class CoreReader:
             Empty for a MultiBlock container, which has no single root dataset.
 
         """
-        count = int(self._lib.pvz_field_array_count(self._live))
+        count = int(self._lib.pvzstd_field_array_count(self._live))
         names = []
         for i in range(count):
-            raw = self._lib.pvz_field_array_name_at(self._live, c_uint64(i))
+            raw = self._lib.pvzstd_field_array_name_at(self._live, c_uint64(i))
             names.append(raw.decode("utf-8"))
         return names
 
@@ -609,7 +609,7 @@ class CoreReader:
             An index usable with :meth:`read_at`.
 
         """
-        found = int(self._lib.pvz_find_field_array(self._live, name.encode("utf-8")))
+        found = int(self._lib.pvzstd_find_field_array(self._live, name.encode("utf-8")))
         return None if found < 0 else found
 
     def read_arrays(self, keep: set[str] | None = None, n_threads: int = THREADS_AUTO) -> dict[str, NDArray[Any]]:
@@ -639,10 +639,10 @@ class CoreReader:
         empty = np.empty
 
         # Every header in one crossing.
-        n_arrays = int(self._lib.pvz_array_count(handle))
+        n_arrays = int(self._lib.pvzstd_array_count(handle))
         infos = (_ArrayInfo * n_arrays)()
         if n_arrays:
-            _check(self._lib.pvz_array_info_range(handle, 0, n_arrays, infos))
+            _check(self._lib.pvzstd_array_info_range(handle, 0, n_arrays, infos))
 
         wanted: list[tuple[int, str, NDArray[Any]]] = []
         for index in range(n_arrays):
@@ -672,7 +672,7 @@ class CoreReader:
                 dsts[slot] = arr.ctypes.data
                 sizes[slot] = arr.nbytes
             refused = c_uint64(0)
-            status = self._lib.pvz_read_arrays(
+            status = self._lib.pvzstd_read_arrays(
                 handle, indices, c_uint64(count), dsts, sizes, c_int(n_threads), byref(refused)
             )
             if status == _STATUS_FILTER and refused.value != _SLOT_NONE:
@@ -687,13 +687,13 @@ class CoreReader:
     @property
     def ds_metadata_json(self) -> str | None:
         """Return the dataset metadata JSON document, or None."""
-        raw = self._lib.pvz_ds_metadata_json(self._live)
+        raw = self._lib.pvzstd_ds_metadata_json(self._live)
         return None if raw is None else raw.decode("utf-8")
 
     @property
     def file_metadata_json(self) -> str | None:
         """Return the file metadata JSON document, or None."""
-        raw = self._lib.pvz_file_metadata_json(self._live)
+        raw = self._lib.pvzstd_file_metadata_json(self._live)
         return None if raw is None else raw.decode("utf-8")
 
     def metadata_documents(self) -> list[tuple[str, str]]:
@@ -704,11 +704,11 @@ class CoreReader:
         MultiBlock tree needs both.
         """
         live = self._live
-        count = int(self._lib.pvz_metadata_count(live))
+        count = int(self._lib.pvzstd_metadata_count(live))
         documents = []
         for index in range(count):
-            name = self._lib.pvz_metadata_name_at(live, c_uint64(index))
-            raw = self._lib.pvz_metadata_json_at(live, c_uint64(index))
+            name = self._lib.pvzstd_metadata_name_at(live, c_uint64(index))
+            raw = self._lib.pvzstd_metadata_json_at(live, c_uint64(index))
             if name is None or raw is None:  # pragma: no cover - count said otherwise
                 continue
             documents.append((name.decode("utf-8"), raw.decode("utf-8")))
@@ -721,11 +721,11 @@ class CoreReader:
         Two frames per array, ``(header, payload)``, and the metadata frames are
         included -- so these index the file, not :meth:`array_names`.
         """
-        count = int(self._lib.pvz_frame_count(self._live))
+        count = int(self._lib.pvzstd_frame_count(self._live))
         decompressed = np.empty(count, dtype=np.uint64)
         compressed = np.empty(count, dtype=np.uint64)
         _check(
-            self._lib.pvz_frame_sizes(
+            self._lib.pvzstd_frame_sizes(
                 self._live,
                 decompressed.ctypes.data_as(POINTER(c_uint64)),
                 compressed.ctypes.data_as(POINTER(c_uint64)),
@@ -762,7 +762,7 @@ class CoreWriter:
         self._pinned: list[Any] = []
 
         handle = c_void_p()
-        _check(lib.pvz_writer_create(byref(handle)))
+        _check(lib.pvzstd_writer_create(byref(handle)))
         self._handle = handle
 
     def __enter__(self) -> CoreWriter:  # noqa: PYI034
@@ -776,7 +776,7 @@ class CoreWriter:
     def close(self) -> None:
         """Release the underlying writer, if it is still open."""
         if self._handle is not None:
-            self._lib.pvz_writer_free(self._handle)
+            self._lib.pvzstd_writer_free(self._handle)
             self._handle = None
         self._pinned.clear()
 
@@ -794,19 +794,19 @@ class CoreWriter:
 
     def set_level(self, level: int) -> None:
         """Set the zstd compression level."""
-        _check(self._lib.pvz_writer_set_level(self._live, int(level)))
+        _check(self._lib.pvzstd_writer_set_level(self._live, int(level)))
 
     def set_threads(self, n_threads: int) -> None:
         """Set the worker count; ``THREADS_AUTO`` sizes it from the payload."""
-        _check(self._lib.pvz_writer_set_threads(self._live, int(n_threads)))
+        _check(self._lib.pvzstd_writer_set_threads(self._live, int(n_threads)))
 
     def set_shuffle(self, mode: int) -> None:
         """Set the byte-shuffle policy to one of the ``SHUFFLE_*`` modes."""
-        _check(self._lib.pvz_writer_set_shuffle(self._live, int(mode)))
+        _check(self._lib.pvzstd_writer_set_shuffle(self._live, int(mode)))
 
     def set_fixed_width_cells(self, *, enabled: bool) -> None:
         """Record whether any dataset used the fixed-width cell encoding."""
-        _check(self._lib.pvz_writer_set_fixed_width_cells(self._live, 1 if enabled else 0))
+        _check(self._lib.pvzstd_writer_set_fixed_width_cells(self._live, 1 if enabled else 0))
 
     def add_array(self, name: str, arr: NDArray[Any]) -> None:
         """
@@ -820,7 +820,7 @@ class CoreWriter:
         self._pinned.append(buf)
         shape = (c_uint64 * max(buf.ndim, 1))(*buf.shape)
         _check(
-            self._lib.pvz_writer_add_array_borrowed(
+            self._lib.pvzstd_writer_add_array_borrowed(
                 self._live,
                 name.encode("utf-8"),
                 buf.dtype.str.encode("ascii"),
@@ -834,7 +834,7 @@ class CoreWriter:
 
     def write(self, path: Path | str) -> None:
         """Compress and emit every staged array to *path*."""
-        _check(self._lib.pvz_writer_write(self._live, str(path).encode("utf-8")), str(path))
+        _check(self._lib.pvzstd_writer_write(self._live, str(path).encode("utf-8")), str(path))
 
 
 def append_arrays(
@@ -905,7 +905,7 @@ def append_arrays(
 
     clash = c_uint64(0)
     found = c_uint32(0)
-    status = lib.pvz_append_arrays(
+    status = lib.pvzstd_append_arrays(
         str(path).encode("utf-8"),
         items,
         c_uint64(len(arrays)),
@@ -915,7 +915,7 @@ def append_arrays(
         byref(found),
     )
     if status == _STATUS_VERSION:
-        raise UnsupportedFileVersionError(int(found.value), int(lib.pvz_max_file_version()))
+        raise UnsupportedFileVersionError(int(found.value), int(lib.pvzstd_max_file_version()))
     if status == _STATUS_EXISTS:
         # The slot indexes `items`, which was built from this dict in order.
         subject = "a name offered"

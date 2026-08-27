@@ -32,18 +32,18 @@ def container(tmp_path: Path) -> str:
 def test_frame_sizes_refuses_a_short_destination(container: str) -> None:
     """A capacity smaller than the frame count is refused, not written to."""
     with _capi.CoreReader(container) as reader:
-        count = int(reader._lib.pvz_frame_count(reader._live))  # noqa: SLF001
+        count = int(reader._lib.pvzstd_frame_count(reader._live))  # noqa: SLF001
         assert count > 1, "need at least two frames for a short capacity to mean anything"
 
         short = np.zeros(count, dtype=np.uint64)
-        status = reader._lib.pvz_frame_sizes(  # noqa: SLF001
+        status = reader._lib.pvzstd_frame_sizes(  # noqa: SLF001
             reader._live,  # noqa: SLF001
             short.ctypes.data_as(ctypes.POINTER(ctypes.c_uint64)),
             None,
             ctypes.c_uint64(count - 1),
         )
 
-    assert status == _capi._STATUS_RANGE, f"short capacity returned {status}, not PVZ_E_RANGE"  # noqa: SLF001
+    assert status == _capi._STATUS_RANGE, f"short capacity returned {status}, not PVZSTD_E_RANGE"  # noqa: SLF001
     assert not short.any(), "refused, and wrote anyway"
 
 
@@ -91,7 +91,7 @@ def test_a_library_without_the_symbols_is_a_load_failure() -> None:
             assert decoy in str(exc), f"declined without naming what it tried: {exc}"
             print("CoreUnavailableError")
         else:
-            raise AssertionError("a library exporting no pvz_* symbols was accepted")
+            raise AssertionError("a library exporting no pvzstd_* symbols was accepted")
         """
     )
     # Out of process: the loader caches its answer for the session.

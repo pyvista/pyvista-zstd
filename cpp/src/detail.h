@@ -112,9 +112,9 @@ inline bool AutoShuffleBeneficial(const uint8_t *data, uint64_t nbytes, uint64_t
   return shuf_size < raw_size;
 }
 
-// Mirrors _set_n_threads for the PVZ_THREADS_AUTO case.
+// Mirrors _set_n_threads for the PVZSTD_THREADS_AUTO case.
 inline int ResolveThreads(int requested, uint64_t total_bytes) {
-  if (requested != PVZ_THREADS_AUTO) return requested;
+  if (requested != PVZSTD_THREADS_AUTO) return requested;
   const uint64_t size_mb = total_bytes / kBytesPerMiB;
   const uint64_t n = size_mb / kThreadBytesPerWorker;
   if (n > static_cast<uint64_t>(kMaxManualThreads)) return -1;
@@ -127,30 +127,30 @@ inline int EffectiveWorkers(int threads) {
   return HardwareWorkers();
 }
 
-inline pvz_status CompressFrame(const uint8_t *src, uint64_t n, int level, int workers,
-                                std::vector<uint8_t> *out) {
+inline pvzstd_status CompressFrame(const uint8_t *src, uint64_t n, int level, int workers,
+                                   std::vector<uint8_t> *out) {
   const size_t bound = ZSTD_compressBound(static_cast<size_t>(n));
   try {
     out->resize(bound);
   } catch (const std::bad_alloc &) {
-    return PVZ_E_NOMEM;
+    return PVZSTD_E_NOMEM;
   }
 
   ZSTD_CCtx *cctx = ZSTD_createCCtx();
-  if (cctx == nullptr) return PVZ_E_NOMEM;
+  if (cctx == nullptr) return PVZSTD_E_NOMEM;
   size_t got = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, level);
   if (ZSTD_isError(got) == 0 && workers > 0) {
     got = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, workers);
   }
   if (ZSTD_isError(got) != 0) {
     ZSTD_freeCCtx(cctx);
-    return PVZ_E_ZSTD;
+    return PVZSTD_E_ZSTD;
   }
   got = ZSTD_compress2(cctx, out->data(), out->size(), src, static_cast<size_t>(n));
   ZSTD_freeCCtx(cctx);
-  if (ZSTD_isError(got) != 0) return PVZ_E_ZSTD;
+  if (ZSTD_isError(got) != 0) return PVZSTD_E_ZSTD;
   out->resize(got);
-  return PVZ_OK;
+  return PVZSTD_OK;
 }
 
 // Matches json.dumps' default (ensure_ascii, minimal separators).

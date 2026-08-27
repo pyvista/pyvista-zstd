@@ -136,6 +136,31 @@ else()
   target_compile_options(pvzstd PRIVATE -Wall -Wextra)
 endif()
 
+# --- Exceptions on WebAssembly ------------------------------------------
+#
+# Every extern "C" entry point is a function-try-block ending in catch(...),
+# which is how the header can promise a status code rather than an exception
+# unwinding into a C caller. Emscripten defaults to
+# -sDISABLE_EXCEPTION_CATCHING=1, which compiles every one of those handlers
+# away and turns a throw into abort() -- so on that target the promise the
+# header makes is not kept, and a caller parsing untrusted input gets a dead
+# process instead of PVZSTD_E_NOMEM.
+#
+# -fwasm-exceptions rather than -sNO_DISABLE_EXCEPTION_CATCHING: the latter is
+# the legacy JavaScript-based unwinder, which is slower, larger, and taxes
+# every call site whether or not anything throws, while the former lowers to
+# the WebAssembly exception-handling instructions that every engine emsdk
+# 4.0.20 targets already implements. It is needed at compile and at link.
+#
+# PUBLIC, not PRIVATE: a wasm link cannot mix exception models, so a consumer
+# compiling its own translation units against this library and then linking it
+# has to be on the same one. Scoped to the target rather than set globally, so
+# a project that embeds this library keeps its own flags everywhere else.
+if(EMSCRIPTEN)
+  target_compile_options(pvzstd PUBLIC -fwasm-exceptions)
+  target_link_options(pvzstd PUBLIC -fwasm-exceptions)
+endif()
+
 if(PVZSTD_THREADS)
   find_package(Threads REQUIRED)
   target_link_libraries(pvzstd PRIVATE Threads::Threads)

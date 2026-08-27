@@ -1,7 +1,7 @@
 """
-Append parity between the Python surface and the pvz_append tool.
+Append parity between the Python surface and the pvzstd_append tool.
 
-Both arms reach pvz_append_arrays, so agreement pins the ctypes binding
+Both arms reach pvzstd_append_arrays, so agreement pins the ctypes binding
 against a second caller of the same ABI, not the format itself.
 """
 
@@ -20,15 +20,15 @@ import ref_reader
 
 import pyvista_zstd as pz
 
-APPEND = os.environ.get("PVZ_APPEND")
+APPEND = os.environ.get("PVZSTD_APPEND")
 
 pytestmark = pytest.mark.skipif(
     not APPEND or not Path(APPEND).exists(),
-    reason="set PVZ_APPEND to a built cpp/ pvz_append binary to run append parity",
+    reason="set PVZSTD_APPEND to a built cpp/ pvzstd_append binary to run append parity",
 )
 
 SHUFFLE_CODE = {False: 0, True: 1, "auto": 2}
-# PVZ_LEVEL_FROM_FILE: makes the tool read the level out of the container, which
+# PVZSTD_LEVEL_FROM_FILE: makes the tool read the level out of the container, which
 # is what ``level=None`` asks for on the binding side, rather than handing the
 # core a resolved number one arm worked out and the other did not.
 LEVEL_FROM_FILE = "-1000"

@@ -77,14 +77,14 @@ repos:
   - repo: local
     hooks:
       - id: forbid-pvz
-        name: Forbid 'pvz' alias (reserved for another project; use 'pvzstd')
+        name: Forbid the 'pvz' alias and the 'pvz_'/'PVZ_' prefixes (use 'pvzstd')
         entry: |
           bash -c '
-            matches=$(grep -HnE "\bpvz\b" "$@" 2>/dev/null || true)
+            matches=$(grep -HnE "\bpvz\b|\bpvz_|\bPVZ_" "$@" 2>/dev/null || true)
             if [ -n "$matches" ]; then
               echo "$matches"
               echo
-              echo "'\''pvz'\'' is reserved — use \`import pyvista_zstd as pvzstd\` instead. (ask @banesullivan)"
+              echo "'\''pvz'\'' is reserved and the '\''pvz_'\''/'\''PVZ_'\'' prefixes are retired. Use \`import pyvista_zstd as pvzstd\`, and spell C ABI symbols pvzstd_/PVZSTD_. (ask @banesullivan)"
               exit 1
             fi
           ' --

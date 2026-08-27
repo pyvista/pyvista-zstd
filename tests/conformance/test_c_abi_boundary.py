@@ -20,14 +20,14 @@ HEADER = ROOT / "cpp" / "include" / "pvzstd" / "pvzstd.h"
 SOURCES = sorted((ROOT / "cpp" / "src").glob("*.cpp"))
 
 CANNOT_THROW = {
-    "pvz_abi_version": "returns a preprocessor constant",
-    "pvz_max_file_version": "returns a preprocessor constant",
-    "pvz_status_message": "returns a string literal from a switch over an enum",
+    "pvzstd_abi_version": "returns a preprocessor constant",
+    "pvzstd_max_file_version": "returns a preprocessor constant",
+    "pvzstd_status_message": "returns a string literal from a switch over an enum",
 }
 
 
 def _declared() -> list[str]:
-    return sorted(set(re.findall(r"PVZSTD_API\s+[\w *]+?\b(pvz_\w+)\s*\(", HEADER.read_text())))
+    return sorted(set(re.findall(r"PVZSTD_API\s+[\w *]+?\b(pvzstd_\w+)\s*\(", HEADER.read_text())))
 
 
 def _definition(name: str) -> tuple[Path, bool] | None:

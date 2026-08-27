@@ -1025,7 +1025,46 @@ def read(
     if has_scheme is not None and has_scheme(str(filename)):
         raise LocalFileRequiredError
     _warn_backend_deprecated(backend)
-    return Reader(filename).read(n_threads=n_threads)
+    with Reader(filename) as reader:
+        return reader.read(n_threads=n_threads)
+
+
+def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: int | None = None) -> DataSet:
+    """
+    Decompress a ``pyvista-zstd`` container already held in memory.
+
+    :func:`read` for bytes rather than a path -- an archive member, a response
+    body, or a build with no filesystem to open a path on. The bytes are
+    borrowed, not copied, and must not be modified while the read is running:
+    a write into them is not detected, so the dataset comes back with undefined
+    contents and no error to say so. A resize is detected, and raises
+    :class:`BufferError` rather than corrupting anything.
+
+    This is a convenience function that uses :class:`Reader`. Use that class to
+    finely tune reading.
+
+    Parameters
+    ----------
+    data : bytes | bytearray | memoryview | numpy.ndarray
+        A whole ``.pv`` or ``.zvtk`` container, contiguous.
+    n_threads : None | int, optional
+        Workers to spread the frames over, exactly as in :func:`read`.
+
+    Returns
+    -------
+    pyvista.DataSet
+
+    Examples
+    --------
+    >>> from pathlib import Path
+    >>> import pyvista_zstd
+    >>> ds = pyvista_zstd.read_buffer(Path("dataset.pv").read_bytes())
+
+    """
+    # Closed on the way out, so the caller's bytes stop being borrowed as soon
+    # as the arrays are built rather than whenever the reader is collected.
+    with Reader(buffer=data) as reader:
+        return reader.read(n_threads=n_threads)
 
 
 class _DataSetReader:
@@ -1126,10 +1165,33 @@ class Reader:
     * For files containing a :class:`pyvista.MultiBlock`, select which blocks
       to read in.
 
+    A container already resident is read by passing ``buffer`` instead of
+    ``filename`` -- an archive member, a response body, or a build with no
+    filesystem to open a path on. Those bytes are borrowed rather than copied
+    and are held for the reader's life, so they must not be modified meanwhile.
+    Writing into them is not detected: the arrays read afterwards hold
+    undefined contents, and no error is raised to say so. Resizing them is
+    detected -- the borrow pins the buffer, so a resize raises
+    :class:`BufferError` rather than corrupting anything.
+
+    A reader holds the file mapped, or the caller's buffer alive, until
+    :meth:`close` -- which ``with`` calls on the way out:
+
+    .. code-block:: python
+
+        with pyvista_zstd.Reader(buffer=raw) as reader:
+            ds = reader.read()
+
     Parameters
     ----------
-    filename : pathlib.Path | str
+    filename : pathlib.Path | str, optional
         Path to the file. Must end in ``.pv``.
+    buffer : bytes | bytearray | memoryview | numpy.ndarray, optional
+        A whole container, contiguous. Exactly one of *filename* and *buffer*
+        is given; a buffer has no suffix to check, so its bytes decide whether
+        it is a container.
+    backend : str, optional
+        Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
     Examples
     --------
@@ -1169,12 +1231,19 @@ class Reader:
       Z Bounds:   -5.000e-01, 5.000e-01
       N Arrays:   0
 
+    Read the same container out of memory instead of off disk.
+
+    >>> from pathlib import Path
+    >>> raw = Path("sphere.pv").read_bytes()
+    >>> ds_in = pyvista_zstd.Reader(buffer=raw).read()
+
     """
 
     def __init__(
         self,
-        filename: Path | str,
+        filename: Path | str | None = None,
         *,
+        buffer: bytes | bytearray | memoryview | NDArray[Any] | None = None,
         backend: str | None = None,
     ) -> None:
         """
@@ -1183,13 +1252,20 @@ class Reader:
         ``backend`` is deprecated and ignored.
         """
         _warn_backend_deprecated(backend)
-        self._filename = Path(filename)
+        if (filename is None) == (buffer is None):
+            msg = "Reader takes exactly one of `filename` and `buffer`"
+            raise TypeError(msg)
+
+        self._filename = None if filename is None else Path(filename)
+        self._buffer = buffer
         self._selected_point_arrays: set[str] | None = None
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
         self._core: CoreReader | None = None
+        self._closed = False
 
-        if self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
+        # Only a path carries a suffix to judge; a buffer is judged by its bytes.
+        if self._filename is not None and self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
             raise ValueError(msg)
 
@@ -1197,7 +1273,7 @@ class Reader:
             core = self._core_reader()
         except _capi.ContainerFormatError as err:
             # Callers catch on this wording, so keep it.
-            msg = f"'{self._filename}' did not parse as a pyvista-zstd container. File may be corrupted."
+            msg = f"'{self._source}' did not parse as a pyvista-zstd container. File may be corrupted."
             raise RuntimeError(msg) from err
         self._frame_decompressed, self._compressed_sizes = core.frame_sizes()
         self._metadata_documents = dict(core.metadata_documents())
@@ -1206,6 +1282,36 @@ class Reader:
         self._ds_metadata = self._root_ds_meta_from_core()
 
         self.__ds_reader: _DataSetReader | None = None
+
+    # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
+    def __enter__(self) -> Reader:  # noqa: PYI034
+        """Return self; the reader is already open."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Release the container, as :meth:`close` does."""
+        self.close()
+
+    def close(self) -> None:
+        """
+        Release the container. Safe to call more than once.
+
+        Unmaps the file, or drops the reference to the buffer this reader was
+        given -- which, until now, has kept those bytes alive on the caller's
+        behalf. Reading anything afterwards raises :class:`ValueError`; the
+        metadata taken when the container was opened stays readable, because it
+        was copied out then and no longer touches the container.
+        """
+        if self._core is not None:
+            self._core.close()
+            self._core = None
+        self._buffer = None
+        self._closed = True
+
+    @property
+    def _source(self) -> str:
+        """Name this container came under, for messages and for the repr."""
+        return "<memory>" if self._filename is None else str(self._filename)
 
     def __getitem__(self, idx: int) -> _DataSetReader:
         """Return an indexed reader."""
@@ -1276,7 +1382,7 @@ class Reader:
             # end users re-saving their data files, and Python's default
             # warning filters hide DeprecationWarning from non-__main__ code.
             warnings.warn(
-                f"'{self._filename}' is a legacy zvtk file. Support for the "
+                f"'{self._source}' is a legacy zvtk file. Support for the "
                 "'.zvtk' format will be removed in a future release; re-save "
                 "it with `pyvista_zstd.write(pyvista_zstd.read(path), new_path)`.",
                 FutureWarning,
@@ -1320,21 +1426,26 @@ class Reader:
 
     def _core_reader(self) -> CoreReader:
         """
-        Return the C++ reader for this file, opened once and kept.
+        Return the C++ reader for this container, opened once and kept.
 
-        Opening one maps the file and parses the trailer and every array
-        header. This object did all of that in __init__ already, so building a
+        Opening one takes the container's bytes -- mapping the file, or
+        borrowing the buffer the ``buffer`` argument was given -- and parses
+        the trailer and every array header. This object did all of that already
+        at construction, so building a
         fresh C++ reader per dataset paid for a second copy of it on every
         read -- and a MultiBlock paid once per dataset.
 
         Holding it does not weaken any guarantee that was being offered: the
         frame index and the mapping are both taken in __init__ and kept, so a
         reader has always been a snapshot of the file as it was when opened.
-        It is released when this object is, the same way the mapping is.
+        It is released by :meth:`close`, or when this object is collected.
         """
+        if self._closed:
+            msg = "operation on a closed Reader"
+            raise ValueError(msg)
         reader = self._core
         if reader is None:
-            reader = _capi.CoreReader(self._filename)
+            reader = _capi.CoreReader(self._filename) if self._buffer is None else _capi.CoreReader(buffer=self._buffer)
             self._core = reader
         return reader
 
@@ -1673,7 +1784,7 @@ class Reader:
         ds_md = self._ds_metadata
         header = [
             f"pyvista_zstd.Reader ({hex(id(self))})",
-            f"  File:               {self._filename}",
+            f"  File:               {self._source}",
             f"  File Version:       {self._metadata.file_version}",
             f"  Compression:        {self._metadata.compression}",
             f"  Compression Level:  {self._metadata.compression_level}",

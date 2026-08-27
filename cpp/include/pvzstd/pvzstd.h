@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 9u
+#define PVZSTD_ABI_VERSION 10u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -96,7 +96,34 @@ PVZSTD_API pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out);
 PVZSTD_API pvzstd_status pvzstd_open_versioned(const char *path, pvzstd_reader **out,
                                                uint32_t *file_version);
 
-/* Release a reader. Safe to call with NULL. */
+/* Open a container the caller already holds: `data` must point at `size`
+ * contiguous bytes of a whole container. NULL, or a size of zero, is
+ * PVZSTD_E_INVALID -- a zero size is a bad argument, where a zero-length file
+ * is a property of the thing opened and so reaches pvzstd_open as PVZSTD_E_IO.
+ * The two doors differ there on purpose; a caller writing one error handler
+ * over both should expect it.
+ *
+ * The bytes are borrowed, never copied: the caller owns the buffer and must
+ * keep it allocated and unmodified until pvzstd_close(), which is what makes
+ * this cheaper than staging the container somewhere the file entry point can
+ * reach. Modifying it meanwhile is not detected: the offsets and sizes were
+ * read at open time, so the arrays read afterwards hold undefined contents and
+ * no status reports it. For a caller that already has the bytes -- an archive
+ * member, an HTTP response body, or a build with no filesystem to open a path
+ * on -- this is pvzstd_open over the same container, and refuses a crafted
+ * buffer wherever pvzstd_open would refuse a crafted file. */
+PVZSTD_API pvzstd_status pvzstd_open_memory(const void *data, uint64_t size, pvzstd_reader **out);
+
+/* As pvzstd_open_memory, additionally reporting the container's own
+ * file_version, on the same terms as pvzstd_open_versioned -- including when
+ * the open is refused for being too new. A caller reading from memory needs
+ * that number for the same reason a caller reading from a path does. */
+PVZSTD_API pvzstd_status pvzstd_open_memory_versioned(const void *data, uint64_t size,
+                                                      pvzstd_reader **out, uint32_t *file_version);
+
+/* Release a reader. Safe to call with NULL. A reader opened from memory
+ * borrows its bytes, so this releases only what the reader itself acquired --
+ * the caller's buffer is left alone, and is theirs to free afterwards. */
 PVZSTD_API void pvzstd_close(pvzstd_reader *reader);
 
 /* Number of arrays, excluding the two JSON metadata frames. */

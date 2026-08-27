@@ -100,9 +100,39 @@ jobs:
         run: pytest tests -vv
 
   wasm:
-    name: WebAssembly
+    name: WebAssembly (${{ matrix.config }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A browser consumer with SharedArrayBuffer and cross-origin
+          # isolation: pthreads stay on, so zstd keeps multithreaded mode and
+          # the writer can reproduce the reference writer's bytes at any
+          # worker count, including the one AUTO (-2) picks for it.
+          - config: threads
+            pvzstd_threads: "ON"
+            emcc_thread_flags: -DCMAKE_C_FLAGS=-pthread -DCMAKE_CXX_FLAGS=-pthread
+            emcc_linker_flags: -pthread -sPTHREAD_POOL_SIZE=4 -sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1
+            writer_threads: "-2"
+            writer_check_names: sphere bulk
+          # A single-threaded browser build: no SharedArrayBuffer, no
+          # cross-origin isolation, so no pthreads and PVZSTD_THREADS=OFF.
+          # Reads still match the host reader byte for byte. For writes,
+          # only "sphere" is checked here: it is well under the 2 MiB
+          # threshold where the reference writer's AUTO rule already resolves
+          # to 0 workers, so a 0-worker rewrite still reproduces its bytes.
+          # "bulk" sits at that threshold, so the reference used a non-zero
+          # worker count that this configuration cannot reproduce -- driving
+          # the writer with any non-zero count here returns PVZSTD_E_ZSTD by
+          # design, so "bulk" writer parity stays with the threaded lane.
+          - config: threads-off
+            pvzstd_threads: "OFF"
+            emcc_thread_flags: ""
+            emcc_linker_flags: -sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1
+            writer_threads: "0"
+            writer_check_names: sphere
     steps:
       - uses: actions/checkout@v7
 
@@ -113,7 +143,7 @@ jobs:
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 3.1.64
+          version: 4.0.20
 
       - name: Build for the host
         # Both arms take the pinned zstd: this job compares written bytes, and
@@ -126,16 +156,18 @@ jobs:
           cmake --build cpp/build-host --parallel
 
       - name: Build for WebAssembly
-        # pthreads, or zstd loses multithreaded mode and the writer errors out.
+        # PVZSTD_THREADS and the pthread flags come from the matrix: the
+        # threaded lane needs -pthread or zstd loses multithreaded mode and
+        # the writer errors out; the threads-off lane needs neither.
         run: |
           emcmake cmake -S cpp -B cpp/build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
             -DPVZSTD_BUILD_SHARED=OFF \
             -DPVZSTD_BUILD_TOOLS=ON \
             -DPVZSTD_ZSTD_PROVIDER=vendored \
-            -DCMAKE_C_FLAGS=-pthread \
-            -DCMAKE_CXX_FLAGS=-pthread \
-            -DCMAKE_EXE_LINKER_FLAGS="-pthread -sPTHREAD_POOL_SIZE=4 -sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1"
+            -DPVZSTD_THREADS=${{ matrix.pvzstd_threads }} \
+            ${{ matrix.emcc_thread_flags }} \
+            -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.emcc_linker_flags }}"
           cmake --build cpp/build-wasm --parallel
 
       - name: Write the containers to read back
@@ -186,12 +218,14 @@ jobs:
           done
 
       - name: The WASM writer must reproduce the reference writer's bytes
-        # -2 is PVZSTD_THREADS_AUTO: exercises the reference's worker-count rule.
+        # Threaded: -2 is PVZSTD_THREADS_AUTO, exercising the reference's
+        # worker-count rule for both datasets. Threads-off: an explicit 0,
+        # valid only for "sphere" -- see the matrix comment above.
         run: |
-          for name in sphere bulk; do
+          for name in ${{ matrix.writer_check_names }}; do
             read -r level fixed uid < "$name.args"
             node cpp/build-wasm/pvzstd_rewrite.js \
-              "$name.pv" "$name.wasm.pv" "$level" -2 1 "$fixed" "$uid"
+              "$name.pv" "$name.wasm.pv" "$level" ${{ matrix.writer_threads }} 1 "$fixed" "$uid"
             cmp "$name.pv" "$name.wasm.pv"
           done
 

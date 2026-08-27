@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-# The Python distribution's own version comes from git tags via
-# setuptools_scm and has no fixed value at configure time. This VERSION is
-# only the CMake package's own compatibility version, for write_basic_package_version_file
-# below; it does not need to (and does not) track the Python version.
-project(pvzstd VERSION 0.1.0 LANGUAGES CXX)
+# Tracks the released version line, so `find_package(pvzstd 0.3)` means what a
+# reader expects. It cannot be derived: the Python distribution's version comes
+# from git tags through setuptools_scm and has no value at configure time. Bump
+# it when the release line moves. The real compatibility contract for a C or C++
+# consumer is PVZSTD_ABI_VERSION in the public header, which is checked for
+# equality rather than as a floor.
+project(pvzstd VERSION 0.3.1 LANGUAGES CXX)
 
 option(PVZSTD_BUILD_TOOLS "Build the pvzstd_dump conformance tool" ON)
 option(PVZSTD_BUILD_SHARED "Build a shared library (needed for the ctypes binding)" ON)

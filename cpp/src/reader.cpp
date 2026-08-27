@@ -6,6 +6,7 @@
 
 #include <zstd.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -40,6 +41,31 @@ constexpr char kLegacyFileMetadataSuffix[] = "__zvtk_metadata";
 constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
 constexpr char kFieldDataSuffix[] = "__field_data";
 constexpr size_t kUidNChar = 16;
+
+// Whether a 64-bit field out of the container is too large to be held in a
+// size_t. Always false where size_t is 64 bits; on a 32-bit target -- and a
+// WebAssembly build is one -- it is what stops a file-supplied length from
+// wrapping as it is narrowed, or from being silently truncated into a smaller
+// allocation than the value the rest of the parse is still reasoning about.
+constexpr bool ExceedsSizeT(uint64_t v) {
+  if constexpr (sizeof(size_t) >= sizeof(uint64_t)) {
+    (void)v;
+    return false;
+  } else {
+    return v > static_cast<uint64_t>(SIZE_MAX);
+  }
+}
+
+// The most a zstd frame can expand, per compressed byte. A zstd block covers at
+// most 128 KiB, and the cheapest way to spell one is an RLE block: a 3-byte
+// block header plus a single byte of content. So no frame can yield more than
+// 131072 / 4 = 32768 bytes per byte it occupies, and a real frame is well under
+// that -- a large array of one repeated value, the most compressible input
+// there is, measures around 12000:1 at every compression level this writer
+// uses. Every frame lives inside the container, so the container's own length
+// is an upper bound on any frame's compressed size, and this ratio times that
+// length is a size no honest frame can declare.
+constexpr uint64_t kMaxExpansionRatio = 32768;
 
 uint64_t LoadU64(const uint8_t *p) {
   uint64_t v = 0;
@@ -132,6 +158,14 @@ class ContainerBytes {
       return PVZSTD_E_IO;
     }
     size_ = static_cast<uint64_t>(li.QuadPart);
+    // A container larger than the address space cannot be mapped whole, and
+    // mapping the low bits of its length would leave every offset in the parse
+    // pointing outside the view. Refuse it instead. Unreachable where size_t is
+    // 64 bits.
+    if (ExceedsSizeT(size_)) {
+      Reset();
+      return PVZSTD_E_IO;
+    }
     mapping_ = CreateFileMappingA(handle_, nullptr, PAGE_READONLY, 0, 0, nullptr);
     if (mapping_ == nullptr) {
       Reset();
@@ -151,6 +185,13 @@ class ContainerBytes {
       return PVZSTD_E_IO;
     }
     size_ = static_cast<uint64_t>(st.st_size);
+    // See the Windows arm: a file too large to address cannot be mapped whole,
+    // and truncating its length into mmap would give a view every later offset
+    // reads past the end of.
+    if (ExceedsSizeT(size_)) {
+      Reset();
+      return PVZSTD_E_IO;
+    }
     void *addr = ::mmap(nullptr, static_cast<size_t>(size_), PROT_READ, MAP_PRIVATE, fd_, 0);
     if (addr == MAP_FAILED) {
       Reset();
@@ -168,6 +209,9 @@ class ContainerBytes {
   pvzstd_status Borrow(const void *data, uint64_t size) {
     Reset();
     if (data == nullptr || size == 0) return PVZSTD_E_INVALID;
+    // A borrowed range longer than the address space is a caller error, not a
+    // buffer: nothing could have allocated it.
+    if (ExceedsSizeT(size)) return PVZSTD_E_INVALID;
     data_ = static_cast<const uint8_t *>(data);
     size_ = size;
     owned_ = false;
@@ -266,9 +310,17 @@ size_t DecompressInto(void *dst, size_t dst_capacity, const void *src, size_t sr
 
 pvzstd_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t expected,
                               std::vector<uint8_t> *out) {
+  // Narrowing a 64-bit declared size into resize() would ask for the low bits
+  // of it on a 32-bit target. ParseContainer already refuses every frame size
+  // the container cannot justify; this is the same refusal stated where the
+  // allocation is made, so no future caller can reach the resize without it.
+  if (ExceedsSizeT(expected)) return PVZSTD_E_FORMAT;
   try {
     out->resize(static_cast<size_t>(expected));
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // Wider than std::bad_alloc on purpose: an oversized resize() throws
+    // std::length_error, which is not a bad_alloc, so the narrower handler let
+    // it out of the library and left the entry point's catch(...) to answer.
     return PVZSTD_E_NOMEM;
   }
   if (expected == 0) return PVZSTD_OK;
@@ -280,39 +332,54 @@ pvzstd_status DecompressFrame(const uint8_t *src, uint64_t src_size, uint64_t ex
   return PVZSTD_OK;
 }
 
+// Every length here is a 32-bit field read out of the file while `off` is a
+// size_t, which is 32 bits on a WebAssembly target. So each bounds check is
+// written against the bytes that remain -- subtracting from the frame's length
+// rather than adding to an offset, and dividing rather than multiplying -- and
+// the subtractions are ordered so a short frame cannot underflow one. Written
+// the other way round, `off + ndim * 8 + PVZSTD_DTYPE_LEN` wraps for an ndim
+// near 2^29 and turns the guard into a pass, after which the loop below reads
+// eight bytes per dimension past the end of the container.
 pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
-  size_t off = 0;
-  if (buf.size() < 4) return PVZSTD_E_FORMAT;
+  const uint64_t size = buf.size();
+  uint64_t off = 0;
+  if (size < 4) return PVZSTD_E_FORMAT;
   const uint32_t name_len = LoadU32(buf.data());
-  off += 4;
-  if (buf.size() < off + name_len + 4) return PVZSTD_E_FORMAT;
-  entry->name.assign(reinterpret_cast<const char *>(buf.data() + off), name_len);
+  off = 4;
+  // size >= 4 == off, so the subtraction stands; the sum is in uint64, where a
+  // uint32 name length plus four cannot wrap.
+  if (size - off < static_cast<uint64_t>(name_len) + 4) return PVZSTD_E_FORMAT;
+  entry->name.assign(reinterpret_cast<const char *>(buf.data() + static_cast<size_t>(off)),
+                     name_len);
   off += name_len;
 
-  const uint32_t ndim = LoadU32(buf.data() + off);
+  const uint32_t ndim = LoadU32(buf.data() + static_cast<size_t>(off));
   off += 4;
-  if (buf.size() < off + static_cast<size_t>(ndim) * 8 + PVZSTD_DTYPE_LEN) return PVZSTD_E_FORMAT;
+  // off <= size holds from the check above, and the dtype field is subtracted
+  // before the divide so neither step can underflow.
+  if (size - off < PVZSTD_DTYPE_LEN) return PVZSTD_E_FORMAT;
+  if ((size - off - PVZSTD_DTYPE_LEN) / 8 < ndim) return PVZSTD_E_FORMAT;
   entry->shape.clear();
   for (uint32_t i = 0; i < ndim; ++i) {
-    entry->shape.push_back(LoadU64(buf.data() + off));
+    entry->shape.push_back(LoadU64(buf.data() + static_cast<size_t>(off)));
     off += 8;
   }
 
   // dtype is space-padded to 16 bytes; strip trailing blanks.
   size_t dtype_len = PVZSTD_DTYPE_LEN;
-  while (dtype_len > 0 && buf[off + dtype_len - 1] == ' ') --dtype_len;
-  std::memcpy(entry->dtype, buf.data() + off, dtype_len);
+  while (dtype_len > 0 && buf[static_cast<size_t>(off) + dtype_len - 1] == ' ') --dtype_len;
+  std::memcpy(entry->dtype, buf.data() + static_cast<size_t>(off), dtype_len);
   entry->dtype[dtype_len] = '\0';
   off += PVZSTD_DTYPE_LEN;
 
   // Absent filter byte means PVZSTD_FILTER_NONE. Testing file_version instead
   // would mis-parse a shuffled version-2 file.
   entry->filter_id = PVZSTD_FILTER_NONE;
-  if (off < buf.size()) {
-    entry->filter_id = buf[off];
+  if (off < size) {
+    entry->filter_id = buf[static_cast<size_t>(off)];
     off += 1;
   }
-  if (off != buf.size()) return PVZSTD_E_FORMAT;
+  if (off != size) return PVZSTD_E_FORMAT;
   return PVZSTD_OK;
 }
 
@@ -347,6 +414,19 @@ pvzstd_status ParseContainer(pvzstd_reader *reader, uint32_t *file_version) {
     const uint8_t *p = raw.data() + index_off + i * kIndexEntryBytes;
     ends[static_cast<size_t>(i)] = LoadU64(p);  // END offset, not start
     sizes[static_cast<size_t>(i)] = LoadU64(p + 8);
+    // Refuse an impossible decompressed size here, before anything asks the
+    // allocator for it. The index is file-supplied and unrelated to what the
+    // frame actually holds, so a crafted one can name any 64-bit number; a
+    // frame can only occupy bytes the container has, and kMaxExpansionRatio is
+    // the most zstd can turn each of those into. Divided rather than multiplied
+    // so the comparison itself cannot wrap. Relying on the resize to throw
+    // instead is not enough: the throw is what a build with exceptions turned
+    // off cannot answer, and on a 32-bit target the size would be truncated
+    // before it ever reached the allocator.
+    const uint64_t declared = sizes[static_cast<size_t>(i)];
+    if (declared / kMaxExpansionRatio > raw.size() || ExceedsSizeT(declared)) {
+      return PVZSTD_E_FORMAT;
+    }
   }
 
   // Banked before the frame walk: the walk consumes the metadata frames and
@@ -667,6 +747,10 @@ pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *in
     return PVZSTD_E_INVALID;
   }
   if (count == 0) return PVZSTD_OK;
+  // The parallel path indexes a vector of `count` results with a uint64 loop
+  // counter. Narrowing the count into that vector's size on a 32-bit target
+  // would size it from the low bits and then write past the end of it.
+  if (ExceedsSizeT(count)) return PVZSTD_E_RANGE;
 
   int workers = n_threads;
   if (workers == PVZSTD_THREADS_AUTO) {

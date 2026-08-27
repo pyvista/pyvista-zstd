@@ -106,14 +106,19 @@ bool DeclaredSizeAgrees(const std::vector<uint64_t> &shape, const char *dtype, u
 // the crossover is machine-dependent.
 constexpr uint64_t kParallelDecompressFloor = 4ull << 20;
 
-// A read-only view of the file. Mapping rather than copying, so that opening a
-// container faults in only the frames actually read.
-class FileMapping {
+// A read-only view of the container's bytes: either mapped from a file, or
+// borrowed from a caller that already holds them. Mapping rather than copying,
+// so that opening a file faults in only the frames actually read; borrowing
+// rather than copying, so a caller holding the container pays for it once.
+//
+// The two cases differ only in where the bytes came from and who releases them.
+// That is what lets one parse serve both.
+class ContainerBytes {
  public:
-  FileMapping() = default;
-  ~FileMapping() { Reset(); }
-  FileMapping(const FileMapping &) = delete;
-  FileMapping &operator=(const FileMapping &) = delete;
+  ContainerBytes() = default;
+  ~ContainerBytes() { Reset(); }
+  ContainerBytes(const ContainerBytes &) = delete;
+  ContainerBytes &operator=(const ContainerBytes &) = delete;
 
   pvzstd_status Open(const char *path) {
     Reset();
@@ -156,11 +161,30 @@ class FileMapping {
     return PVZSTD_OK;
   }
 
+  // Take a byte range the caller owns. Nothing is opened, mapped or copied, so
+  // there is no file I/O anywhere on this path -- which is the whole point on a
+  // build with no filesystem to stage the bytes into. The range must outlive
+  // the reader; Reset() releases nothing here, because nothing was acquired.
+  pvzstd_status Borrow(const void *data, uint64_t size) {
+    Reset();
+    if (data == nullptr || size == 0) return PVZSTD_E_INVALID;
+    data_ = static_cast<const uint8_t *>(data);
+    size_ = size;
+    owned_ = false;
+    return PVZSTD_OK;
+  }
+
   const uint8_t *data() const { return data_; }
   uint64_t size() const { return size_; }
 
  private:
   void Reset() {
+    if (!owned_) {
+      data_ = nullptr;
+      size_ = 0;
+      owned_ = true;
+      return;
+    }
 #if defined(_WIN32)
     if (data_ != nullptr) UnmapViewOfFile(data_);
     if (mapping_ != nullptr) CloseHandle(mapping_);
@@ -178,6 +202,9 @@ class FileMapping {
 
   const uint8_t *data_ = nullptr;
   uint64_t size_ = 0;
+  // Whether this view acquired what it points at. False for a borrowed range,
+  // so closing a reader cannot unmap or close a buffer the caller still owns.
+  bool owned_ = true;
 #if defined(_WIN32)
   HANDLE handle_ = INVALID_HANDLE_VALUE;
   HANDLE mapping_ = nullptr;
@@ -189,7 +216,8 @@ class FileMapping {
 }  // namespace
 
 struct pvzstd_reader {
-  FileMapping map;
+  // The container's bytes: mapped from a file, or borrowed from the caller.
+  ContainerBytes map;
   std::vector<ArrayEntry> arrays;
   std::string ds_metadata;
   std::string file_metadata;
@@ -288,27 +316,15 @@ pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
   return PVZSTD_OK;
 }
 
-}  // namespace
-
-extern "C" {
-
-pvzstd_status pvzstd_open_versioned(const char *path, pvzstd_reader **out,
-                                    uint32_t *file_version) try {
-  if (path == nullptr || out == nullptr) return PVZSTD_E_INVALID;
-  *out = nullptr;
-
-  // Owning: eleven paths below refuse the container, and the function-try
-  // handler catches throws from decompression sized by a field read out of
-  // the file. A raw pointer leaked the fd and the mapping on that last one.
-  std::unique_ptr<pvzstd_reader> reader(new (std::nothrow) pvzstd_reader());
-  if (reader == nullptr) return PVZSTD_E_NOMEM;
-
-  pvzstd_status st = reader->map.Open(path);
-  if (st != PVZSTD_OK) {
-    return st;
-  }
-
-  const FileMapping &raw = reader->map;
+// Parse a container out of the bytes the reader already points at, however it
+// came by them. Every entry point that produces a reader meets here, because a
+// second copy of this walk would be a second set of bounds checks to keep in
+// step with the first -- and it is these refusals, not the source of the bytes,
+// that stand between a crafted container and an out-of-bounds read.
+//
+// Throws are left to the entry point's function-try handler.
+pvzstd_status ParseContainer(pvzstd_reader *reader, uint32_t *file_version) {
+  const ContainerBytes &raw = reader->map;
   if (raw.size() < kTrailerCountBytes) {
     return PVZSTD_E_FORMAT;
   }
@@ -357,8 +373,8 @@ pvzstd_status pvzstd_open_versioned(const char *path, pvzstd_reader **out,
       return PVZSTD_E_FORMAT;
     }
 
-    st = DecompressFrame(raw.data() + hdr_start, hdr_end - hdr_start, sizes[static_cast<size_t>(i)],
-                         &frame);
+    pvzstd_status st = DecompressFrame(raw.data() + hdr_start, hdr_end - hdr_start,
+                                       sizes[static_cast<size_t>(i)], &frame);
     if (st != PVZSTD_OK) {
       return st;
     }
@@ -444,6 +460,34 @@ pvzstd_status pvzstd_open_versioned(const char *path, pvzstd_reader **out,
     }
   }
 
+  return PVZSTD_OK;
+}
+
+}  // namespace
+
+extern "C" {
+
+pvzstd_status pvzstd_open_versioned(const char *path, pvzstd_reader **out,
+                                    uint32_t *file_version) try {
+  if (path == nullptr || out == nullptr) return PVZSTD_E_INVALID;
+  *out = nullptr;
+
+  // Owning: the parse below refuses the container on eleven paths and can throw
+  // from a decompression sized by a field read out of the file, and every one of
+  // those has to give back the fd and the mapping. A raw pointer leaked both.
+  std::unique_ptr<pvzstd_reader> reader(new (std::nothrow) pvzstd_reader());
+  if (reader == nullptr) return PVZSTD_E_NOMEM;
+
+  pvzstd_status st = reader->map.Open(path);
+  if (st != PVZSTD_OK) {
+    return st;
+  }
+
+  st = ParseContainer(reader.get(), file_version);
+  if (st != PVZSTD_OK) {
+    return st;
+  }
+
   *out = reader.release();
   return PVZSTD_OK;
 } catch (...) {
@@ -452,6 +496,40 @@ pvzstd_status pvzstd_open_versioned(const char *path, pvzstd_reader **out,
 
 pvzstd_status pvzstd_open(const char *path, pvzstd_reader **out) try {
   return pvzstd_open_versioned(path, out, nullptr);
+} catch (...) {
+  return PVZSTD_E_NOMEM;
+}
+
+pvzstd_status pvzstd_open_memory_versioned(const void *data, uint64_t size, pvzstd_reader **out,
+                                           uint32_t *file_version) try {
+  if (data == nullptr || size == 0 || out == nullptr) return PVZSTD_E_INVALID;
+  *out = nullptr;
+
+  std::unique_ptr<pvzstd_reader> reader(new (std::nothrow) pvzstd_reader());
+  if (reader == nullptr) return PVZSTD_E_NOMEM;
+
+  // Where the bytes came from is the only difference from the file case: no
+  // path is opened and nothing is copied, and the parse below is the same call,
+  // so a crafted buffer meets the trailer bounds check, the divide-first
+  // frame-count guard and the declared-size check exactly as a crafted file does.
+  pvzstd_status st = reader->map.Borrow(data, size);
+  if (st != PVZSTD_OK) {
+    return st;
+  }
+
+  st = ParseContainer(reader.get(), file_version);
+  if (st != PVZSTD_OK) {
+    return st;
+  }
+
+  *out = reader.release();
+  return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
+}
+
+pvzstd_status pvzstd_open_memory(const void *data, uint64_t size, pvzstd_reader **out) try {
+  return pvzstd_open_memory_versioned(data, size, out, nullptr);
 } catch (...) {
   return PVZSTD_E_NOMEM;
 }

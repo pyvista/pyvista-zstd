@@ -50,7 +50,7 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 9
+ABI_VERSION = 10
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -254,6 +254,17 @@ def _bind_reader(lib: ctypes.CDLL) -> None:
     lib.pvzstd_open_versioned.restype = c_int
     lib.pvzstd_open_versioned.argtypes = [c_char_p, POINTER(c_void_p), POINTER(c_uint32)]
 
+    lib.pvzstd_open_memory.restype = c_int
+    lib.pvzstd_open_memory.argtypes = [c_void_p, c_uint64, POINTER(c_void_p)]
+
+    lib.pvzstd_open_memory_versioned.restype = c_int
+    lib.pvzstd_open_memory_versioned.argtypes = [
+        c_void_p,
+        c_uint64,
+        POINTER(c_void_p),
+        POINTER(c_uint32),
+    ]
+
     lib.pvzstd_max_file_version.restype = c_uint32
     lib.pvzstd_max_file_version.argtypes = []
 
@@ -442,10 +453,19 @@ class CoreReader:
     decompressed on demand. Reading two arrays out of a large file therefore
     costs two frames, not the whole file.
 
+    A container already resident is opened by passing ``buffer`` instead of
+    ``path``. The core borrows those bytes rather than copying them, so the
+    reader keeps a reference for as long as it is open and the caller must not
+    modify them meanwhile. Everything past the two opens is identical, refusals
+    for a damaged or crafted container included.
+
     Parameters
     ----------
-    path : pathlib.Path | str
+    path : pathlib.Path | str, optional
         Path to a ``.pv`` or ``.zvtk`` file.
+    buffer : bytes | bytearray | memoryview | numpy.ndarray, optional
+        A whole container, contiguous -- anything exposing the buffer protocol
+        without a copy. Exactly one of *path* and *buffer* is given.
 
     Examples
     --------
@@ -453,22 +473,55 @@ class CoreReader:
     >>> with _capi.CoreReader("dataset.pv") as reader:  # doctest: +SKIP
     ...     names = reader.names()
 
+    >>> from pathlib import Path
+    >>> raw = Path("dataset.pv").read_bytes()  # doctest: +SKIP
+    >>> with _capi.CoreReader(buffer=raw) as reader:  # doctest: +SKIP
+    ...     names = reader.names()
+
     """
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(
+        self,
+        path: Path | str | None = None,
+        *,
+        buffer: bytes | bytearray | memoryview | NDArray[Any] | None = None,
+    ) -> None:
         lib = _load()
         self._lib = lib
         self._handle: c_void_p | None = None
+        # Only a memory-backed reader holds one. The core borrows the bytes
+        # rather than owning them, so something on this side has to outlive it.
+        self._buffer: NDArray[np.uint8] | None = None
+
+        if (path is None) == (buffer is None):
+            msg = "CoreReader takes exactly one of `path` and `buffer`"
+            raise TypeError(msg)
 
         handle = c_void_p()
         # The versioned form so a refusal can name the version it refused; the
         # decision to refuse is the core's, and is already made by the time this
-        # returns.
+        # returns. Both opens report it, because a caller reading from memory
+        # needs the number for the same reason one reading a path does.
         found = c_uint32(0)
-        status = lib.pvzstd_open_versioned(str(path).encode("utf-8"), byref(handle), byref(found))
+        if path is not None:
+            detail = str(path)
+            status = lib.pvzstd_open_versioned(detail.encode("utf-8"), byref(handle), byref(found))
+        else:
+            # np.frombuffer does not copy, and the array it returns keeps
+            # whatever it was built from alive -- which is exactly the lifetime
+            # the core's borrowed pointer needs.
+            self._buffer = np.frombuffer(buffer, dtype=np.uint8)
+            detail = f"{self._buffer.nbytes}-byte buffer"
+            status = lib.pvzstd_open_memory_versioned(
+                c_void_p(self._buffer.ctypes.data),
+                c_uint64(self._buffer.nbytes),
+                byref(handle),
+                byref(found),
+            )
+
         if status == _STATUS_VERSION:
             raise UnsupportedFileVersionError(int(found.value), int(lib.pvzstd_max_file_version()))
-        _check(status, str(path))
+        _check(status, detail)
         self._handle = handle
 
     # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
@@ -485,6 +538,10 @@ class CoreReader:
         if self._handle is not None:
             self._lib.pvzstd_close(self._handle)
             self._handle = None
+        # Dropped only now: the core read out of these bytes until the close
+        # above, and a memory-backed reader is the only thing keeping the
+        # caller's buffer from being collected.
+        self._buffer = None
 
     def __del__(self) -> None:
         """Release the C++ reader if the caller forgot to."""

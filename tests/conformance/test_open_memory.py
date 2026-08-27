@@ -19,8 +19,10 @@ Requires the core, and does not skip without it -- as
 from __future__ import annotations
 
 import ctypes
+import gc
 import struct
 from typing import TYPE_CHECKING
+import weakref
 
 import numpy as np
 import pytest
@@ -297,3 +299,60 @@ def test_a_buffer_is_judged_by_its_bytes_and_not_by_a_suffix(container: Path) ->
     assert pz.Reader(buffer=container.read_bytes()) is not None
     with pytest.raises(RuntimeError, match="File may be corrupted"):
         pz.Reader(buffer=b"not a container at all, but it is bytes")
+
+
+def test_a_reader_closes_and_stays_closed(container: Path) -> None:
+    """Both doors take a close, and a second one is not an error."""
+    for reader in (pz.Reader(container), pz.Reader(buffer=container.read_bytes())):
+        assert reader.read().n_points
+        reader.close()
+        reader.close()
+
+        with pytest.raises(ValueError, match="closed Reader"):
+            reader.read()
+
+
+def test_the_reader_is_a_context_manager(container: Path) -> None:
+    """``with`` closes on the way out, through either door."""
+    with pz.Reader(container) as by_path:
+        from_path = by_path.read()
+    with pz.Reader(buffer=container.read_bytes()) as by_memory:
+        from_memory = by_memory.read()
+
+    assert np.array_equal(from_path.points, from_memory.points)
+    for reader in (by_path, by_memory):
+        with pytest.raises(ValueError, match="closed Reader"):
+            reader.read()
+
+
+def test_closing_lets_go_of_the_buffer_the_caller_handed_over(container: Path) -> None:
+    """
+    The point of closing a memory-backed reader: the caller's bytes are freed.
+
+    A reader kept in a list -- one per response body -- otherwise pins every
+    one of those bodies for as long as the list lives.
+    """
+    raw = np.frombuffer(container.read_bytes(), dtype=np.uint8).copy()
+    witness = weakref.ref(raw)
+
+    reader = pz.Reader(buffer=raw)
+    assert reader.read().n_points
+    del raw
+    assert witness() is not None, "the reader must hold the bytes while it is open"
+
+    reader.close()
+    gc.collect()
+    assert witness() is None, "a closed reader still holds the caller's buffer"
+
+
+def test_a_buffer_cannot_be_resized_under_an_open_reader(container: Path) -> None:
+    """The borrow pins the buffer, so a resize is refused rather than followed."""
+    raw = bytearray(container.read_bytes())
+
+    with pz.Reader(buffer=raw) as reader:
+        assert reader.read().n_points
+        with pytest.raises(BufferError):
+            raw.extend(b"\0" * 64)
+
+    # Closing gives the bytes back, resizable again.
+    raw.extend(b"\0" * 64)

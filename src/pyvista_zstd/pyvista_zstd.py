@@ -1025,7 +1025,8 @@ def read(
     if has_scheme is not None and has_scheme(str(filename)):
         raise LocalFileRequiredError
     _warn_backend_deprecated(backend)
-    return Reader(filename).read(n_threads=n_threads)
+    with Reader(filename) as reader:
+        return reader.read(n_threads=n_threads)
 
 
 def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: int | None = None) -> DataSet:
@@ -1060,7 +1061,10 @@ def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: 
     >>> ds = pyvista_zstd.read_buffer(Path("dataset.pv").read_bytes())
 
     """
-    return Reader(buffer=data).read(n_threads=n_threads)
+    # Closed on the way out, so the caller's bytes stop being borrowed as soon
+    # as the arrays are built rather than whenever the reader is collected.
+    with Reader(buffer=data) as reader:
+        return reader.read(n_threads=n_threads)
 
 
 class _DataSetReader:
@@ -1170,6 +1174,14 @@ class Reader:
     detected -- the borrow pins the buffer, so a resize raises
     :class:`BufferError` rather than corrupting anything.
 
+    A reader holds the file mapped, or the caller's buffer alive, until
+    :meth:`close` -- which ``with`` calls on the way out:
+
+    .. code-block:: python
+
+        with pyvista_zstd.Reader(buffer=raw) as reader:
+            ds = reader.read()
+
     Parameters
     ----------
     filename : pathlib.Path | str, optional
@@ -1250,6 +1262,7 @@ class Reader:
         self._selected_cell_arrays: set[str] | None = None
         self._selected_field_arrays: set[str] | None = None
         self._core: CoreReader | None = None
+        self._closed = False
 
         # Only a path carries a suffix to judge; a buffer is judged by its bytes.
         if self._filename is not None and self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
@@ -1269,6 +1282,31 @@ class Reader:
         self._ds_metadata = self._root_ds_meta_from_core()
 
         self.__ds_reader: _DataSetReader | None = None
+
+    # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
+    def __enter__(self) -> Reader:  # noqa: PYI034
+        """Return self; the reader is already open."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Release the container, as :meth:`close` does."""
+        self.close()
+
+    def close(self) -> None:
+        """
+        Release the container. Safe to call more than once.
+
+        Unmaps the file, or drops the reference to the buffer this reader was
+        given -- which, until now, has kept those bytes alive on the caller's
+        behalf. Reading anything afterwards raises :class:`ValueError`; the
+        metadata taken when the container was opened stays readable, because it
+        was copied out then and no longer touches the container.
+        """
+        if self._core is not None:
+            self._core.close()
+            self._core = None
+        self._buffer = None
+        self._closed = True
 
     @property
     def _source(self) -> str:
@@ -1391,17 +1429,20 @@ class Reader:
         Return the C++ reader for this container, opened once and kept.
 
         Opening one takes the container's bytes -- mapping the file, or
-        borrowing the buffer :meth:`from_buffer` was given -- and parses the
-        trailer and every array header. This object did all of that already at
-        construction, so building a
+        borrowing the buffer the ``buffer`` argument was given -- and parses
+        the trailer and every array header. This object did all of that already
+        at construction, so building a
         fresh C++ reader per dataset paid for a second copy of it on every
         read -- and a MultiBlock paid once per dataset.
 
         Holding it does not weaken any guarantee that was being offered: the
         frame index and the mapping are both taken in __init__ and kept, so a
         reader has always been a snapshot of the file as it was when opened.
-        It is released when this object is, the same way the mapping is.
+        It is released by :meth:`close`, or when this object is collected.
         """
+        if self._closed:
+            msg = "operation on a closed Reader"
+            raise ValueError(msg)
         reader = self._core
         if reader is None:
             reader = _capi.CoreReader(self._filename) if self._buffer is None else _capi.CoreReader(buffer=self._buffer)

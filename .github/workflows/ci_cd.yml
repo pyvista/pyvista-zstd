@@ -18,6 +18,19 @@ env:
   SHELLOPTS: "errexit:pipefail"
 
 jobs:
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - uses: pre-commit/action@v3.0.1
+
   doc:
     name: Build Documentation
     runs-on: ubuntu-24.04

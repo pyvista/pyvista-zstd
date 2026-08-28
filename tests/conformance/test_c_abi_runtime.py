@@ -106,7 +106,8 @@ def test_a_library_without_the_symbols_is_a_load_failure() -> None:
 
 
 def test_read_array_at_accepts_a_null_destination_for_a_zero_byte_array(tmp_path: Path) -> None:
-    """A zero-byte read must succeed even with a null destination.
+    """
+    A zero-byte read must succeed even with a null destination.
 
     ``pv.Sphere()`` has no lines, verts, or strips, so its
     ``lines_connectivity``, ``verts_connectivity`` and ``strips_connectivity``

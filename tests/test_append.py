@@ -15,6 +15,7 @@ Covers:
 from __future__ import annotations
 
 import json
+import os
 import struct
 from typing import TYPE_CHECKING
 
@@ -211,27 +212,40 @@ def test_kept_frames_are_byte_identical_after_append(tmp_path, base_grid) -> Non
 # --------------------------------------------------------------------------
 # 4. Crash / partial-write safety.
 # --------------------------------------------------------------------------
+@pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="denying file creation in a directory needs POSIX permissions and a non-root user",
+)
 def test_failed_append_does_not_destroy_prior_blocks(tmp_path, base_grid) -> None:
-    """An append that cannot complete leaves the original file fully readable."""
-    path = _write_base(tmp_path / "c.pv", base_grid)
+    """
+    An append that cannot complete leaves the original file fully readable.
+
+    The failure is staged by taking away the right to create the staging file:
+    an append names it through the operating system now, so there is no name to
+    occupy in advance the way there was when every append used the same one.
+    """
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    path = _write_base(vault / "c.pv", base_grid)
     append_arrays(path, {"first": np.arange(50, dtype=np.float64)})
     committed = path.read_bytes()
 
-    staging = path.with_suffix(path.suffix + ".append.tmp")
-    staging.mkdir()
-    with pytest.raises(_capi.PvzstdError, match="I/O error"):
-        append_arrays(path, {"second": np.arange(99, dtype=np.float64)})
+    vault.chmod(0o500)  # readable and searchable, but nothing new may be created
+    try:
+        with pytest.raises(_capi.PvzstdError, match="I/O error"):
+            append_arrays(path, {"second": np.arange(99, dtype=np.float64)})
 
-    assert path.read_bytes() == committed
-    with AppendReader(path) as r:
-        assert "first" in r.field_array_names
-        assert "second" not in r.field_array_names
-        assert np.array_equal(r.read_array("first"), np.arange(50, dtype=np.float64))
+        assert path.read_bytes() == committed
+        with AppendReader(path) as r:
+            assert "first" in r.field_array_names
+            assert "second" not in r.field_array_names
+            assert np.array_equal(r.read_array("first"), np.arange(50, dtype=np.float64))
+    finally:
+        vault.chmod(0o700)
 
-    staging.rmdir()
     append_arrays(path, {"second": np.arange(99, dtype=np.float64)})
     assert np.array_equal(read_array(path, "second"), np.arange(99, dtype=np.float64))
-    assert not staging.exists()
+    assert list(vault.glob("c.pv.append.*")) == []
 
 
 def test_reader_close_releases_the_file_and_reads_reopen(tmp_path, base_grid) -> None:
@@ -252,13 +266,15 @@ def test_manually_truncated_file_does_not_corrupt_committed(tmp_path, base_grid)
     A stale, half-written temp file is irrelevant.
 
     The committed .pv is the source of truth and reads fine; a fresh
-    append still works and cleans up.
+    append still works, and stages somewhere else rather than picking up
+    whatever a crashed one left.
     """
     path = _write_base(tmp_path / "t.pv", base_grid)
     append_arrays(path, {"good": np.arange(33, dtype=np.float64)})
     good_bytes = path.read_bytes()
 
-    # Simulate a stale, truncated temp file from a prior crashed append.
+    # A stale, truncated temp file from a prior crashed append, under a name
+    # that append staged into before the name came from the operating system.
     tmp = path.with_suffix(path.suffix + ".append.tmp")
     tmp.write_bytes(good_bytes[: len(good_bytes) // 2])
 

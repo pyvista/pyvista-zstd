@@ -879,6 +879,10 @@ const char *pvzstd_status_message(pvzstd_status status) {
       return "an array of that name is already in the container";
     case PVZSTD_E_VERSION:
       return "the container's file version is newer than this build can decode";
+    case PVZSTD_E_BUSY:
+      return "another append holds this container, or left its lock file behind";
+    case PVZSTD_E_CHANGED:
+      return "another writer replaced the container while this call was staging its result";
   }
   return "unknown status";
 }

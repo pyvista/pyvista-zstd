@@ -39,6 +39,8 @@ if TYPE_CHECKING:
 __all__ = [
     "ABI_VERSION",
     "ArrayExistsError",
+    "ContainerBusyError",
+    "ContainerChangedError",
     "ContainerFormatError",
     "ContainerShapeError",
     "CoreReader",
@@ -50,7 +52,7 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 10
+ABI_VERSION = 11
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -76,12 +78,15 @@ SHUFFLE_AUTO = 2
 _LIBRARY_ENV_VAR = "PVZSTD_LIBRARY"
 
 _STATUS_OK = 0
+_STATUS_IO = 1
 _STATUS_FORMAT = 2
 _STATUS_RANGE = 4
 _STATUS_FILTER = 6
 _STATUS_UNSUPPORTED = 8
 _STATUS_EXISTS = 9
 _STATUS_VERSION = 10
+_STATUS_BUSY = 11
+_STATUS_CHANGED = 12
 _STATUS_NAMES = {
     1: "I/O error: file missing, unreadable, or truncated",
     2: "format error: the trailer or a frame header did not parse",
@@ -93,6 +98,8 @@ _STATUS_NAMES = {
     8: "this operation cannot serve a container of that shape",
     9: "an array of that name is already in the container",
     10: "unsupported file version: the container is newer than this build decodes",
+    11: "another append holds this container, or left its lock file behind",
+    12: "the container was replaced by another writer while this call was staging its result",
 }
 
 
@@ -151,6 +158,28 @@ class UnsupportedFileVersionError(PvzstdError, ValueError):
         )
         self.found = found
         self.supported = supported
+
+
+class ContainerBusyError(PvzstdError):
+    """
+    Another append holds this container.
+
+    One append runs against a container at a time, enforced with a lock file
+    beside it. Nothing was read or written; the same call works once the other
+    append finishes. An append killed mid-flight leaves the lock behind, which
+    reports the same way and is cleared by deleting the file the message names.
+    """
+
+
+class ContainerChangedError(PvzstdError):
+    """
+    The container was replaced while this call was staging its result.
+
+    Raised for a writer that does not take the append lock -- another tool, or
+    a move onto the path. Named separately because repeating the call is the
+    right answer to it: nothing was written, and a second attempt reads what is
+    on disk now.
+    """
 
 
 class ContainerShapeError(PvzstdError, NotImplementedError):
@@ -1024,6 +1053,24 @@ def append_arrays(
         )
     if status == _STATUS_UNSUPPORTED:
         raise ContainerShapeError(status, message="appending to MultiBlock .pv files is not supported.")
+    if status == _STATUS_BUSY:
+        raise ContainerBusyError(
+            status,
+            message=(
+                f"another append holds {Path(path).name}; nothing was written. One append runs "
+                f"against a container at a time. If no other append is running, an earlier one was "
+                f"killed and left {Path(path).name}.append.lock behind; delete it and try again."
+            ),
+        )
+    if status == _STATUS_CHANGED:
+        raise ContainerChangedError(
+            status,
+            message=(
+                f"{Path(path).name} was replaced by another writer while this append was staging its "
+                "result; nothing was written. append_arrays is single-writer -- serialise the writers, "
+                "or retry to append on top of what is there now."
+            ),
+        )
     _check(status, str(path))
 
 

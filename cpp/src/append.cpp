@@ -174,8 +174,23 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     if (!ParseDtype(a.dtype).valid) return PVZSTD_E_INVALID;
   }
 
+  // Held for the whole read-modify-write below, and released by its destructor
+  // on every way out of this function. Without it two appends both read the
+  // container, both add their own arrays to what they read, and the second to
+  // commit replaces the first one's result -- a lost update, which no amount of
+  // checking at the end can turn back into two writes.
+  AppendLock lock;
+  const LockResult locked = lock.Acquire(path);
+  if (locked == LockResult::kHeld) return PVZSTD_E_BUSY;
+  if (locked != LockResult::kAcquired) return PVZSTD_E_IO;
+
   ScopedFile src(std::fopen(path, "rb"));
   if (src.get() == nullptr) return PVZSTD_E_IO;
+  // Which file `path` names right now. Everything below is staged against this
+  // one, and step 7 checks that it is still the file being replaced. The lock
+  // covers the appends that take it; this covers everything else that can
+  // replace a file.
+  const FileIdentity opened_as = IdentifyOpen(src.get());
 
   std::vector<FrameEntry> frames;
   uint64_t body_end = 0;
@@ -365,8 +380,12 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
   }
 
   // 7. Commit by rename, so an interrupted append cannot damage what was there.
-  const std::string tmp_path = std::string(path) + ".append.tmp";
-  ScopedFile out(std::fopen(tmp_path.c_str(), "wb"));
+  //    The staging file is named by the OS rather than derived from `path`: a
+  //    name derived from the container is the same name for every caller, so
+  //    two appends running at once both write into it and the file the rename
+  //    commits is a mixture of the two.
+  std::string tmp_path;
+  ScopedFile out(OpenUniqueTemp(path, src.get(), &tmp_path));
   if (out.get() == nullptr) return PVZSTD_E_IO;
 
   std::vector<uint8_t> chunk;
@@ -410,6 +429,20 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
   if (!ok) {
     std::remove(tmp_path.c_str());
     return PVZSTD_E_IO;
+  }
+
+  // Still the container this call read? A writer that does not take the lock --
+  // another tool, or a plain move onto this path -- has a result that this
+  // rename would replace with a body copied before that result existed. A
+  // rename swaps the directory entry, so the file `path` names is no longer the
+  // file open here.
+  //
+  // This is a check and not a second lock: it catches a replacement made while
+  // this call was staging, which is the whole slow part, and not one made in
+  // the microseconds between here and the rename below.
+  if (!SameFile(opened_as, IdentifyPath(path))) {
+    std::remove(tmp_path.c_str());
+    return PVZSTD_E_CHANGED;
   }
 
   // Windows will not rename onto an open handle, and the source is still open.

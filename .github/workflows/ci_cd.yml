@@ -13,8 +13,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Least privilege by default. The release job raises its own, and is the only
-# job here that needs more than a checkout.
+# Least privilege by default. The two jobs that write something back to the
+# repository -- the docs deploy and the release -- raise their own.
 permissions:
   contents: read
 
@@ -44,6 +44,11 @@ jobs:
   doc:
     name: Build Documentation
     runs-on: ubuntu-24.04
+    # On a tag this job pushes the rendered docs to gh-pages, which the
+    # workflow-level contents: read cannot do: the push is rejected with a 403
+    # and takes the release job down with it, since release needs this one.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 

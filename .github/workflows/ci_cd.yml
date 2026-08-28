@@ -26,6 +26,11 @@ jobs:
   pre-commit:
     name: pre-commit
     runs-on: ubuntu-24.04
+    # Pull requests only. One of the hooks is no-commit-to-branch, which exists
+    # to stop a commit landing on main directly and so fails by definition when
+    # the run is the push of a merge onto main. The pull request that produced
+    # that merge already ran every hook against the same tree.
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v7
 

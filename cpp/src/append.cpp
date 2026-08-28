@@ -54,10 +54,19 @@ struct FrameEntry {
 };
 
 bool ReadAt(std::FILE *fp, uint64_t offset, uint64_t len, std::vector<uint8_t> *out) {
+  // Every caller's `len` is bounded by the container's own length, which is not
+  // itself bounded by size_t on a 32-bit target: a container larger than the
+  // address space would be read into the low bits of its length. Refusing it
+  // here also bounds the frame count, whose table is read through this call --
+  // a count past size_t needs a table of 16 times it, which cannot pass.
+  if (ExceedsSizeT(len)) return false;
   if (SeekTo(fp, static_cast<int64_t>(offset), SEEK_SET) != 0) return false;
   try {
     out->resize(static_cast<size_t>(len));
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // Wider than std::bad_alloc on purpose: an oversized resize() throws
+    // std::length_error, which is not a bad_alloc, so the narrower handler let
+    // it out of the library.
     return false;
   }
   return len == 0 || std::fread(out->data(), 1, static_cast<size_t>(len), fp) == len;
@@ -105,9 +114,15 @@ pvzstd_status DecompressFrame(std::FILE *fp, const std::vector<FrameEntry> &fram
   std::vector<uint8_t> raw;
   if (!ReadAt(fp, start, len, &raw)) return PVZSTD_E_IO;
   std::string plain;
+  // The trailer's decompressed size is a file-supplied 64-bit field that
+  // ReadFooter has no way to check against the frame's contents, so a crafted
+  // container can name any number here. Narrowing it would ask for its low bits
+  // and then compare the result against a size the parse still believes.
+  if (ExceedsSizeT(frames[index].decomp)) return PVZSTD_E_FORMAT;
   try {
     plain.resize(static_cast<size_t>(frames[index].decomp));
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // See ReadAt: std::length_error is not a std::bad_alloc.
     return PVZSTD_E_NOMEM;
   }
   const size_t got = ZSTD_decompress(plain.data(), plain.size(), raw.data(), raw.size());
@@ -149,6 +164,12 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     if (a.name == nullptr || a.dtype == nullptr || a.dtype_name == nullptr) return PVZSTD_E_INVALID;
     if (a.ndim > 0 && a.shape == nullptr) return PVZSTD_E_INVALID;
     if (a.nbytes > 0 && a.data == nullptr) return PVZSTD_E_INVALID;
+    // The payload buffer is sized from the narrowed nbytes while ShuffleBytes is
+    // driven from the full 64-bit one, so a length past size_t writes the shape
+    // of the whole array into a buffer holding its low bits. No caller can own
+    // that many bytes on a target where the check is live, so it is a bad
+    // argument rather than a shortage.
+    if (ExceedsSizeT(a.nbytes)) return PVZSTD_E_INVALID;
     if (std::strlen(a.dtype) > PVZSTD_DTYPE_LEN) return PVZSTD_E_INVALID;
     if (!ParseDtype(a.dtype).valid) return PVZSTD_E_INVALID;
   }
@@ -290,7 +311,8 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
         }
       }
       plain.push_back(std::move(payload));
-    } catch (const std::bad_alloc &) {
+    } catch (const std::exception &) {
+      // See ReadAt: std::length_error is not a std::bad_alloc.
       return PVZSTD_E_NOMEM;
     }
     final_names.push_back(frame_name);
@@ -326,7 +348,10 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     plain.push_back(
         PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // See ReadAt: std::length_error is not a std::bad_alloc. No guard in front
+    // of this one -- both documents are already-allocated std::strings, so
+    // there is no 64-bit field to narrow.
     return PVZSTD_E_NOMEM;
   }
 

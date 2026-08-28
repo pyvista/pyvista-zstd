@@ -56,6 +56,12 @@ pvzstd_status AddArray(pvzstd_writer *writer, const char *name, const char *dtyp
                        bool copy) {
   if (writer == nullptr || name == nullptr || dtype == nullptr) return PVZSTD_E_INVALID;
   if (nbytes > 0 && data == nullptr) return PVZSTD_E_INVALID;
+  // A borrowed entry keeps `nbytes` as a 64-bit length and hands it to
+  // ShuffleBytes at write time, while the shuffle destination is sized from the
+  // same value narrowed into a vector -- so a length past size_t writes the
+  // whole array into a buffer holding its low bits. No caller can own that many
+  // bytes on a target where the check is live, so it is a bad argument.
+  if (ExceedsSizeT(nbytes)) return PVZSTD_E_INVALID;
   if (ndim > 0 && shape == nullptr) return PVZSTD_E_INVALID;
   if (std::strlen(dtype) > PVZSTD_DTYPE_LEN) return PVZSTD_E_INVALID;
   if (!ParseDtype(dtype).valid) return PVZSTD_E_INVALID;
@@ -73,7 +79,10 @@ pvzstd_status AddArray(pvzstd_writer *writer, const char *name, const char *dtyp
       entry.borrowed_size = nbytes;
     }
     writer->arrays.push_back(std::move(entry));
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // Wider than std::bad_alloc on purpose: an oversized allocation throws
+    // std::length_error, which is not a bad_alloc, so the narrower handler let
+    // it out of the library.
     return PVZSTD_E_NOMEM;
   }
   return PVZSTD_OK;
@@ -155,7 +164,9 @@ pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, const char *u
   try {
     entry.owned.assign(json, json + n);
     writer->arrays.push_back(std::move(entry));
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // See AddArray. No guard in front: `n` is a strlen of a string the caller
+    // already holds, so it cannot name more bytes than exist.
     return PVZSTD_E_NOMEM;
   }
   return PVZSTD_OK;
@@ -220,7 +231,8 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   meta_entry.is_metadata_json = true;
   try {
     meta_entry.owned.assign(meta.begin(), meta.end());
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // See AddArray. No guard in front: `meta` is a std::string built above.
     return PVZSTD_E_NOMEM;
   }
   // Local list, not the writer's own, so writing to a second path emits one

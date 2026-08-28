@@ -1,15 +1,27 @@
 # The `.pv` / `.zvtk` container — format specification
 
-Status: **DRAFT, derived by reading `src/pyvista_zstd/pyvista_zstd.py` at
-`6f1d021`.** Every claim below carries the line range it was read from.
-Claims that were _not_ verified against the source are marked **UNVERIFIED**
-and must be closed before the C++ core is written against them.
+Status: **Normative.** This is the specification the implementation is held
+to, not a description of it. Where the two disagree, this document and the
+conformance suite decide and the code is what changes.
 
-This document exists because the Python implementation is currently the only
-specification. A second implementation written against a reading rather than
-against a spec diverges silently, and the divergence surfaces in a user's
-file rather than in CI. The conformance corpus (`tests/conformance/`) is the
-executable half of this document; this prose is the reviewable half.
+It did not start that way. It was derived by reading
+`src/pyvista_zstd/pyvista_zstd.py` at `6f1d021`, when that module was the only
+implementation, and the line ranges every claim carries are that reading's
+provenance: they point into the file **as it stood at `6f1d021`** and are not
+current line numbers. The C++ core was then written against this document
+(`f88a1b5`), and `pyvista_zstd.py` is now a `ctypes` binding to that core
+rather than a second implementation of the format, so the direction has
+reversed.
+
+The conformance corpus (`tests/conformance/`) is the executable half of this
+document; this prose is the reviewable half. A second implementation written
+against a reading rather than against a spec diverges silently, and the
+divergence surfaces in a user's file rather than in CI.
+
+Two things this document does not cover, both of which shipped after it was
+written: the C ABI itself, which is documented in `doc/c_api.rst`, and the
+`pvzstd_` symbol names, which appear below only where the format's own rules
+are visible through them. Every question §9 once left open is now closed.
 
 ## 1. File layout
 
@@ -91,13 +103,24 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 
 ### 1.1 Consequences that bind the implementation
 
-- **A writer must be able to seek.** The index and count can only be written
-  once every frame length is known. This is why the in-tree C++ writer
-  reopens with `r+b` to rewrite its tail. A write-only, forward-only sink is
-  not sufficient for this format.
+- **A writer must know every frame's length before it can emit the index**,
+  but it does not have to seek: the index goes last and its offsets are
+  cumulative ends, so a writer that accumulates them as it goes can stream the
+  body and then append the trailer. `pvzstd_writer_write` does exactly that --
+  one `wb` handle, frames written in order, trailer appended, close.
+  _Editing_ an existing container is where seeking becomes unavoidable, and
+  the two edit paths make opposite trades: `pvzstd_append_arrays` stages a
+  whole new file and commits it by rename, while `pvzstd_stream_append` holds
+  the original open `r+b`, overwrites the tail in place and truncates -- which
+  is why an interrupted stream commit can leave a trailer describing frames
+  that were not fully written, and an interrupted `pvzstd_append_arrays`
+  cannot.
 - **A reader must have the tail before it can read anything.** There is no
   forward-parseable stream: the index is mandatory and it lives at the end.
-  A reader over a non-seekable source must buffer the whole file.
+  A reader over a non-seekable source must buffer the whole file, which is
+  what `pvzstd_open_memory` exists to serve: it takes the whole container as
+  borrowed bytes the caller already holds and parses it in place, refusing a
+  crafted buffer wherever the path entry point would refuse a crafted file.
 - **The index entry width is 16 bytes and this is load-bearing.** It coincides
   with `UID_N_CHAR = 16` (`:120`), and the `EMPTY_DS` sentinel is a 16-character
   string specifically so it aligns with a UID (`:121`). Changing either
@@ -113,6 +136,15 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 | 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                     |
 | 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter. |
 | 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
+
+A decoder must also have a ceiling. The C core carries one,
+`PVZSTD_FILE_VERSION_MAX = 2`, readable at runtime as
+`pvzstd_max_file_version()`, and a container stamped higher is refused with
+`PVZSTD_E_VERSION` rather than read: a later version may transform payloads in
+a way this build cannot invert, so reading one would hand back
+plausible-looking corrupt values instead of failing. The ceiling belongs beside
+the decoder it describes -- a binding that kept its own copy would refuse files
+the library can read, or accept files it cannot.
 
 The version is promoted by the _writer_ only when it actually uses an optional
 encoding — the `ZstdFileMetadata` default is the legacy
@@ -198,6 +230,30 @@ Because the UID derives from a Python object address, it is **not stable across
 processes** and must be treated as an opaque token, never parsed for meaning.
 Empty topology arrays are still written as full (header, payload) pairs with
 `shape=(0,)`.
+
+### 3.2 Every length in this header is file-supplied
+
+The bounds checks a parser writes around §3 are part of conforming to the
+format, not an optional hardening pass. `name_len` and `ndim` are 32-bit
+fields read out of the file, and a container can declare any value for either.
+Three rules, all implemented in `cpp/src/reader.cpp` and exercised by
+`tests/conformance/test_crafted_containers.py`:
+
+- **Check against the bytes that remain, by subtracting and dividing** rather
+  than by adding to an offset and multiplying. The offset is a `size_t`, 32
+  bits on a WebAssembly target, so `off + ndim * 8 + 16` wraps for an `ndim`
+  near 2^29 and turns the guard into a pass -- after which the shape loop reads
+  eight bytes per dimension past the end of the container.
+- **Refuse any field a `size_t` cannot hold** before it reaches an allocator.
+  Narrowing a 64-bit declared length on a 32-bit target asks for its low bits
+  and leaves the rest of the parse reasoning about the full value.
+- **Bound a declared decompressed size by what the frame could possibly
+  produce.** The index is file-supplied and unrelated to what the frame holds,
+  so a crafted entry can name any 64-bit number. A frame occupies only bytes
+  the container has, and zstd can expand each of those by at most 32768 (a
+  128 KiB block spelled as a 4-byte RLE block); anything above that product is
+  refused. Relying on the allocation to throw instead is not enough: a build
+  with exceptions compiled out cannot answer a throw.
 
 ## 4. Metadata
 
@@ -320,7 +376,7 @@ to align with the UID width.
 and writer entry points. Legacy files additionally use the
 `__zvtk_metadata` metadata key.
 
-## 9. Questions that were blocking the C++ core
+## 9. The questions that blocked the C++ core, and how they closed
 
 The first revision of this document listed four unresolved questions. Three are
 now closed by measurement against a live writer, not by re-reading the source.
@@ -344,17 +400,33 @@ now closed by measurement against a live writer, not by re-reading the source.
    and a writer may not emit them in a different order than `frame_names`
    (§1.2). Confirmed equal across all four dataset classes tested.
 
-4. **What is the append path's contract** when a file is extended
-   (`append.py`, 553 lines) — specifically whether the index is rewritten in
-   place or appended to. **STILL OPEN.** Note that `read_array` serves only
-   arrays appended through this path (`append.py:539` raises `KeyError` listing
-   an empty set for a plainly-written file), so the append surface is a
-   distinct namespace from the dataset arrays, not merely a different way in.
+4. **What is the append path's contract** when a file is extended —
+   specifically whether the index is rewritten in place or appended to.
+   **CLOSED — the index is rewritten whole.** An append cannot extend the
+   index, because the index is not what sits at the end: the frame count is.
+   The committed frames are copied verbatim by offset, never decompressed or
+   recompressed, the new frames are written after them, the two metadata frames
+   are regenerated, and a fresh full index and count are emitted. Cost is
+   therefore proportional to what is added, not to the size of the file.
+   `pvzstd_append_arrays` stages that into a new file and commits it by rename;
+   `pvzstd_stream_append` does it in place against the open original (§1.1).
+
+   The namespace question the first revision raised resolved the other way.
+   Appended arrays are ordinary arrays: their frames join the body and index,
+   their names join the file metadata, and they are registered as `field_data`
+   on the root dataset under the `…__field_data` suffix, so an ordinary read
+   surfaces them with no reader change. What is scoped to them is the _partial
+   read_ surface — `pvzstd_field_array_count` / `pvzstd_field_array_name_at` /
+   `pvzstd_find_field_array`, and `AppendReader` above them — which lists field
+   arrays only, and takes its list from the dataset metadata rather than by
+   scanning frame names for the suffix, since an ordinary array may end that
+   way too. MultiBlock has no single root dataset to append to and is refused
+   with `PVZSTD_E_UNSUPPORTED`.
 
 ### 9.1 How these were closed
 
-An independent reader (`refparse/ref_reader.py`) was written **only** from the
-byte layout, importing nothing from `pyvista_zstd`, so it could not inherit the
+An independent reader (`tests/conformance/ref_reader.py`) was written **only**
+from the byte layout, importing nothing from `pyvista_zstd`, so it could not inherit the
 library's assumptions. It reproduces every array bit-exactly (dtype, shape and
 contents) for PolyData, UnstructuredGrid, ImageData and StructuredGrid.
 
@@ -363,6 +435,16 @@ the filter branch never executed, so a green comparison said nothing about it.
 Re-running with `shuffle=True` exercised the branch, and disabling the
 unshuffle step as a negative control turned the comparison red on three arrays
 — which is what makes the green meaningful. **This reader is the conformance
-oracle for the C++ port; the C++ implementation must agree with it, and every
+oracle for the C++ core; the C++ implementation must agree with it, and every
 conformance case must include an input that actually reaches the branch under
-test.**
+test.** That is enforced rather than intended: `tests/conformance/` compares
+the core against it on every run.
+
+## 10. What this document leaves to the C ABI
+
+A few format-adjacent guarantees belong with the API rather than with the byte
+layout, and are specified in `doc/c_api.rst`: `pvzstd_open_memory`'s borrowing
+rules, the status enum, the promise that no exception crosses the boundary and
+what a WebAssembly build must be compiled with for that to hold, and
+`PVZSTD_ABI_VERSION`, which versions the _interface_ and is unrelated to the
+container `file_version` versioned in §2.

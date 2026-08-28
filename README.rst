@@ -132,6 +132,25 @@ No additional imports needed. This works via PyVista's ``pyvista.readers``
 entry point group, so the registration happens at install time.
 
 
+The C library
+~~~~~~~~~~~~~
+
+The reader and writer are a C++ core with a pure C ABI, ``pvzstd``, declared in
+``cpp/include/pvzstd/pvzstd.h``. The Python package is one consumer of it,
+bound with ``ctypes``; a C or C++ consumer -- or a WebAssembly build -- can link
+the same library directly, and it depends on nothing but zstd.
+
+.. code:: cmake
+
+   find_package(pvzstd CONFIG REQUIRED)
+   target_link_libraries(my_app PRIVATE pvzstd::pvzstd)
+
+See `The C library <https://pyvista.github.io/pyvista-zstd/c_api.html>`__ for
+the build options, both ways of consuming the CMake package, the ABI-version
+contract, and a worked example. The on-disk format is specified in
+``doc/format/container-v2.md``.
+
+
 Rational
 ~~~~~~~~
 

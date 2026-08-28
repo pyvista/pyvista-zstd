@@ -106,11 +106,92 @@ jobs:
           python -m build
           python -m twine check dist/*
 
+  # The distributions the release publishes. They live here, in the same
+  # workflow as the release job, so that job can reach their artifacts through
+  # `needs` and `download-artifact`; artifacts do not cross workflow runs.
+  wheels:
+    name: Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.2.0
+        env:
+          # cp310 exists only to reach glibc 2.17; see [tool.cibuildwheel] in pyproject.toml.
+          # Wheels are py3-none-<platform>, so a second macOS/Windows build would collide.
+          CIBW_BUILD: "cp310-* cp312-*"
+          CIBW_SKIP: "*-musllinux_* cp310-macosx_* cp310-win*"
+          # glibc 2.17 has no Pillow wheel; the cp312 wheel still proves the library loads.
+          CIBW_TEST_SKIP: "cp310-manylinux*"
+          # The platforms named here are the ones README.rst promises a wheel
+          # for. Anything outside them installs from the sdist and needs a C++
+          # compiler; keep the two in step.
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_WINDOWS: AMD64
+          CIBW_ENVIRONMENT: PVZSTD_BUILD_CORE=1
+          CIBW_ENVIRONMENT_MACOS: PVZSTD_BUILD_CORE=1 MACOSX_DEPLOYMENT_TARGET=10.15
+          CIBW_TEST_COMMAND: >
+            python -c
+            "from pyvista_zstd import _capi;
+            print('C++ core loaded from', _capi.library_path())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build the sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+
+      - name: A source install must still reach the C++ core
+        env:
+          PVZSTD_BUILD_CORE: "1"
+        run: |
+          pip install dist/*.tar.gz
+          cd "$(mktemp -d)"
+          python -c "
+          from pyvista_zstd import _capi
+          print('C++ core built from sdist:', _capi.library_path())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
   # Publish to PyPI using trusted publishing
   release:
     name: Release
     if: github.event_name == 'push' && contains(github.ref, 'refs/tags')
-    needs: [doc, unit_testing]
+    # The wheel jobs are in the needs list because the release is what they are
+    # for: without them the only artefact published is an sdist, and every
+    # install on a machine with no C++ compiler fails.
+    needs: [doc, unit_testing, wheels, sdist]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -121,19 +202,33 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - name: Collect the wheels built for this commit
+        uses: actions/download-artifact@v4
         with:
-          python-version: 3.13
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
 
-      - name: Build the sdist
-        # Per-platform wheels come from the C++ Core workflow; this sdist
-        # builds the core at install time.
-        env:
-          PVZSTD_BUILD_CORE: "0"
+      - name: Collect the sdist built for this commit
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+      - name: The release must carry platform wheels, not only an sdist
         run: |
-          pip install build
-          python -m build --sdist
+          ls -l dist
+          test -n "$(find dist -name '*.whl' -print -quit)" || {
+            echo "::error::no wheels to publish; every install would build the C++ core from source"
+            exit 1
+          }
+          test "$(find dist -name '*.tar.gz' | wc -l)" -eq 1
+          # py3-none-any means setup.py found no compiled library to bundle, so
+          # the wheel is the pure-Python shell the package stopped being.
+          if find dist -name '*-py3-none-any.whl' | grep -q .; then
+            echo "::error::a py3-none-any wheel carries no C++ core"
+            exit 1
+          fi
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -145,4 +240,5 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            ./**/*.whl
+            dist/*.whl
+            dist/*.tar.gz

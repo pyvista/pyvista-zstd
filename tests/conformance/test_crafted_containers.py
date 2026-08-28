@@ -20,6 +20,8 @@ import ctypes
 import struct
 from typing import TYPE_CHECKING
 
+from container_surgery import rebuild
+from container_surgery import split_frames
 import numpy as np
 import pytest
 import pyvista as pv
@@ -30,9 +32,6 @@ from pyvista_zstd import _capi
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-INDEX_ENTRY_SIZE = 16
-"""Bytes per trailer index entry: two little-endian u64 fields."""
 
 POISON_NDIM = 2**29
 """
@@ -75,38 +74,14 @@ def container(tmp_path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _split(raw: bytes) -> list[list]:
-    """Return ``[compressed_bytes, declared_size]`` per frame, in file order."""
-    (n_frames,) = struct.unpack("<Q", raw[-8:])
-    index_off = len(raw) - 8 - n_frames * INDEX_ENTRY_SIZE
-    frames: list[list] = []
-    start = 0
-    for i in range(n_frames):
-        end, size = struct.unpack_from("<QQ", raw, index_off + i * INDEX_ENTRY_SIZE)
-        frames.append([raw[start:end], size])
-        start = end
-    return frames
-
-
-def _rebuild(frames: list[list]) -> bytes:
-    """Concatenate the frames and re-emit the trailer index over them."""
-    out = bytearray(b"".join(comp for comp, _ in frames))
-    end = 0
-    for comp, size in frames:
-        end += len(comp)
-        out += struct.pack("<QQ", end, size)
-    out += struct.pack("<Q", len(frames))
-    return bytes(out)
-
-
 def _patch_first_header(raw: bytes, mutate) -> bytes:
     """Rewrite frame 0 -- always an array header -- through *mutate*."""
-    frames = _split(raw)
+    frames = split_frames(raw)
     plain = zstd.ZstdDecompressor().decompress(frames[0][0], max_output_size=1 << 20)
     patched = mutate(bytearray(plain))
     frames[0][0] = zstd.ZstdCompressor(level=3).compress(bytes(patched))
     frames[0][1] = len(patched)
-    return _rebuild(frames)
+    return rebuild(frames)
 
 
 def _status_from_path(raw: bytes, tmp_path: Path) -> int:
@@ -142,7 +117,7 @@ def _both_doors(raw: bytes, tmp_path: Path) -> tuple[int, int]:
 
 def test_the_control_container_opens_through_both_doors(container: bytes, tmp_path: Path) -> None:
     """Rebuilt but unmodified, the container must still parse, or nothing below means anything."""
-    rebuilt = _rebuild(_split(container))
+    rebuilt = rebuild(split_frames(container))
     assert _both_doors(rebuilt, tmp_path) == (_capi._STATUS_OK, _capi._STATUS_OK)  # noqa: SLF001
 
 
@@ -170,9 +145,9 @@ def test_an_absurd_declared_size_is_refused_before_the_allocation(container: byt
     -- Emscripten's default -- turns that throw into ``abort()`` rather than
     into ``PVZSTD_E_NOMEM``.
     """
-    frames = _split(container)
+    frames = split_frames(container)
     frames[0][1] = POISON_DECOMPRESSED_SIZE
-    raw = _rebuild(frames)
+    raw = rebuild(frames)
 
     expected = (_capi._STATUS_FORMAT, _capi._STATUS_FORMAT)  # noqa: SLF001
     assert _both_doors(raw, tmp_path) == expected, (
@@ -196,7 +171,7 @@ def test_a_highly_compressible_array_still_reads(tmp_path: Path) -> None:
     pz.write(ds, path, progress_bar=False)
 
     raw = path.read_bytes()
-    declared = max(size for _, size in _split(raw))
+    declared = max(size for _, size in split_frames(raw))
     assert declared > 8 * len(raw), (
         f"the container is {len(raw)} bytes and its largest frame declares {declared}; "
         "this input did not compress enough to test the bound"

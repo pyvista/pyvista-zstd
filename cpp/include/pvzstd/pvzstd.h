@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 10u
+#define PVZSTD_ABI_VERSION 11u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -50,7 +50,17 @@ typedef enum pvzstd_status {
    * PVZSTD_E_FORMAT has to report a well-formed container as corrupt. */
   PVZSTD_E_UNSUPPORTED = 8, /* the container is a shape this operation cannot serve */
   PVZSTD_E_EXISTS = 9,      /* the name is already taken, and would be overwritten */
-  PVZSTD_E_VERSION = 10     /* the container's file_version is newer than this build decodes */
+  PVZSTD_E_VERSION = 10,    /* the container's file_version is newer than this build decodes */
+  /* Another append holds this container. Nothing was written; the container is
+   * intact and the same call made again once the other one finishes succeeds.
+   * Also what a lock left behind by a killed append reports, which retrying
+   * does not clear -- see the Append section for the file to remove. */
+  PVZSTD_E_BUSY = 11,
+  /* The file changed under the operation, which had staged its result against
+   * what it read. Nothing was written; the same call made again reads what is
+   * there now and succeeds. Distinct from PVZSTD_E_IO because it is the one
+   * failure here that retrying is the right answer to. */
+  PVZSTD_E_CHANGED = 12
 } pvzstd_status;
 
 /* An out-parameter that names which of a call's own arrays a status is about
@@ -318,6 +328,40 @@ PVZSTD_API pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *
  * by offset, never decompressed, so the cost is what is added rather than the
  * file size; only the two metadata frames are regenerated. Each append commits
  * by rename, so an interrupted one cannot damage what was there.
+ *
+ * One append at a time, per container, and that is enforced rather than
+ * documented. An append is a read-modify-write: it reads the container, adds
+ * to what it read, and commits the result. Two of them running at once each
+ * commit "what was there plus mine", and the second to land replaces the
+ * first's arrays with a body copied before those arrays existed -- with both
+ * callers told they succeeded. Checking at the end does not recover that: two
+ * appends doing equal work reach their commits within microseconds of each
+ * other, so neither check sees the other's result yet.
+ *
+ * The exclusion is an advisory lock file, "<path>.append.lock", created
+ * exclusively and held for the call. A second append meanwhile returns
+ * PVZSTD_E_BUSY at once, having read and written nothing; it does not wait,
+ * because a library has no business choosing how long its caller blocks.
+ * Exclusive file creation is the primitive because it is the one every target
+ * this builds for implements the same way -- flock() would be the obvious
+ * choice and on the WebAssembly target it returns success without locking
+ * anything, which is a guarantee stated for a target that does not keep it.
+ *
+ * The cost is a lock that outlives a killed process: an append that dies
+ * between taking the lock and finishing leaves the file behind, and every
+ * later append to that container returns PVZSTD_E_BUSY until it is deleted.
+ * That is deliberate. It is a visible, named, recoverable failure, where what
+ * it replaces was one writer's arrays disappearing silently. Deleting the file
+ * is safe whenever no append is running.
+ *
+ * The lock binds appends and nothing else. A caller that replaces the
+ * container by other means -- another tool, or a plain move onto the path --
+ * is caught separately: each call stages into a file the operating system
+ * names, so no two callers are handed the same staging file, and before
+ * committing, a call checks that its path still names the container it read.
+ * One replaced during the staging returns PVZSTD_E_CHANGED having written
+ * nothing. That one is a check and not a lock, and covers the staging rather
+ * than the microseconds between the check and the rename.
  * ------------------------------------------------------------------ */
 
 /* One array to append. The format records two dtype spellings for the same array
@@ -350,6 +394,11 @@ typedef struct pvzstd_append_array {
  * so nothing decoding the file depends on it. PVZSTD_LEVEL_FROM_FILE keeps the
  * two in agreement and is what a caller wanting one level should pass.
  *
+ * PVZSTD_E_BUSY means another append holds this container, or a killed one left
+ * "<path>.append.lock" behind. PVZSTD_E_CHANGED means something that does not
+ * take that lock replaced the container while this call was staging its result.
+ * Neither wrote anything. See the section comment above.
+ *
  * The two refusals say what they are about rather than only that they happened,
  * both optional. On PVZSTD_E_EXISTS `clash_slot` receives the index into `arrays`
  * of the offered name that was already taken -- by the file or by an earlier
@@ -377,6 +426,12 @@ PVZSTD_API pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_app
  * by rename, whereas an interrupted stream commit leaves a trailer describing
  * frames that were not fully written. Use pvzstd_append_arrays when every commit
  * must leave a valid file.
+ *
+ * A stream takes no lock and is covered by none: it writes into the container
+ * in place, so it has neither a commit point at which to notice another writer
+ * nor a staging file to hold back, and PVZSTD_E_BUSY and PVZSTD_E_CHANGED are
+ * not among the statuses it can return. One stream at a time, and no append
+ * against the same container while it is open, is the caller's to arrange.
  * ------------------------------------------------------------------ */
 
 typedef struct pvzstd_stream pvzstd_stream;

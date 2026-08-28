@@ -163,7 +163,7 @@ The ABI version
 
 .. code:: c
 
-   #define PVZSTD_ABI_VERSION 10u
+   #define PVZSTD_ABI_VERSION 11u
    PVZSTD_API uint32_t pvzstd_abi_version(void);
 
 The macro is the version the caller compiled against; the function is the
@@ -384,10 +384,17 @@ a static, human-readable string and is never ``NULL``.
      - The name is already taken, and would be overwritten.
    * - ``PVZSTD_E_VERSION``
      - The container's ``file_version`` is newer than this build decodes.
+   * - ``PVZSTD_E_BUSY``
+     - Another append holds this container, or left its lock file behind.
+   * - ``PVZSTD_E_CHANGED``
+     - The container was replaced while this call was staging its result.
 
-The last three are refusals rather than damage: the file parsed, and the
-operation is the thing being declined. A caller that cannot tell them from
-``PVZSTD_E_FORMAT`` has to report a well-formed container as corrupt.
+Everything from ``PVZSTD_E_UNSUPPORTED`` down is a refusal rather than damage:
+the file parsed, and the operation is the thing being declined. A caller that
+cannot tell them from ``PVZSTD_E_FORMAT`` has to report a well-formed container
+as corrupt. The last two are further worth telling apart from ``PVZSTD_E_IO``,
+because nothing is wrong with the file or the disk and the call is worth making
+again -- see :ref:`c_api_append_lock`.
 
 .. _c_api_wasm_exceptions:
 
@@ -429,12 +436,85 @@ carries three write-side surfaces, documented in place:
 * ``pvzstd_append_arrays`` -- add field arrays without rewriting the
   container. Existing frames are copied by offset and never decompressed, so the
   cost is what is added rather than the file size. Each call commits by rename,
-  so an interrupted append cannot damage what was there.
+  so an interrupted append cannot damage what was there. It also takes a lock;
+  see :ref:`c_api_append_lock` below, which is the one thing on this page that
+  can leave a container needing a human.
 * ``pvzstd_stream_*`` -- the same edit with the parsed state held open across
   commits, so per-commit cost is flat in container size rather than growing with
   it. The trade is crash behaviour: an interrupted stream commit leaves a trailer
   describing frames that were not fully written. Use ``pvzstd_append_arrays``
   when every commit must leave a valid file.
+
+.. _c_api_append_lock:
+
+One append at a time
+~~~~~~~~~~~~~~~~~~~~
+
+An append is a read-modify-write: it reads the container, adds to what it read,
+and commits the result. Two of them running at once each commit "what was there
+plus mine", and the second to land replaces the first's arrays with a body
+copied before those arrays existed -- with both callers told they succeeded.
+Noticing that at the end does not work either: two appends doing equal work
+reach their commits within microseconds of each other, so neither one's check
+sees the other's result yet. Measured on four concurrent appends, three sets of
+arrays were lost in every run and every caller reported success.
+
+``pvzstd_append_arrays`` therefore takes an advisory lock for the duration of
+the call: a file named ``<path>.append.lock``, beside the container, created
+exclusively. A second append meanwhile returns ``PVZSTD_E_BUSY`` **immediately,
+rather than waiting.** It does not block, because a library has no business
+choosing how long its caller waits; retrying is the caller's decision, and a
+retry succeeds as soon as the other append finishes.
+
+Exclusive file creation is the primitive rather than ``flock`` because it is the
+one form of mutual exclusion every target this builds for implements the same
+way. On the WebAssembly target ``flock`` returns success without locking
+anything, so a second holder would be handed a lock the first one believes it
+has.
+
+.. warning::
+
+   **A killed append leaves its lock behind, and a human has to delete it.**
+   The lock file is removed when the call returns, however it returns -- but a
+   process that dies between taking it and finishing never gets to. Every later
+   append to that container then returns ``PVZSTD_E_BUSY`` until the file is
+   removed, and no retry clears it.
+
+   Recovery is deleting ``<path>.append.lock``. That is safe whenever no append
+   is actually running against the container; the file carries no state, and the
+   container itself was never touched by the append that died. The trade is
+   deliberate: this is a visible, named, recoverable failure, where what it
+   replaces was one writer's arrays disappearing with nothing reported.
+
+The lock binds appends and nothing else. A writer that does not take it --
+another tool, or a plain ``mv`` onto the path -- is caught separately: each
+append stages into a file the operating system names, so no two callers are ever
+handed the same staging file, and before committing, a call checks that its path
+still names the container it read. One replaced during the staging returns
+``PVZSTD_E_CHANGED`` having written nothing, and running it again picks up the
+other writer's result. That one is a check and not a lock: it covers the
+staging, which is the slow part, and not the microseconds between the check and
+the rename.
+
+Streams take no lock and are covered by none. ``pvzstd_stream_*`` writes into
+the container in place, so it has neither a commit point at which to notice
+another writer nor a staging file to hold back, and it returns neither
+``PVZSTD_E_BUSY`` nor ``PVZSTD_E_CHANGED``. One stream at a time, and no append
+against the same container while a stream is open, is the caller's to arrange.
+
+On WebAssembly
+^^^^^^^^^^^^^^
+
+The lock is real on that target, not inert: exclusive creation works under both
+Emscripten's own filesystems and ``NODERAWFS``, and a stale lock refuses a later
+append there exactly as it does natively. What it cannot do is protect a
+consumer against itself. A single-threaded module with no other writer never
+contends, so the lock costs it two filesystem operations per append and nothing
+else; two module instances sharing one real file through ``NODERAWFS`` are two
+writers and are excluded properly. Two instances over separate in-memory
+filesystems are not sharing a container at all, so there is nothing to exclude
+-- and if such a build ever loses a lock file to a discarded filesystem, the
+container is discarded with it.
 
 
 A worked example

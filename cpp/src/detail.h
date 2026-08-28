@@ -28,6 +28,20 @@ constexpr int kMaxManualThreads = 8;
 constexpr uint64_t kBytesPerMiB = 1024ull * 1024ull;
 constexpr uint64_t kThreadBytesPerWorker = 2ull;  // floor(MiB / 2) workers
 
+// Whether a 64-bit length is too large to be held in a size_t. Always false
+// where size_t is 64 bits; on a 32-bit target -- and a WebAssembly build is one
+// -- it is what stops a length from wrapping as it is narrowed, or from being
+// silently truncated into a smaller allocation than the value the code around
+// it is still reasoning about.
+constexpr bool ExceedsSizeT(uint64_t v) {
+  if constexpr (sizeof(size_t) >= sizeof(uint64_t)) {
+    (void)v;
+    return false;
+  } else {
+    return v > static_cast<uint64_t>(SIZE_MAX);
+  }
+}
+
 inline void StoreU32(std::vector<uint8_t> *out, uint32_t v) {
   for (int i = 0; i < 4; ++i) out->push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xFF));
 }
@@ -129,10 +143,19 @@ inline int EffectiveWorkers(int threads) {
 
 inline pvzstd_status CompressFrame(const uint8_t *src, uint64_t n, int level, int workers,
                                    std::vector<uint8_t> *out) {
+  // `n` is narrowed twice below -- into the bound and into the compress call --
+  // so a length past size_t would compress the low bits of the payload and emit
+  // a frame holding fewer bytes than the trailer records for it. Refused here
+  // rather than at each caller: every one of them ends up in this narrowing.
+  if (ExceedsSizeT(n)) return PVZSTD_E_INVALID;
   const size_t bound = ZSTD_compressBound(static_cast<size_t>(n));
   try {
     out->resize(bound);
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // Wider than std::bad_alloc on purpose: an oversized resize() throws
+    // std::length_error, which is not a bad_alloc, so the narrower handler let
+    // it out past the fopen'd output file this runs under and left the entry
+    // point's catch(...) to answer with the file still open.
     return PVZSTD_E_NOMEM;
   }
 

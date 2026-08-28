@@ -94,10 +94,20 @@ pvzstd_status ReadFrame(pvzstd_stream *s, const std::vector<uint64_t> &ends,
   const uint64_t start = (index == 0) ? 0 : ends[index - 1];
   const uint64_t n = ends[index] - start;
   std::vector<uint8_t> comp;
+  // Both lengths come out of the trailer. The compressed one is bounded only by
+  // the container's own length, which is not itself bounded by size_t on a
+  // 32-bit target; the decompressed one is a field nothing checks against the
+  // frame's contents, so a crafted container can name any number. Narrowing
+  // either would allocate its low bits and then read or write against the value
+  // the parse still believes.
+  if (ExceedsSizeT(n) || ExceedsSizeT(sizes[index])) return PVZSTD_E_FORMAT;
   try {
     comp.resize(static_cast<size_t>(n));
     out->resize(static_cast<size_t>(sizes[index]));
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // Wider than std::bad_alloc on purpose: an oversized resize() throws
+    // std::length_error, which is not a bad_alloc, so the narrower handler let
+    // it out past the cleanup this open does on every other failure.
     return PVZSTD_E_NOMEM;
   }
   if (SeekTo(s->fp, static_cast<int64_t>(start), SEEK_SET) != 0) return PVZSTD_E_IO;
@@ -132,7 +142,9 @@ pvzstd_status WriteTail(pvzstd_stream *s) {
     plain.push_back(
         PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
-  } catch (const std::bad_alloc &) {
+  } catch (const std::exception &) {
+    // See ReadFrame. No guard in front: both documents are already-allocated
+    // std::strings, so there is no 64-bit field to narrow.
     return PVZSTD_E_NOMEM;
   }
 
@@ -197,6 +209,12 @@ pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) try {
   // Bounded by division: n_frames comes from the file and n_frames * 16 overflows
   // for a large enough value.
   if (n_frames > (static_cast<uint64_t>(file_size) - 8) / 16) return fail(PVZSTD_E_FORMAT);
+  // The three vectors below are sized from the narrowed count and then indexed
+  // by a 64-bit loop counter, and the table is 16 bytes per frame -- so on a
+  // 32-bit target a count past size_t, or one whose table is, sizes them from
+  // the low bits and the loop writes past the end. Both are refused before
+  // anything is allocated.
+  if (ExceedsSizeT(n_frames) || ExceedsSizeT(n_frames * 16)) return fail(PVZSTD_E_FORMAT);
 
   std::vector<uint64_t> ends(static_cast<size_t>(n_frames));
   std::vector<uint64_t> sizes(static_cast<size_t>(n_frames));
@@ -204,7 +222,9 @@ pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) try {
     std::vector<uint8_t> table;
     try {
       table.resize(static_cast<size_t>(n_frames) * 16);
-    } catch (const std::bad_alloc &) {
+    } catch (const std::exception &) {
+      // See ReadFrame: std::length_error is not a std::bad_alloc, and letting
+      // it past `fail` leaks this stream and the file it holds open.
       return fail(PVZSTD_E_NOMEM);
     }
     if (SeekTo(s->fp, -static_cast<int64_t>(table.size() + 8), SEEK_END) != 0) {
@@ -305,6 +325,11 @@ pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *
     if (a.name == nullptr || a.dtype == nullptr || a.dtype_name == nullptr) return PVZSTD_E_INVALID;
     if (a.ndim > 0 && a.shape == nullptr) return PVZSTD_E_INVALID;
     if (a.nbytes > 0 && a.data == nullptr) return PVZSTD_E_INVALID;
+    // The payload buffer is sized from the narrowed nbytes while ShuffleBytes is
+    // driven from the full 64-bit one, so a length past size_t writes the shape
+    // of the whole array into a buffer holding its low bits. Same refusal
+    // pvzstd_append_arrays makes, for the same staging code.
+    if (ExceedsSizeT(a.nbytes)) return PVZSTD_E_INVALID;
     if (std::strlen(a.dtype) > PVZSTD_DTYPE_LEN) return PVZSTD_E_INVALID;
     if (!ParseDtype(a.dtype).valid) return PVZSTD_E_INVALID;
     for (const std::string &have : existing) {
@@ -360,7 +385,8 @@ pvzstd_status pvzstd_stream_append(pvzstd_stream *s, const pvzstd_append_array *
         }
       }
       pair.push_back(std::move(payload));
-    } catch (const std::bad_alloc &) {
+    } catch (const std::exception &) {
+      // See ReadFrame: std::length_error is not a std::bad_alloc.
       return Fail(s, PVZSTD_E_NOMEM);
     }
 

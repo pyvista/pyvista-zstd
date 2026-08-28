@@ -42,19 +42,11 @@ constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
 constexpr char kFieldDataSuffix[] = "__field_data";
 constexpr size_t kUidNChar = 16;
 
-// Whether a 64-bit field out of the container is too large to be held in a
-// size_t. Always false where size_t is 64 bits; on a 32-bit target -- and a
-// WebAssembly build is one -- it is what stops a file-supplied length from
-// wrapping as it is narrowed, or from being silently truncated into a smaller
-// allocation than the value the rest of the parse is still reasoning about.
-constexpr bool ExceedsSizeT(uint64_t v) {
-  if constexpr (sizeof(size_t) >= sizeof(uint64_t)) {
-    (void)v;
-    return false;
-  } else {
-    return v > static_cast<uint64_t>(SIZE_MAX);
-  }
-}
+// Lives in detail.h now: the write, append and stream paths narrow file- and
+// caller-supplied lengths into allocations of their own, and one definition is
+// what keeps the four answers the same. Named here so the uses below read as
+// they did.
+using pvzstd::detail::ExceedsSizeT;
 
 // The most a zstd frame can expand, per compressed byte. A zstd block covers at
 // most 128 KiB, and the cheapest way to spell one is an RLE block: a 3-byte
@@ -887,6 +879,10 @@ const char *pvzstd_status_message(pvzstd_status status) {
       return "an array of that name is already in the container";
     case PVZSTD_E_VERSION:
       return "the container's file version is newer than this build can decode";
+    case PVZSTD_E_BUSY:
+      return "another append holds this container, or left its lock file behind";
+    case PVZSTD_E_CHANGED:
+      return "another writer replaced the container while this call was staging its result";
   }
   return "unknown status";
 }

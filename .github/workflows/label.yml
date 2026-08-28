@@ -3,9 +3,17 @@ on:
   pull_request_target:
     types: [opened, reopened]
 
+# pull_request_target runs with the base repository's token, so the grant here
+# is the whole blast radius of a labeler acting on a fork's pull request.
+permissions:
+  contents: read
+
 jobs:
   triage:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # actions/labeler reads .github/labeler.yml
+      pull-requests: write # the labels are the point
     steps:
       - name: Label based on changed files
         uses: actions/labeler@v7

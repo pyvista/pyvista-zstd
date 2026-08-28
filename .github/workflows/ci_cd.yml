@@ -13,6 +13,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default. The release job raises its own, and is the only
+# job here that needs more than a checkout.
+permissions:
+  contents: read
+
 env:
   ALLOW_PLOTTING: true
   SHELLOPTS: "errexit:pipefail"

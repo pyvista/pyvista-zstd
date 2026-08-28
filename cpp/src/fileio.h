@@ -165,7 +165,7 @@ inline std::FILE *OpenUniqueTemp(const std::string &path, std::FILE *model, std:
   char name[MAX_PATH];
   // GetTempFileName creates the file, so no second caller can be handed the
   // name it just returned.
-  if (GetTempFileNameA(dir.c_str(), "pvz", 0, name) == 0) return nullptr;
+  if (GetTempFileNameA(dir.c_str(), "zst", 0, name) == 0) return nullptr;
   std::FILE *fp = std::fopen(name, "wb");
   if (fp == nullptr) {
     std::remove(name);

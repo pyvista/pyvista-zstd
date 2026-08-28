@@ -26,3 +26,15 @@ updates:
         patterns:
           - "*"
     rebase-strategy: "disabled"
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 100
+    labels:
+      - "maintenance"
+      - "dependencies"
+    groups:
+      pre-commit:
+        patterns:
+          - "*"

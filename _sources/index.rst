@@ -23,4 +23,10 @@
    :maxdepth: 2
    :hidden:
 
+   c_api
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+
    benchmarks/index

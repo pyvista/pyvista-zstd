@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>pyvista_zstd.Reader &#8212; pyvista-zstd 0.3.1 documentation</title>
+    <title>pyvista_zstd.Reader &#8212; pyvista-zstd 0.4.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=385a908f"></script>
+    <script src="../_static/documentation_options.js?v=183391d5"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -54,11 +54,11 @@
     <script>DOCUMENTATION_OPTIONS.pagename = '_autosummary/pyvista_zstd.Reader';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="pyvista_zstd.Reader.read" href="pyvista_zstd.Reader.read.html" />
+    <link rel="next" title="pyvista_zstd.Reader.close" href="pyvista_zstd.Reader.close.html" />
     <link rel="prev" title="pyvista_zstd.write" href="pyvista_zstd.write.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.3.1" />
+  <meta name="docsearch:version" content="0.4.0" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.3.1 documentation - Home"/>
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.3.1 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.0 documentation - Home"/>
   
   
 </a></div>
@@ -181,11 +181,14 @@
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api.html">API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="pyvista_zstd.read.html">pyvista_zstd.read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pyvista_zstd.write.html">pyvista_zstd.write</a></li>
 <li class="toctree-l2 current active has-children"><a class="current reference internal" href="#">pyvista_zstd.Reader</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.__init__.html">pyvista_zstd.Reader.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.available_cell_arrays.html">pyvista_zstd.Reader.available_cell_arrays</a></li>
@@ -206,6 +209,9 @@
 </details></li>
 </ul>
 </details></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../c_api.html">The C library</a></li>
 </ul>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="../benchmarks/index.html">Benchmarks</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -375,7 +381,7 @@
 <h1>pyvista_zstd.Reader<a class="headerlink" href="#pyvista-zstd-reader" title="Link to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="pyvista_zstd.Reader">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyvista_zstd.</span></span><span class="sig-name descname"><span class="pre">Reader</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/pathlib.html#pathlib.Path" title="(in Python v3.11)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyvista_zstd.Reader" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyvista_zstd.</span></span><span class="sig-name descname"><span class="pre">Reader</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">buffer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytes" title="(in Python v3.11)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytearray" title="(in Python v3.11)"><span class="pre">bytearray</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#memoryview" title="(in Python v3.11)"><span class="pre">memoryview</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">NDArray</span><span class="p"><span class="pre">[</span></span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyvista_zstd.Reader" title="Link to this definition">#</a></dt>
 <dd><p>Class to control pyvista-zstd file decompression.</p>
 <p>Use this class in lieu of <a class="reference internal" href="pyvista_zstd.read.html#pyvista_zstd.read" title="pyvista_zstd.read"><code class="xref py py-func docutils literal notranslate"><span class="pre">pyvista_zstd.read()</span></code></a> to fine-tune reading in
 compressed files. With this you can:</p>
@@ -385,10 +391,30 @@ compressed files. With this you can:</p>
 <li><p>For files containing a <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.48.4)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>, select which blocks
 to read in.</p></li>
 </ul>
+<p>A container already resident is read by passing <code class="docutils literal notranslate"><span class="pre">buffer</span></code> instead of
+<code class="docutils literal notranslate"><span class="pre">filename</span></code> – an archive member, a response body, or a build with no
+filesystem to open a path on. Those bytes are borrowed rather than copied
+and are held for the reader’s life, so they must not be modified meanwhile.
+Writing into them is not detected: the arrays read afterwards hold
+undefined contents, and no error is raised to say so. Resizing them is
+detected – the borrow pins the buffer, so a resize raises
+<a class="reference external" href="https://docs.python.org/3.11/library/exceptions.html#BufferError" title="(in Python v3.11)"><code class="xref py py-class docutils literal notranslate"><span class="pre">BufferError</span></code></a> rather than corrupting anything.</p>
+<p>A reader holds the file mapped, or the caller’s buffer alive, until
+<a class="reference internal" href="pyvista_zstd.Reader.close.html#pyvista_zstd.Reader.close" title="pyvista_zstd.Reader.close"><code class="xref py py-meth docutils literal notranslate"><span class="pre">close()</span></code></a> – which <code class="docutils literal notranslate"><span class="pre">with</span></code> calls on the way out:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">Reader</span><span class="p">(</span><span class="n">buffer</span><span class="o">=</span><span class="n">raw</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+    <span class="n">ds</span> <span class="o">=</span> <span class="n">reader</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+</pre></div>
+</div>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><dl class="simple">
-<dt><strong>filename</strong><span class="classifier">pathlib.Path | str</span></dt><dd><p>Path to the file. Must end in <code class="docutils literal notranslate"><span class="pre">.pv</span></code>.</p>
+<dt><strong>filename</strong><span class="classifier">pathlib.Path | str, optional</span></dt><dd><p>Path to the file. Must end in <code class="docutils literal notranslate"><span class="pre">.pv</span></code>.</p>
+</dd>
+<dt><strong>buffer</strong><span class="classifier">bytes | bytearray | memoryview | numpy.ndarray, optional</span></dt><dd><p>A whole container, contiguous. Exactly one of <em>filename</em> and <em>buffer</em>
+is given; a buffer has no suffix to check, so its bytes decide whether
+it is a container.</p>
+</dd>
+<dt><strong>backend</strong><span class="classifier">str, optional</span></dt><dd><p>Deprecated and ignored; passing it raises a <a class="reference external" href="https://docs.python.org/3.11/library/exceptions.html#DeprecationWarning" title="(in Python v3.11)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DeprecationWarning</span></code></a>.</p>
 </dd>
 </dl>
 </dd>
@@ -416,10 +442,13 @@ to read in.</p></li>
 <p class="rubric">Methods</p>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.read.html#pyvista_zstd.Reader.read" title="pyvista_zstd.Reader.read"><code class="xref py py-obj docutils literal notranslate"><span class="pre">read</span></code></a>([n_threads])</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.close.html#pyvista_zstd.Reader.close" title="pyvista_zstd.Reader.close"><code class="xref py py-obj docutils literal notranslate"><span class="pre">close</span></code></a>()</p></td>
+<td><p>Release the container.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="pyvista_zstd.Reader.read.html#pyvista_zstd.Reader.read" title="pyvista_zstd.Reader.read"><code class="xref py py-obj docutils literal notranslate"><span class="pre">read</span></code></a>([n_threads])</p></td>
 <td><p>Read in the dataset from the pyvista-zstd file.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="pyvista_zstd.Reader.show_frame_compression.html#pyvista_zstd.Reader.show_frame_compression" title="pyvista_zstd.Reader.show_frame_compression"><code class="xref py py-obj docutils literal notranslate"><span class="pre">show_frame_compression</span></code></a>()</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.show_frame_compression.html#pyvista_zstd.Reader.show_frame_compression" title="pyvista_zstd.Reader.show_frame_compression"><code class="xref py py-obj docutils literal notranslate"><span class="pre">show_frame_compression</span></code></a>()</p></td>
 <td><p>Return a table showing compression statistics for each frame in the dataset.</p></td>
 </tr>
 </tbody>
@@ -430,11 +459,11 @@ to read in.</p></li>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">pyvista</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pv</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">pyvista_zstd</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">ds</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">Sphere</span><span class="p">()</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="s2">&quot;sphere.pv&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="s2">"sphere.pv"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Create a reader.</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">reader</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">Reader</span><span class="p">(</span><span class="s2">&quot;sphere.pv&quot;</span><span class="p">)</span>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">reader</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">Reader</span><span class="p">(</span><span class="s2">"sphere.pv"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">reader</span>
 <span class="go">pyvista_zstd.Reader (0x7f1ed1496c00)</span>
 <span class="go">  File:               sphere.pv</span>
@@ -442,7 +471,7 @@ to read in.</p></li>
 <span class="go">  Compression:        zstandard</span>
 <span class="go">  Compression Level:  3</span>
 <span class="go">  Dataset Type:       PolyData</span>
-<span class="go">  N Points:           842 (&lt;class &#39;numpy.float32&#39;&gt;)</span>
+<span class="go">  N Points:           842 (&lt;class 'numpy.float32'&gt;)</span>
 <span class="go">  N Cells:            1680</span>
 <span class="go">  Point arrays:</span>
 <span class="go">      Normals                  float32    (842, 3)</span>
@@ -462,16 +491,25 @@ to read in.</p></li>
 <span class="go">  N Arrays:   0</span>
 </pre></div>
 </div>
+<p>Read the same container out of memory instead of off disk.</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">raw</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"sphere.pv"</span><span class="p">)</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ds_in</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">Reader</span><span class="p">(</span><span class="n">buffer</span><span class="o">=</span><span class="n">raw</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+</pre></div>
+</div>
 <p class="rubric">Methods</p>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.__init__.html#pyvista_zstd.Reader.__init__" title="pyvista_zstd.Reader.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.__init__</span></code></a>(filename)</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.__init__.html#pyvista_zstd.Reader.__init__" title="pyvista_zstd.Reader.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.__init__</span></code></a>([filename, buffer, backend])</p></td>
 <td><p>Initialize the decompressor.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="pyvista_zstd.Reader.read.html#pyvista_zstd.Reader.read" title="pyvista_zstd.Reader.read"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.read</span></code></a>([n_threads])</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="pyvista_zstd.Reader.close.html#pyvista_zstd.Reader.close" title="pyvista_zstd.Reader.close"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.close</span></code></a>()</p></td>
+<td><p>Release the container.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.read.html#pyvista_zstd.Reader.read" title="pyvista_zstd.Reader.read"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.read</span></code></a>([n_threads])</p></td>
 <td><p>Read in the dataset from the pyvista-zstd file.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.show_frame_compression.html#pyvista_zstd.Reader.show_frame_compression" title="pyvista_zstd.Reader.show_frame_compression"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.show_frame_compression</span></code></a>()</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="pyvista_zstd.Reader.show_frame_compression.html#pyvista_zstd.Reader.show_frame_compression" title="pyvista_zstd.Reader.show_frame_compression"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.show_frame_compression</span></code></a>()</p></td>
 <td><p>Return a table showing compression statistics for each frame in the dataset.</p></td>
 </tr>
 </tbody>

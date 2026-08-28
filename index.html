@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>pyvista-zstd &#8212; pyvista-zstd 0.3.1 documentation</title>
+    <title>pyvista-zstd &#8212; pyvista-zstd 0.4.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=385a908f"></script>
+    <script src="_static/documentation_options.js?v=183391d5"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -57,7 +57,7 @@
     <link rel="next" title="Examples" href="auto_examples/index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.3.1" />
+  <meta name="docsearch:version" content="0.4.0" />
   </head>
   
   
@@ -138,8 +138,8 @@
       
     
     
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.3.1 documentation - Home"/>
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.3.1 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.0 documentation - Home"/>
   
   
 </a></div>
@@ -182,11 +182,14 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read.html">pyvista_zstd.read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.write.html">pyvista_zstd.write</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.__init__.html">pyvista_zstd.Reader.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.available_cell_arrays.html">pyvista_zstd.Reader.available_cell_arrays</a></li>
@@ -207,6 +210,9 @@
 </details></li>
 </ul>
 </details></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="c_api.html">The C library</a></li>
 </ul>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="benchmarks/index.html">Benchmarks</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -362,6 +368,7 @@
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista-integration">PyVista Integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-c-library">The C library</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rational">Rational</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vtk-compression-with-zstandard-pyvista-zstd">VTK Compression with Zstandard: pyvista-zstd</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-information">Additional Information</a><ul class="nav section-nav flex-column">
@@ -458,16 +465,37 @@ space versus VTK’s modern XML format.</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>pyvista-zstd
 </pre></div>
 </div>
+<p>The package is a C++ library with a Python wrapper around it, so an install is
+either a prebuilt wheel or a compile. Wheels are published for:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<tbody>
+<tr class="row-odd"><td><p>Linux</p></td>
+<td><p>x86_64 (manylinux2014 and manylinux_2_28)</p></td>
+</tr>
+<tr class="row-even"><td><p>macOS</p></td>
+<td><p>x86_64 and arm64</p></td>
+</tr>
+<tr class="row-odd"><td><p>Windows</p></td>
+<td><p>AMD64</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Everywhere else – musl-based Linux, Linux on aarch64, Windows on ARM – <code class="docutils literal notranslate"><span class="pre">pip</span></code>
+falls back to the source distribution and builds the core during the install,
+which needs a C++17 compiler on the machine. CMake does not: it comes from the
+build requirements. A machine without a compiler fails the install rather than
+producing a package that imports and cannot read anything.</p>
 <p>Compatible with all VTK dataset types. Uses
 <a class="reference external" href="https://docs.pyvista.org/">PyVista</a> under the hood.</p>
 <div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pyvista_zstd</span>
 
 <span class="c1"># create and write out</span>
 <span class="n">ds</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">Sphere</span><span class="p">()</span>
-<span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="s2">&quot;dataset.pv&quot;</span><span class="p">)</span>
+<span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="s2">"dataset.pv"</span><span class="p">)</span>
 
 <span class="c1"># read in and show these are identical</span>
-<span class="n">ds_in</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;dataset.pv&quot;</span><span class="p">)</span>
+<span class="n">ds_in</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">"dataset.pv"</span><span class="p">)</span>
 <span class="k">assert</span> <span class="n">ds</span> <span class="o">==</span> <span class="n">ds_in</span>
 </pre></div>
 </div>
@@ -490,8 +518,8 @@ explicit offsets.</p>
 <span class="n">vtk_ds</span> <span class="o">=</span> <span class="n">sphere_source</span><span class="o">.</span><span class="n">GetOutput</span><span class="p">()</span>
 
 <span class="c1"># read back</span>
-<span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">vtk_ds</span><span class="p">,</span> <span class="s2">&quot;sphere.pv&quot;</span><span class="p">)</span>
-<span class="n">ds_in</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;sphere.pv&quot;</span><span class="p">)</span>
+<span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">vtk_ds</span><span class="p">,</span> <span class="s2">"sphere.pv"</span><span class="p">)</span>
+<span class="n">ds_in</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">"sphere.pv"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -502,11 +530,26 @@ reader registry. This means <code class="docutils literal notranslate"><span cla
 directly:</p>
 <div class="highlight-py notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pyvista</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pv</span>
 
-<span class="n">mesh</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;dataset.pv&quot;</span><span class="p">)</span>
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">"dataset.pv"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>No additional imports needed. This works via PyVista’s <code class="docutils literal notranslate"><span class="pre">pyvista.readers</span></code>
 entry point group, so the registration happens at install time.</p>
+</section>
+<section id="the-c-library">
+<h2>The C library<a class="headerlink" href="#the-c-library" title="Link to this heading">#</a></h2>
+<p>The reader and writer are a C++ core with a pure C ABI, <code class="docutils literal notranslate"><span class="pre">pvzstd</span></code>, declared in
+<code class="docutils literal notranslate"><span class="pre">cpp/include/pvzstd/pvzstd.h</span></code>. The Python package is one consumer of it,
+bound with <code class="docutils literal notranslate"><span class="pre">ctypes</span></code>; a C or C++ consumer – or a WebAssembly build – can link
+the same library directly, and it depends on nothing but zstd.</p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">find_package</span><span class="p">(</span><span class="s">pvzstd</span><span class="w"> </span><span class="s">CONFIG</span><span class="w"> </span><span class="s">REQUIRED</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">my_app</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">pvzstd::pvzstd</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>See <a class="reference external" href="https://pyvista.github.io/pyvista-zstd/c_api.html">The C library</a> for
+the build options, both ways of consuming the CMake package, the ABI-version
+contract, and a worked example. The on-disk format is specified in
+<code class="docutils literal notranslate"><span class="pre">doc/format/container-v2.md</span></code>.</p>
 </section>
 <section id="rational">
 <h2>Rational<a class="headerlink" href="#rational" title="Link to this heading">#</a></h2>
@@ -520,17 +563,17 @@ without compression. This example requires <code class="docutils literal notrans
 <div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">pyvista</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pv</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">ImageData</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">200</span><span class="p">,</span> <span class="mi">200</span><span class="p">))</span><span class="o">.</span><span class="n">to_tetrahedra</span><span class="p">()</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;pdata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_points</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;cdata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_cells</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="p">[</span><span class="s2">"pdata"</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_points</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="p">[</span><span class="s2">"cdata"</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_cells</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes</span> <span class="o">=</span> <span class="p">(</span>
 <span class="gp">... </span>    <span class="n">ugrid</span><span class="o">.</span><span class="n">points</span><span class="o">.</span><span class="n">nbytes</span>
 <span class="gp">... </span>    <span class="o">+</span> <span class="n">ugrid</span><span class="o">.</span><span class="n">cell_connectivity</span><span class="o">.</span><span class="n">nbytes</span>
 <span class="gp">... </span>    <span class="o">+</span> <span class="n">ugrid</span><span class="o">.</span><span class="n">offset</span><span class="o">.</span><span class="n">nbytes</span>
 <span class="gp">... </span>    <span class="o">+</span> <span class="n">ugrid</span><span class="o">.</span><span class="n">celltypes</span><span class="o">.</span><span class="n">nbytes</span>
-<span class="gp">... </span>    <span class="o">+</span> <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;pdata&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">nbytes</span>
-<span class="gp">... </span>    <span class="o">+</span> <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;cdata&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">nbytes</span>
+<span class="gp">... </span>    <span class="o">+</span> <span class="n">ugrid</span><span class="p">[</span><span class="s2">"pdata"</span><span class="p">]</span><span class="o">.</span><span class="n">nbytes</span>
+<span class="gp">... </span>    <span class="o">+</span> <span class="n">ugrid</span><span class="p">[</span><span class="s2">"cdata"</span><span class="p">]</span><span class="o">.</span><span class="n">nbytes</span>
 <span class="gp">... </span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Size in memory: </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Size in memory: </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
 
 <span class="go">Size in memory: 1993.89 MB</span>
 </pre></div>
@@ -539,13 +582,13 @@ without compression. This example requires <code class="docutils literal notrans
 
 <span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">tmp_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.vtu&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tmp_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"/tmp/ds.vtu"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Written without compression in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Written without compression in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">()</span>
 
 <span class="go">Written without compression in 7.93 seconds</span>
@@ -557,11 +600,11 @@ without compression. This example requires <code class="docutils literal notrans
 default compression we can get the file size down to 791 MB, but it
 takes 19 seconds to compress.</p>
 <div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s1">&#39;zlib&#39;</span><span class="p">)</span>  <span class="c1"># default</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Compressed in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ugrid</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="s1">'zlib'</span><span class="p">)</span>  <span class="c1"># default</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Compressed in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">()</span>
 
 <span class="go">Compressed in 18.83 seconds</span>
@@ -580,13 +623,13 @@ compression. Moreover, it’s been implemented with multi-threading
 support for both read and write operations.</p>
 <p>Let’s compress that file again but this time using <code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code>:</p>
 <div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">pyvista_zstd</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">tmp_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.pv&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tmp_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"/tmp/ds.pv"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ugrid</span><span class="p">,</span> <span class="n">tmp_path</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Compressed pyvista_zstd in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Compressed pyvista_zstd in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="go">Compressed pyvista_zstd in 0.92 seconds</span>
 <span class="go">Threads:              -1</span>
@@ -608,10 +651,10 @@ larger files:</p>
 performance:</p>
 <div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ugrid</span><span class="p">,</span> <span class="n">tmp_path</span><span class="p">,</span> <span class="n">n_threads</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Compressed pyvista_zstd in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Compressed pyvista_zstd in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tstart</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">nbytes_disk</span> <span class="o">=</span> <span class="n">tmp_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  File size:            </span><span class="si">{</span><span class="n">nbytes_disk</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Compression Ratio:    </span><span class="si">{</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">nbytes_disk</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="go">Compressed pyvista_zstd in 2.91 seconds</span>
 <span class="go">Threads:              0</span>
@@ -636,20 +679,20 @@ the CPU used for benchmarking (see below).</p>
 using defaults:</p>
 <div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="go">Read VTK XML</span>
 
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Read VTK XML:&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">pv</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.vtu&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Read VTK XML:"</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">pv</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">"/tmp/ds.vtu"</span><span class="p">)</span>
 <span class="go">6.22 s ± 9.21 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</span>
 
 <span class="go">Read zstd</span>
 
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Read zstd:&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.pv&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Read zstd:"</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">"/tmp/ds.pv"</span><span class="p">)</span>
 <span class="go">563 ms ± 7.96 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</span>
 </pre></div>
 </div>
 <p>This is an 11x speedup for this dataset versus VTK’s XML, and it’s still
 fast even with multi-threading disabled:</p>
-<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">&quot;/tmp/ds.pv&quot;</span><span class="p">,</span> <span class="n">n_threads</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">timeit</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s2">"/tmp/ds.pv"</span><span class="p">,</span> <span class="n">n_threads</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 <span class="go">1.11 s ± 4.51 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</span>
 </pre></div>
 </div>
@@ -692,6 +735,8 @@ Gallery</a>).</p>
 </div>
 <div class="toctree-wrapper compound">
 </div>
+<div class="toctree-wrapper compound">
+</div>
 </section>
 </section>
 
@@ -720,6 +765,7 @@ Gallery</a>).</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista-integration">PyVista Integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-c-library">The C library</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rational">Rational</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vtk-compression-with-zstandard-pyvista-zstd">VTK Compression with Zstandard: pyvista-zstd</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-information">Additional Information</a><ul class="nav section-nav flex-column">

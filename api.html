@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>API Reference &#8212; pyvista-zstd 0.3.1 documentation</title>
+    <title>API Reference &#8212; pyvista-zstd 0.4.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=385a908f"></script>
+    <script src="_static/documentation_options.js?v=183391d5"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="Compare Saving a Surface DataSet" href="auto_examples/01-compare.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.3.1" />
+  <meta name="docsearch:version" content="0.4.0" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.3.1 documentation - Home"/>
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.3.1 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.0 documentation - Home"/>
   
   
 </a></div>
@@ -181,11 +181,14 @@
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read.html">pyvista_zstd.read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.write.html">pyvista_zstd.write</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.__init__.html">pyvista_zstd.Reader.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.available_cell_arrays.html">pyvista_zstd.Reader.available_cell_arrays</a></li>
@@ -206,6 +209,9 @@
 </details></li>
 </ul>
 </details></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="c_api.html">The C library</a></li>
 </ul>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="benchmarks/index.html">Benchmarks</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -377,14 +383,20 @@
 <p>API reference for <code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code>.</p>
 <section id="convenience-functions">
 <h2>Convenience Functions<a class="headerlink" href="#convenience-functions" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code> exposes two convenience functions to easily read and write compressed
-datasets to disk using <a class="reference external" href="https://github.com/facebook/zstd">Zstandard</a></p>
+<p><code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code> exposes three convenience functions to easily read and write compressed
+datasets using <a class="reference external" href="https://github.com/facebook/zstd">Zstandard</a></p>
+<p><a class="reference internal" href="_autosummary/pyvista_zstd.read.html#pyvista_zstd.read" title="pyvista_zstd.read"><code class="xref py py-func docutils literal notranslate"><span class="pre">pyvista_zstd.read()</span></code></a> and <a class="reference internal" href="_autosummary/pyvista_zstd.write.html#pyvista_zstd.write" title="pyvista_zstd.write"><code class="xref py py-func docutils literal notranslate"><span class="pre">pyvista_zstd.write()</span></code></a> work on files.
+A container that is already in memory, rather than on disk, is read with
+<a class="reference internal" href="_autosummary/pyvista_zstd.read_buffer.html#pyvista_zstd.read_buffer" title="pyvista_zstd.read_buffer"><code class="xref py py-func docutils literal notranslate"><span class="pre">pyvista_zstd.read_buffer()</span></code></a>.</p>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.read.html#pyvista_zstd.read" title="pyvista_zstd.read"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.read</span></code></a>(filename[, n_threads])</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.read.html#pyvista_zstd.read" title="pyvista_zstd.read"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.read</span></code></a>(filename[, n_threads, backend])</p></td>
 <td><p>Decompress a <code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code> file.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.write.html#pyvista_zstd.write" title="pyvista_zstd.write"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.write</span></code></a>(ds, filename, *[, ...])</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.read_buffer.html#pyvista_zstd.read_buffer" title="pyvista_zstd.read_buffer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.read_buffer</span></code></a>(data[, n_threads])</p></td>
+<td><p>Decompress a <code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code> container already held in memory.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.write.html#pyvista_zstd.write" title="pyvista_zstd.write"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.write</span></code></a>(ds, filename, *[, ...])</p></td>
 <td><p>Compress a PyVista or VTK dataset.</p></td>
 </tr>
 </tbody>
@@ -399,7 +411,7 @@ you wish to read in or even progressively read in individual datasets from a
 <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.48.4)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>.</p>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html#pyvista_zstd.Reader" title="pyvista_zstd.Reader"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.Reader</span></code></a>(filename)</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html#pyvista_zstd.Reader" title="pyvista_zstd.Reader"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.Reader</span></code></a>([filename, buffer, backend])</p></td>
 <td><p>Class to control pyvista-zstd file decompression.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.Writer.html#pyvista_zstd.Writer" title="pyvista_zstd.Writer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.Writer</span></code></a>(ds, filename)</p></td>

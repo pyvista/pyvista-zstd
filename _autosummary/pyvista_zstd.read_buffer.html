@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>pyvista_zstd.Reader.selected_point_arrays &#8212; pyvista-zstd 0.4.0 documentation</title>
+    <title>pyvista_zstd.read_buffer &#8212; pyvista-zstd 0.4.0 documentation</title>
   
   
   
@@ -51,11 +51,11 @@
     <script src="../_static/copybutton.js?v=49e1bf35"></script>
     <script src="../_static/sg-tags.js?v=d80f6fa4"></script>
     <script src="../_static/scripts/sphinx-book-theme.js?v=fab101a9"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = '_autosummary/pyvista_zstd.Reader.selected_point_arrays';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_autosummary/pyvista_zstd.read_buffer';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="pyvista_zstd.Writer" href="pyvista_zstd.Writer.html" />
-    <link rel="prev" title="pyvista_zstd.Reader.selected_field_arrays" href="pyvista_zstd.Reader.selected_field_arrays.html" />
+    <link rel="next" title="pyvista_zstd.write" href="pyvista_zstd.write.html" />
+    <link rel="prev" title="pyvista_zstd.read" href="pyvista_zstd.read.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="0.4.0" />
@@ -181,9 +181,9 @@
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="../api.html">API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="pyvista_zstd.read.html">pyvista_zstd.read</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">pyvista_zstd.read_buffer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pyvista_zstd.write.html">pyvista_zstd.write</a></li>
-<li class="toctree-l2 current active has-children"><a class="reference internal" href="pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 has-children"><a class="reference internal" href="pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
@@ -198,7 +198,7 @@
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.nbytes.html">pyvista_zstd.Reader.nbytes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.selected_cell_arrays.html">pyvista_zstd.Reader.selected_cell_arrays</a></li>
 <li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.selected_field_arrays.html">pyvista_zstd.Reader.selected_field_arrays</a></li>
-<li class="toctree-l3 current active"><a class="current reference internal" href="#">pyvista_zstd.Reader.selected_point_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pyvista_zstd.Reader.selected_point_arrays.html">pyvista_zstd.Reader.selected_point_arrays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="pyvista_zstd.Writer.html">pyvista_zstd.Writer</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -279,7 +279,7 @@
       
       
       
-      <li><a href="../_sources/_autosummary/pyvista_zstd.Reader.selected_point_arrays.rst" target="_blank"
+      <li><a href="../_sources/_autosummary/pyvista_zstd.read_buffer.rst" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -355,7 +355,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>pyvista_zstd.Reader.selected_point_arrays</h1>
+    <h1>pyvista_zstd.read_buffer</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -365,7 +365,7 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista_zstd.Reader.selected_point_arrays"><code class="docutils literal notranslate"><span class="pre">Reader.selected_point_arrays</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista_zstd.read_buffer"><code class="docutils literal notranslate"><span class="pre">read_buffer()</span></code></a></li>
 </ul>
             </nav>
         </div>
@@ -377,13 +377,41 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="pyvista-zstd-reader-selected-point-arrays">
-<h1>pyvista_zstd.Reader.selected_point_arrays<a class="headerlink" href="#pyvista-zstd-reader-selected-point-arrays" title="Link to this heading">#</a></h1>
-<dl class="py property">
-<dt class="sig sig-object py" id="pyvista_zstd.Reader.selected_point_arrays">
-<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">Reader.</span></span><span class="sig-name descname"><span class="pre">selected_point_arrays</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#set" title="(in Python v3.11)"><span class="pre">set</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#pyvista_zstd.Reader.selected_point_arrays" title="Link to this definition">#</a></dt>
-<dd><p>Return the set of currently selected point arrays to read.</p>
-<p>Defaults to all available arrays.</p>
+  <section id="pyvista-zstd-read-buffer">
+<h1>pyvista_zstd.read_buffer<a class="headerlink" href="#pyvista-zstd-read-buffer" title="Link to this heading">#</a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="pyvista_zstd.read_buffer">
+<span class="sig-prename descclassname"><span class="pre">pyvista_zstd.</span></span><span class="sig-name descname"><span class="pre">read_buffer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytes" title="(in Python v3.11)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytearray" title="(in Python v3.11)"><span class="pre">bytearray</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#memoryview" title="(in Python v3.11)"><span class="pre">memoryview</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">NDArray</span><span class="p"><span class="pre">[</span></span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_threads</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/functions.html#int" title="(in Python v3.11)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">DataSet</span></span></span><a class="headerlink" href="#pyvista_zstd.read_buffer" title="Link to this definition">#</a></dt>
+<dd><p>Decompress a <code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code> container already held in memory.</p>
+<p><a class="reference internal" href="pyvista_zstd.read.html#pyvista_zstd.read" title="pyvista_zstd.read"><code class="xref py py-func docutils literal notranslate"><span class="pre">read()</span></code></a> for bytes rather than a path – an archive member, a response
+body, or a build with no filesystem to open a path on. The bytes are
+borrowed, not copied, and must not be modified while the read is running:
+a write into them is not detected, so the dataset comes back with undefined
+contents and no error to say so. A resize is detected, and raises
+<a class="reference external" href="https://docs.python.org/3.11/library/exceptions.html#BufferError" title="(in Python v3.11)"><code class="xref py py-class docutils literal notranslate"><span class="pre">BufferError</span></code></a> rather than corrupting anything.</p>
+<p>This is a convenience function that uses <a class="reference internal" href="pyvista_zstd.Reader.html#pyvista_zstd.Reader" title="pyvista_zstd.Reader"><code class="xref py py-class docutils literal notranslate"><span class="pre">Reader</span></code></a>. Use that class to
+finely tune reading.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><dl class="simple">
+<dt><strong>data</strong><span class="classifier">bytes | bytearray | memoryview | numpy.ndarray</span></dt><dd><p>A whole <code class="docutils literal notranslate"><span class="pre">.pv</span></code> or <code class="docutils literal notranslate"><span class="pre">.zvtk</span></code> container, contiguous.</p>
+</dd>
+<dt><strong>n_threads</strong><span class="classifier">None | int, optional</span></dt><dd><p>Workers to spread the frames over, exactly as in <a class="reference internal" href="pyvista_zstd.read.html#pyvista_zstd.read" title="pyvista_zstd.read"><code class="xref py py-func docutils literal notranslate"><span class="pre">read()</span></code></a>.</p>
+</dd>
+</dl>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><dl class="simple">
+<dt>pyvista.DataSet</dt><dd></dd>
+</dl>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">pyvista_zstd</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ds</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">read_buffer</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">"dataset.pv"</span><span class="p">)</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">())</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </section>
@@ -411,7 +439,7 @@
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista_zstd.Reader.selected_point_arrays"><code class="docutils literal notranslate"><span class="pre">Reader.selected_point_arrays</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista_zstd.read_buffer"><code class="docutils literal notranslate"><span class="pre">read_buffer()</span></code></a></li>
 </ul>
   </nav></div>
 

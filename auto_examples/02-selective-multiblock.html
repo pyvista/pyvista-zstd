@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Selectively Load a MultiBlock &#8212; pyvista-zstd 0.3.1 documentation</title>
+    <title>Selectively Load a MultiBlock &#8212; pyvista-zstd 0.4.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=385a908f"></script>
+    <script src="../_static/documentation_options.js?v=183391d5"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="Save and Load DataSet using pyvista-zstd" href="00-save-and-load.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.3.1" />
+  <meta name="docsearch:version" content="0.4.0" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.3.1 documentation - Home"/>
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.3.1 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.0 documentation - Home"/>
   
   
 </a></div>
@@ -181,11 +181,14 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="../api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../_autosummary/pyvista_zstd.read.html">pyvista_zstd.read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../_autosummary/pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../_autosummary/pyvista_zstd.write.html">pyvista_zstd.write</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.__init__.html">pyvista_zstd.Reader.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.available_cell_arrays.html">pyvista_zstd.Reader.available_cell_arrays</a></li>
@@ -206,6 +209,9 @@
 </details></li>
 </ul>
 </details></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../c_api.html">The C library</a></li>
 </ul>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="../benchmarks/index.html">Benchmarks</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -384,7 +390,7 @@ to download the full example code.</p>
 </div>
 <div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="n">ds</span> <span class="o">=</span> <span class="n">examples</span><span class="o">.</span><span class="n">download_whole_body_ct_male</span><span class="p">()</span>
 
-<span class="n">pyvista_zstd_filename</span> <span class="o">=</span> <span class="s2">&quot;whole_body_ct_male.pv&quot;</span>
+<span class="n">pyvista_zstd_filename</span> <span class="o">=</span> <span class="s2">"whole_body_ct_male.pv"</span>
 <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="n">pyvista_zstd_filename</span><span class="p">)</span>
 </pre></div>
 </div>

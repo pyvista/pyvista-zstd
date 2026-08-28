@@ -1,0 +1,1089 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>The C library &#8212; pyvista-zstd 0.4.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=3c74b3bc" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css?v=fd6457a4" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="_static/documentation_options.js?v=183391d5"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="_static/copybutton.js?v=49e1bf35"></script>
+    <script src="_static/sg-tags.js?v=d80f6fa4"></script>
+    <script src="_static/scripts/sphinx-book-theme.js?v=fab101a9"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'c_api';</script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Benchmarks" href="benchmarks/index.html" />
+    <link rel="prev" title="pyvista_zstd.Writer.__init__" href="_autosummary/pyvista_zstd.Writer.__init__.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="0.4.0" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/pyvista/pyvista-zstd" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="index.html">pyvista-zstd</a></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="auto_examples/index.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="auto_examples/00-save-and-load.html">Save and Load DataSet using pyvista-zstd</a></li>
+
+<li class="toctree-l2"><a class="reference internal" href="auto_examples/02-selective-multiblock.html">Selectively Load a MultiBlock</a></li>
+<li class="toctree-l2"><a class="reference internal" href="auto_examples/01-compare.html">Compare Saving a Surface DataSet</a></li>
+</ul>
+</details></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read.html">pyvista_zstd.read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.write.html">pyvista_zstd.write</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.__init__.html">pyvista_zstd.Reader.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.available_cell_arrays.html">pyvista_zstd.Reader.available_cell_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.available_field_arrays.html">pyvista_zstd.Reader.available_field_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.available_point_arrays.html">pyvista_zstd.Reader.available_point_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.decompressed_sizes.html">pyvista_zstd.Reader.decompressed_sizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.nbytes.html">pyvista_zstd.Reader.nbytes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.selected_cell_arrays.html">pyvista_zstd.Reader.selected_cell_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.selected_field_arrays.html">pyvista_zstd.Reader.selected_field_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.selected_point_arrays.html">pyvista_zstd.Reader.selected_point_arrays</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="_autosummary/pyvista_zstd.Writer.html">pyvista_zstd.Writer</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Writer.write.html">pyvista_zstd.Writer.write</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Writer.__init__.html">pyvista_zstd.Writer.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Writer.write.html">pyvista_zstd.Writer.write</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">The C library</a></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="benchmarks/index.html">Benchmarks</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="benchmarks/pv_examples.html">PyVista Examples Benchmarks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="benchmarks/synthetic_dataset.html">Synthetic Dataset Benchmarks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="benchmarks/compression_alg_comparison.html">Compression Algorithm Comparison</a></li>
+</ul>
+</details></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="_sources/c_api.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button pst-navbar-icon"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm pst-navbar-icon" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>The C library</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building">Building</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#options">Options</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#consuming-it">Consuming it</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#against-an-install-tree">Against an install tree</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#against-the-source">Against the source</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-static-build-does-not-carry-zstd">The static build does not carry zstd</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-abi-version">The ABI version</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-a-container">Reading a container</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#opening-from-memory">Opening from memory</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#describing-arrays">Describing arrays</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-payloads">Reading payloads</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#metadata-and-frame-sizes">Metadata and frame sizes</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#webassembly-must-catch-exceptions">WebAssembly must catch exceptions</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-and-appending">Writing and appending</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-append-at-a-time">One append at a time</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#on-webassembly">On WebAssembly</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-worked-example">A worked example</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="the-c-library">
+<h1>The C library<a class="headerlink" href="#the-c-library" title="Link to this heading">#</a></h1>
+<p>The reader and writer live in a C++ core, <code class="docutils literal notranslate"><span class="pre">pvzstd</span></code>, and the whole of its
+public surface is a C ABI declared in a single header,
+<code class="docutils literal notranslate"><span class="pre">cpp/include/pvzstd/pvzstd.h</span></code>. The Python package is one consumer of that
+ABI, bound with <a class="reference external" href="https://docs.python.org/3.11/library/ctypes.html#module-ctypes" title="(in Python v3.11)"><code class="xref py py-mod docutils literal notranslate"><span class="pre">ctypes</span></code></a>; nothing in the ABI is Python-specific, and a C
+or C++ consumer can link the same library directly.</p>
+<p>Two properties are what make that worth doing:</p>
+<ul class="simple">
+<li><p><strong>The interface is pure C.</strong> No C++ type, no zstd type, and no VTK type
+appears in the header, so it binds from C, from C++, from <code class="docutils literal notranslate"><span class="pre">ctypes</span></code>, or from
+any FFI that can call a C function. Turning a dataset into arrays stays with
+the caller, which is what keeps VTK out of the library and lets it build as
+WebAssembly.</p></li>
+<li><p><strong>The only dependency is zstd</strong>, and it is linked privately. The header never
+names a zstd type, so for the default shared build zstd is an implementation
+detail of <code class="docutils literal notranslate"><span class="pre">libpvzstd</span></code> rather than something a consumer has to find. (See
+<a class="reference internal" href="#c-api-static-caveat"><span class="std std-ref">The static build does not carry zstd</span></a> for the one case where that does not hold.)</p></li>
+</ul>
+<p>The on-disk format the library reads and writes is specified in
+<code class="docutils literal notranslate"><span class="pre">doc/format/container-v2.md</span></code>.</p>
+<section id="building">
+<h2>Building<a class="headerlink" href="#building" title="Link to this heading">#</a></h2>
+<p>The core is an ordinary CMake project rooted at <code class="docutils literal notranslate"><span class="pre">cpp/</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cmake<span class="w"> </span>-S<span class="w"> </span>cpp<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
+cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>-j
+cmake<span class="w"> </span>--install<span class="w"> </span>build<span class="w"> </span>--prefix<span class="w"> </span>/where/you/want/it
+</pre></div>
+</div>
+<p>The install tree carries the library, the header under <code class="docutils literal notranslate"><span class="pre">include/pvzstd/</span></code>, and
+a CMake package under <code class="docutils literal notranslate"><span class="pre">lib/cmake/pvzstd/</span></code>.</p>
+<section id="options">
+<h3>Options<a class="headerlink" href="#options" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 26.0%" />
+<col style="width: 12.0%" />
+<col style="width: 62.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Option</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_BUILD_SHARED</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ON</span></code></p></td>
+<td><p>Build a shared library. The Python <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> binding needs one. A
+static build is possible but exports zstd resolution to the consumer;
+see <a class="reference internal" href="#c-api-static-caveat"><span class="std std-ref">The static build does not carry zstd</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_BUILD_TOOLS</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ON</span></code></p></td>
+<td><p>Build the command-line tools <code class="docutils literal notranslate"><span class="pre">pvzstd_dump</span></code>, <code class="docutils literal notranslate"><span class="pre">pvzstd_rewrite</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pvzstd_append</span></code> and <code class="docutils literal notranslate"><span class="pre">pvzstd_stream</span></code>. They are conformance and
+inspection aids, not part of the ABI; turn them off for a build that
+only ships the library.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_THREADS</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ON</span></code></p></td>
+<td><p>Use threads for batch decompression and for zstd’s own workers. Turn it
+off for a target with no thread runtime. Reads are unaffected. Writes
+lose byte-identity with the reference writer above its 2 MiB threshold,
+and say so: a zstd built without multithreading rejects a non-zero
+worker count, so <code class="docutils literal notranslate"><span class="pre">pvzstd_writer_write</span></code> returns <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_ZSTD</span></code>
+rather than quietly emitting frames that would not match.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_ZSTD_PROVIDER</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">auto</span></code></p></td>
+<td><p>Where zstd comes from. <code class="docutils literal notranslate"><span class="pre">auto</span></code> prefers an installed zstd and falls back
+to the pinned source build; <code class="docutils literal notranslate"><span class="pre">system</span></code> requires an installed one and
+fails configuration if there is none; <code class="docutils literal notranslate"><span class="pre">vendored</span></code> always builds the
+pinned source, ignoring anything installed.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_VENDOR_ZSTD</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ON</span></code></p></td>
+<td><p>Whether the pinned source build is available as a fallback at all. With
+it <code class="docutils literal notranslate"><span class="pre">OFF</span></code> and no zstd installed, configuration fails rather than
+downloading anything.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">vendored</span></code> is not paranoia about versions in general: different zstd releases
+emit different, equally valid frames for the same input, so the conformance
+suite has to pin the same source the reference writer carries. Linking a system
+zstd instead was measured to fail the byte-identity tests on multi-frame data
+that platforms without a system zstd passed. A distribution build that cares
+more about receiving zstd’s security updates than about byte-identity should
+prefer <code class="docutils literal notranslate"><span class="pre">system</span></code>.</p>
+<p>The pinned source build is also what makes Windows and WebAssembly possible at
+all, since neither has a system zstd to find.</p>
+</section>
+</section>
+<section id="consuming-it">
+<h2>Consuming it<a class="headerlink" href="#consuming-it" title="Link to this heading">#</a></h2>
+<p>Both paths yield the same target name, <code class="docutils literal notranslate"><span class="pre">pvzstd::pvzstd</span></code>, so the rest of a
+consumer’s CMake does not have to know which one was taken.</p>
+<section id="against-an-install-tree">
+<h3>Against an install tree<a class="headerlink" href="#against-an-install-tree" title="Link to this heading">#</a></h3>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">find_package</span><span class="p">(</span><span class="s">pvzstd</span><span class="w"> </span><span class="s">CONFIG</span><span class="w"> </span><span class="s">REQUIRED</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">my_app</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">pvzstd::pvzstd</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Point <code class="docutils literal notranslate"><span class="pre">CMAKE_PREFIX_PATH</span></code> at the install prefix if it is not already on the
+search path. The package’s version is the released version line
+(<code class="docutils literal notranslate"><span class="pre">find_package(pvzstd</span> <span class="pre">0.3)</span></code> means what a reader expects), and it is compatible
+within a major version. It is <em>not</em> the compatibility contract a consumer should
+rely on at runtime: that is <code class="docutils literal notranslate"><span class="pre">PVZSTD_ABI_VERSION</span></code>, below.</p>
+</section>
+<section id="against-the-source">
+<h3>Against the source<a class="headerlink" href="#against-the-source" title="Link to this heading">#</a></h3>
+<p>As a subdirectory – a submodule, a vendored copy, or a sibling checkout:</p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">add_subdirectory</span><span class="p">(</span><span class="s">third_party/pyvista-zstd/cpp</span><span class="w"> </span><span class="s">pvzstd</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">my_app</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">pvzstd::pvzstd</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>or fetched at configure time:</p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">include</span><span class="p">(</span><span class="s">FetchContent</span><span class="p">)</span>
+<span class="nb">FetchContent_Declare</span><span class="p">(</span><span class="s">pvzstd</span>
+<span class="w">  </span><span class="s">GIT_REPOSITORY</span><span class="w"> </span><span class="s">https://github.com/pyvista/pyvista-zstd.git</span>
+<span class="w">  </span><span class="s">GIT_TAG</span><span class="w">        </span><span class="s">main</span>
+<span class="w">  </span><span class="s">SOURCE_SUBDIR</span><span class="w">  </span><span class="s">cpp</span><span class="p">)</span>
+<span class="nb">FetchContent_MakeAvailable</span><span class="p">(</span><span class="s">pvzstd</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">my_app</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">pvzstd::pvzstd</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd::pvzstd</span></code> is an <code class="docutils literal notranslate"><span class="pre">ALIAS</span></code> of the in-tree target in these two cases and
+an imported target in the <code class="docutils literal notranslate"><span class="pre">find_package</span></code> case, which is the point of having
+the alias: one link line serves all three.</p>
+</section>
+<section id="the-static-build-does-not-carry-zstd">
+<span id="c-api-static-caveat"></span><h3>The static build does not carry zstd<a class="headerlink" href="#the-static-build-does-not-carry-zstd" title="Link to this heading">#</a></h3>
+<p>zstd is linked <code class="docutils literal notranslate"><span class="pre">PRIVATE</span></code>. For the default shared build that folds zstd’s
+object code into <code class="docutils literal notranslate"><span class="pre">libpvzstd</span></code> itself, so the installed library is
+self-contained whether zstd was vendored or found on the system.</p>
+<p>It does <strong>not</strong> hold for <code class="docutils literal notranslate"><span class="pre">-DPVZSTD_BUILD_SHARED=OFF</span></code>. CMake does not fold a
+private static dependency’s objects into the resulting archive, so
+<code class="docutils literal notranslate"><span class="pre">libpvzstd.a</span></code> still needs zstd’s symbols resolved at the consumer’s link step,
+and the exported package does not declare that dependency – zstd is treated as
+this build’s implementation detail, not a re-exported one. With a system zstd a
+consumer can supply it themselves. With <code class="docutils literal notranslate"><span class="pre">PVZSTD_ZSTD_PROVIDER=vendored</span></code> the
+vendored zstd happens to install its own findable package alongside this one, as
+a side effect of <code class="docutils literal notranslate"><span class="pre">FetchContent</span></code> adding it as a subdirectory rather than
+anything this project arranges, so it is not strictly unfindable – but that is
+fragile and not worth designing around. Prefer the shared build for anything
+that will be installed and linked downstream.</p>
+</section>
+</section>
+<section id="the-abi-version">
+<h2>The ABI version<a class="headerlink" href="#the-abi-version" title="Link to this heading">#</a></h2>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="cp">#define PVZSTD_ABI_VERSION 11u</span>
+<span class="n">PVZSTD_API</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">pvzstd_abi_version</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>The macro is the version the caller compiled against; the function is the
+version the library it actually loaded was built with. <strong>Compare them for
+equality, not as a floor.</strong> The number is bumped on any change to the header,
+additions included, because a caller that binds every symbol up front – which
+is what an FFI binding does – is broken by an addition just as surely as by a
+removal, if it looks for a symbol the loaded library does not have.</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">pvzstd_abi_version</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">PVZSTD_ABI_VERSION</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="cm">/* wrong library; do not call anything else */</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Calling the function is also the cheapest real proof that a library linked and
+loaded at all. A header parses whether or not anything is behind it, and CMake
+reporting a successful link says only that the symbols resolved at build time,
+not that the shared object the loader picks up at runtime is the right one – or
+that it is present. <code class="docutils literal notranslate"><span class="pre">pvzstd_abi_version()</span></code> is a call into that object with no
+arguments and no failure mode, so a correct answer from it means the library is
+there, is loadable, and is the one the header describes. The Python binding does
+exactly this at import time, so that a bad install fails at import naming what
+it tried rather than at the first read.</p>
+<p>A second, separate number describes the <em>files</em> rather than the library:</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="cp">#define PVZSTD_FILE_VERSION_MAX 2u</span>
+<span class="n">PVZSTD_API</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">pvzstd_max_file_version</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>This is the highest container <code class="docutils literal notranslate"><span class="pre">file_version</span></code> the build can decode. A container
+stamped higher is refused with <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_VERSION</span></code> rather than read, because a
+newer format may transform payloads in a way this build cannot invert, and
+reading one would hand back plausible-looking corrupt values instead of failing.
+The ceiling lives beside the decoder it describes so that every caller of the
+ABI gets the same answer; a binding keeping its own copy would refuse files the
+library can read, or accept files it cannot.</p>
+</section>
+<section id="reading-a-container">
+<h2>Reading a container<a class="headerlink" href="#reading-a-container" title="Link to this heading">#</a></h2>
+<p>A reader is opened, queried, read from, and closed. Opening parses only the
+trailer and the array headers; payloads are decompressed on demand, one array at
+a time.</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_open</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">**</span><span class="n">out</span><span class="p">);</span>
+<span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_open_versioned</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">**</span><span class="n">out</span><span class="p">,</span>
+<span class="w">                                    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="o">*</span><span class="n">file_version</span><span class="p">);</span>
+<span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_open_memory</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span>
+<span class="w">                                 </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">**</span><span class="n">out</span><span class="p">);</span>
+<span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_open_memory_versioned</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span>
+<span class="w">                                           </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">**</span><span class="n">out</span><span class="p">,</span>
+<span class="w">                                           </span><span class="kt">uint32_t</span><span class="w"> </span><span class="o">*</span><span class="n">file_version</span><span class="p">);</span>
+<span class="kt">void</span><span class="w"> </span><span class="nf">pvzstd_close</span><span class="p">(</span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>On success <code class="docutils literal notranslate"><span class="pre">*out</span></code> receives a reader that must be released with
+<code class="docutils literal notranslate"><span class="pre">pvzstd_close</span></code>. On failure <code class="docutils literal notranslate"><span class="pre">*out</span></code> is set to <code class="docutils literal notranslate"><span class="pre">NULL</span></code>. <code class="docutils literal notranslate"><span class="pre">pvzstd_close</span></code>
+accepts <code class="docutils literal notranslate"><span class="pre">NULL</span></code>.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">_versioned</span></code> variants additionally report the container’s own
+<code class="docutils literal notranslate"><span class="pre">file_version</span></code>, <strong>including when the open was refused for being too new</strong>,
+which is precisely the case in which a caller needs the number – to say what it
+found against <code class="docutils literal notranslate"><span class="pre">pvzstd_max_file_version()</span></code>. The out-parameter may be <code class="docutils literal notranslate"><span class="pre">NULL</span></code>,
+and is left untouched when the container carried no readable version.</p>
+<section id="opening-from-memory">
+<h3>Opening from memory<a class="headerlink" href="#opening-from-memory" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd_open_memory</span></code> takes <code class="docutils literal notranslate"><span class="pre">size</span></code> contiguous bytes of a whole container that
+the caller already holds: an archive member, an HTTP response body, or a build
+with no filesystem to open a path on. It refuses a crafted buffer wherever
+<code class="docutils literal notranslate"><span class="pre">pvzstd_open</span></code> would refuse a crafted file.</p>
+<p><strong>The bytes are borrowed, never copied.</strong> The caller owns the buffer and must
+keep it allocated and unmodified until <code class="docutils literal notranslate"><span class="pre">pvzstd_close</span></code>, which is what makes
+this cheaper than staging the container somewhere the path entry point can
+reach. <code class="docutils literal notranslate"><span class="pre">pvzstd_close</span></code> releases only what the reader itself acquired; the
+buffer is left alone and is the caller’s to free afterwards.</p>
+<p>Modifying the buffer while a reader is open <strong>is not detected</strong>. Offsets and
+sizes were read at open time, so arrays read afterwards hold undefined contents
+and no status reports it.</p>
+<p>One difference between the two doors is deliberate. A <code class="docutils literal notranslate"><span class="pre">NULL</span></code> pointer, or a
+<code class="docutils literal notranslate"><span class="pre">size</span></code> of zero, is <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_INVALID</span></code>: a zero size is a bad argument. A
+zero-length <em>file</em> is a property of the thing being opened and so reaches
+<code class="docutils literal notranslate"><span class="pre">pvzstd_open</span></code> as <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_IO</span></code>. A caller writing one error handler over both
+entry points should expect that.</p>
+</section>
+<section id="describing-arrays">
+<h3>Describing arrays<a class="headerlink" href="#describing-arrays" title="Link to this heading">#</a></h3>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">pvzstd_array_info</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">name</span><span class="p">;</span><span class="w">      </span><span class="cm">/* NUL-terminated, UTF-8, includes the UID prefix */</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="o">*</span><span class="n">shape</span><span class="p">;</span><span class="w"> </span><span class="cm">/* ndim entries; NULL when ndim == 0 */</span>
+<span class="w">  </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">ndim</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">filter_id</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">char</span><span class="w"> </span><span class="n">dtype</span><span class="p">[</span><span class="n">PVZSTD_DTYPE_LEN</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">];</span><span class="w"> </span><span class="cm">/* e.g. "&lt;f8", "|u1"; NUL-terminated */</span>
+<span class="w">  </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">nbytes</span><span class="p">;</span><span class="w">                  </span><span class="cm">/* decompressed payload size */</span>
+<span class="p">}</span><span class="w"> </span><span class="n">pvzstd_array_info</span><span class="p">;</span>
+
+<span class="kt">uint64_t</span><span class="w">      </span><span class="nf">pvzstd_array_count</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">);</span>
+<span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_array_info_at</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">index</span><span class="p">,</span>
+<span class="w">                                   </span><span class="n">pvzstd_array_info</span><span class="w"> </span><span class="o">*</span><span class="n">out</span><span class="p">);</span>
+<span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_array_info_range</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">first</span><span class="p">,</span>
+<span class="w">                                      </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">count</span><span class="p">,</span><span class="w"> </span><span class="n">pvzstd_array_info</span><span class="w"> </span><span class="o">*</span><span class="n">out</span><span class="p">);</span>
+<span class="kt">int64_t</span><span class="w">       </span><span class="nf">pvzstd_find_array</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">name</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>Arrays are addressed by index in frame order, or by name. Frame order is
+significant: it is how the container maps names to frames. <code class="docutils literal notranslate"><span class="pre">pvzstd_array_count</span></code>
+excludes the two JSON metadata frames. <code class="docutils literal notranslate"><span class="pre">pvzstd_find_array</span></code> returns <code class="docutils literal notranslate"><span class="pre">-1</span></code> when
+there is no such name; note that stored names carry a 16-character dataset-UID
+prefix, so a caller matching a logical name usually compares suffixes rather than
+whole strings.</p>
+<p>The pointers in <code class="docutils literal notranslate"><span class="pre">pvzstd_array_info</span></code> <strong>are owned by the reader</strong> and stay valid
+only until <code class="docutils literal notranslate"><span class="pre">pvzstd_close</span></code>. <code class="docutils literal notranslate"><span class="pre">dtype</span></code> is an inline array, so it is copied into
+the caller’s struct; <code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code> are not. A caller that outlives the
+reader must copy them.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd_array_info_range</span></code> describes <code class="docutils literal notranslate"><span class="pre">count</span></code> arrays in one boundary crossing
+rather than one per array, which matters for a binding where each call is
+expensive. It returns <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_RANGE</span></code> and writes nothing if the range runs
+past the end; a count of zero succeeds.</p>
+</section>
+<section id="reading-payloads">
+<h3>Reading payloads<a class="headerlink" href="#reading-payloads" title="Link to this heading">#</a></h3>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_read_array_at</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">index</span><span class="p">,</span>
+<span class="w">                                   </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">dst</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">dst_size</span><span class="p">);</span>
+<span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_read_arrays</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">,</span>
+<span class="w">                                 </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="o">*</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">count</span><span class="p">,</span>
+<span class="w">                                 </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="k">const</span><span class="w"> </span><span class="o">*</span><span class="n">dsts</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="o">*</span><span class="n">dst_sizes</span><span class="p">,</span>
+<span class="w">                                 </span><span class="kt">int</span><span class="w"> </span><span class="n">n_threads</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="o">*</span><span class="n">failed_slot</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>The destination is the caller’s, always. <code class="docutils literal notranslate"><span class="pre">dst_size</span></code> must be at least the
+<code class="docutils literal notranslate"><span class="pre">nbytes</span></code> the array’s info reported, or <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_RANGE</span></code> comes back and
+nothing is written. Any per-array filter is reversed on the way out; an unknown
+filter id is <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_FILTER</span></code>, never a passthrough, because handing back
+filtered bytes as-is would silently corrupt the array.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd_read_arrays</span></code> decompresses several arrays over <code class="docutils literal notranslate"><span class="pre">n_threads</span></code> workers,
+<code class="docutils literal notranslate"><span class="pre">indices[i]</span></code> into <code class="docutils literal notranslate"><span class="pre">dsts[i]</span></code>. Frames are independent, so this is a pure
+fan-out: the work and its order do not depend on the thread setting. <code class="docutils literal notranslate"><span class="pre">0</span></code> or
+<code class="docutils literal notranslate"><span class="pre">1</span></code> runs inline, a negative value means one worker per logical CPU, and
+<code class="docutils literal notranslate"><span class="pre">PVZSTD_THREADS_AUTO</span></code> picks from the total size. It returns the first non-OK
+status <em>by slot</em>, not by whichever worker failed first, so the result is
+deterministic. <code class="docutils literal notranslate"><span class="pre">failed_slot</span></code> is optional and receives the index into
+<code class="docutils literal notranslate"><span class="pre">indices</span></code> that the status is about, or <code class="docutils literal notranslate"><span class="pre">PVZSTD_SLOT_NONE</span></code>; without it a
+caller learns only that one of the batch was refused and has to re-read them
+singly to find out which.</p>
+</section>
+<section id="metadata-and-frame-sizes">
+<h3>Metadata and frame sizes<a class="headerlink" href="#metadata-and-frame-sizes" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd_ds_metadata_json</span></code> and <code class="docutils literal notranslate"><span class="pre">pvzstd_file_metadata_json</span></code> return the two JSON
+documents, NUL-terminated and owned by the reader, either possibly <code class="docutils literal notranslate"><span class="pre">NULL</span></code>. For
+a MultiBlock container the dataset-metadata accessor reports an arbitrary
+block’s, so a caller rebuilding a hierarchy should use the by-index family –
+<code class="docutils literal notranslate"><span class="pre">pvzstd_metadata_count</span></code>, <code class="docutils literal notranslate"><span class="pre">pvzstd_metadata_name_at</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pvzstd_metadata_json_at</span></code> – which yields every document in file order along
+with the frame name each was stored under.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd_field_array_count</span></code>, <code class="docutils literal notranslate"><span class="pre">pvzstd_field_array_name_at</span></code> and
+<code class="docutils literal notranslate"><span class="pre">pvzstd_find_field_array</span></code> cover the field arrays an append adds, named without
+the UID prefix or the <code class="docutils literal notranslate"><span class="pre">__field_data</span></code> suffix the frame carries.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd_frame_count</span></code> and <code class="docutils literal notranslate"><span class="pre">pvzstd_frame_sizes</span></code> expose the trailer’s own
+numbers – two frames per array, <code class="docutils literal notranslate"><span class="pre">(header,</span> <span class="pre">payload)</span></code>, in file order, metadata
+frames included – so a caller can answer “how big is this file decompressed”
+without parsing the trailer itself.</p>
+</section>
+</section>
+<section id="errors">
+<h2>Errors<a class="headerlink" href="#errors" title="Link to this heading">#</a></h2>
+<p><strong>Every entry point reports failure as a status code</strong>, and no exception is ever
+allowed to cross the boundary: a caller reaching this ABI through <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> or
+another FFI has no way to catch one. Accessors that return a pointer or a count
+instead of a status report failure as <code class="docutils literal notranslate"><span class="pre">NULL</span></code> or as zero, which are the values
+they already use for “cannot answer”. <code class="docutils literal notranslate"><span class="pre">pvzstd_status_message</span></code> maps a status to
+a static, human-readable string and is never <code class="docutils literal notranslate"><span class="pre">NULL</span></code>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Status</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_OK</span></code></p></td>
+<td><p>Success.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_IO</span></code></p></td>
+<td><p>File missing, unreadable, or truncated.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_FORMAT</span></code></p></td>
+<td><p>Trailer or header did not parse.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_ZSTD</span></code></p></td>
+<td><p>zstd rejected a frame or a compression parameter.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_RANGE</span></code></p></td>
+<td><p>Index or count out of range, or destination too small.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_NOMEM</span></code></p></td>
+<td><p>Allocation failed.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_FILTER</span></code></p></td>
+<td><p>A per-array filter id this build cannot reverse.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_INVALID</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NULL</span></code> argument or misuse.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_UNSUPPORTED</span></code></p></td>
+<td><p>The container is a shape this operation cannot serve.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_EXISTS</span></code></p></td>
+<td><p>The name is already taken, and would be overwritten.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_VERSION</span></code></p></td>
+<td><p>The container’s <code class="docutils literal notranslate"><span class="pre">file_version</span></code> is newer than this build decodes.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_BUSY</span></code></p></td>
+<td><p>Another append holds this container, or left its lock file behind.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_CHANGED</span></code></p></td>
+<td><p>The container was replaced while this call was staging its result.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Everything from <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_UNSUPPORTED</span></code> down is a refusal rather than damage:
+the file parsed, and the operation is the thing being declined. A caller that
+cannot tell them from <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_FORMAT</span></code> has to report a well-formed container
+as corrupt. The last two are further worth telling apart from <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_IO</span></code>,
+because nothing is wrong with the file or the disk and the call is worth making
+again – see <a class="reference internal" href="#c-api-append-lock"><span class="std std-ref">One append at a time</span></a>.</p>
+<section id="webassembly-must-catch-exceptions">
+<span id="c-api-wasm-exceptions"></span><h3>WebAssembly must catch exceptions<a class="headerlink" href="#webassembly-must-catch-exceptions" title="Link to this heading">#</a></h3>
+<p>The promise above is implemented: every <code class="docutils literal notranslate"><span class="pre">extern</span> <span class="pre">&quot;C&quot;</span></code> entry point is a function
+try block ending in <code class="docutils literal notranslate"><span class="pre">catch</span> <span class="pre">(...)</span></code>. That machinery has to survive the build.
+Emscripten defaults to <code class="docutils literal notranslate"><span class="pre">-sDISABLE_EXCEPTION_CATCHING=1</span></code>, which compiles every
+one of those handlers away and turns a throw into <code class="docutils literal notranslate"><span class="pre">abort()</span></code> – so on that
+target the header’s promise is not kept, and a caller parsing untrusted input
+gets a dead process instead of <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_NOMEM</span></code>.</p>
+<p>This project’s own CMake therefore adds <code class="docutils literal notranslate"><span class="pre">-fwasm-exceptions</span></code> at compile and at
+link when <code class="docutils literal notranslate"><span class="pre">EMSCRIPTEN</span></code> is set, and adds it <code class="docutils literal notranslate"><span class="pre">PUBLIC</span></code>: a wasm link cannot mix
+exception models, so a consumer compiling its own translation units against this
+library has to be on the same one. It is scoped to the target rather than set
+globally, so a project embedding this library keeps its own flags everywhere
+else. <code class="docutils literal notranslate"><span class="pre">-fwasm-exceptions</span></code> rather than the legacy JavaScript-based unwinder,
+which is slower, larger, and taxes every call site whether or not anything
+throws.</p>
+<p>A WebAssembly consumer that builds this library through some other build system
+must reproduce that flag, or the ABI silently stops returning statuses for the
+failures that matter most.</p>
+</section>
+</section>
+<section id="writing-and-appending">
+<h2>Writing and appending<a class="headerlink" href="#writing-and-appending" title="Link to this heading">#</a></h2>
+<p>The reading surface above is the one most consumers need. The header also
+carries three write-side surfaces, documented in place:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pvzstd_writer_*</span></code> – the container layer only. It takes arrays the caller
+has already produced and emits the file; turning a dataset into arrays stays
+with the caller. Reproducing the reference writer byte for byte needs the same
+compression level <em>and</em> worker count, because zstd’s threaded mode emits
+different, equally valid bytes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pvzstd_append_arrays</span></code> – add field arrays without rewriting the
+container. Existing frames are copied by offset and never decompressed, so the
+cost is what is added rather than the file size. Each call commits by rename,
+so an interrupted append cannot damage what was there. It also takes a lock;
+see <a class="reference internal" href="#c-api-append-lock"><span class="std std-ref">One append at a time</span></a> below, which is the one thing on this page that
+can leave a container needing a human.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pvzstd_stream_*</span></code> – the same edit with the parsed state held open across
+commits, so per-commit cost is flat in container size rather than growing with
+it. The trade is crash behaviour: an interrupted stream commit leaves a trailer
+describing frames that were not fully written. Use <code class="docutils literal notranslate"><span class="pre">pvzstd_append_arrays</span></code>
+when every commit must leave a valid file.</p></li>
+</ul>
+<section id="one-append-at-a-time">
+<span id="c-api-append-lock"></span><h3>One append at a time<a class="headerlink" href="#one-append-at-a-time" title="Link to this heading">#</a></h3>
+<p>An append is a read-modify-write: it reads the container, adds to what it read,
+and commits the result. Two of them running at once each commit “what was there
+plus mine”, and the second to land replaces the first’s arrays with a body
+copied before those arrays existed – with both callers told they succeeded.
+Noticing that at the end does not work either: two appends doing equal work
+reach their commits within microseconds of each other, so neither one’s check
+sees the other’s result yet. Measured on four concurrent appends, three sets of
+arrays were lost in every run and every caller reported success.</p>
+<p><code class="docutils literal notranslate"><span class="pre">pvzstd_append_arrays</span></code> therefore takes an advisory lock for the duration of
+the call: a file named <code class="docutils literal notranslate"><span class="pre">&lt;path&gt;.append.lock</span></code>, beside the container, created
+exclusively. A second append meanwhile returns <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_BUSY</span></code> <strong>immediately,
+rather than waiting.</strong> It does not block, because a library has no business
+choosing how long its caller waits; retrying is the caller’s decision, and a
+retry succeeds as soon as the other append finishes.</p>
+<p>Exclusive file creation is the primitive rather than <code class="docutils literal notranslate"><span class="pre">flock</span></code> because it is the
+one form of mutual exclusion every target this builds for implements the same
+way. On the WebAssembly target <code class="docutils literal notranslate"><span class="pre">flock</span></code> returns success without locking
+anything, so a second holder would be handed a lock the first one believes it
+has.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>A killed append leaves its lock behind, and a human has to delete it.</strong>
+The lock file is removed when the call returns, however it returns – but a
+process that dies between taking it and finishing never gets to. Every later
+append to that container then returns <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_BUSY</span></code> until the file is
+removed, and no retry clears it.</p>
+<p>Recovery is deleting <code class="docutils literal notranslate"><span class="pre">&lt;path&gt;.append.lock</span></code>. That is safe whenever no append
+is actually running against the container; the file carries no state, and the
+container itself was never touched by the append that died. The trade is
+deliberate: this is a visible, named, recoverable failure, where what it
+replaces was one writer’s arrays disappearing with nothing reported.</p>
+</div>
+<p>The lock binds appends and nothing else. A writer that does not take it –
+another tool, or a plain <code class="docutils literal notranslate"><span class="pre">mv</span></code> onto the path – is caught separately: each
+append stages into a file the operating system names, so no two callers are ever
+handed the same staging file, and before committing, a call checks that its path
+still names the container it read. One replaced during the staging returns
+<code class="docutils literal notranslate"><span class="pre">PVZSTD_E_CHANGED</span></code> having written nothing, and running it again picks up the
+other writer’s result. That one is a check and not a lock: it covers the
+staging, which is the slow part, and not the microseconds between the check and
+the rename.</p>
+<p>Streams take no lock and are covered by none. <code class="docutils literal notranslate"><span class="pre">pvzstd_stream_*</span></code> writes into
+the container in place, so it has neither a commit point at which to notice
+another writer nor a staging file to hold back, and it returns neither
+<code class="docutils literal notranslate"><span class="pre">PVZSTD_E_BUSY</span></code> nor <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_CHANGED</span></code>. One stream at a time, and no append
+against the same container while a stream is open, is the caller’s to arrange.</p>
+<section id="on-webassembly">
+<h4>On WebAssembly<a class="headerlink" href="#on-webassembly" title="Link to this heading">#</a></h4>
+<p>The lock is real on that target, not inert: exclusive creation works under both
+Emscripten’s own filesystems and <code class="docutils literal notranslate"><span class="pre">NODERAWFS</span></code>, and a stale lock refuses a later
+append there exactly as it does natively. What it cannot do is protect a
+consumer against itself. A single-threaded module with no other writer never
+contends, so the lock costs it two filesystem operations per append and nothing
+else; two module instances sharing one real file through <code class="docutils literal notranslate"><span class="pre">NODERAWFS</span></code> are two
+writers and are excluded properly. Two instances over separate in-memory
+filesystems are not sharing a container at all, so there is nothing to exclude
+– and if such a build ever loses a lock file to a discarded filesystem, the
+container is discarded with it.</p>
+</section>
+</section>
+</section>
+<section id="a-worked-example">
+<h2>A worked example<a class="headerlink" href="#a-worked-example" title="Link to this heading">#</a></h2>
+<p>Open a container, read its first array, close. This is complete: it compiles as
+C, links against <code class="docutils literal notranslate"><span class="pre">pvzstd::pvzstd</span></code>, and runs.</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;pvzstd/pvzstd.h&gt;</span>
+
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;stdio.h&gt;</span>
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;stdlib.h&gt;</span>
+
+<span class="kt">int</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">argc</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">**</span><span class="n">argv</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">argc</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span><span class="w"> </span><span class="s">"usage: %s CONTAINER.pv</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="w"> </span><span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="cm">/* Proves a library actually linked, and that it is the one this header</span>
+<span class="cm">     describes: the two are compared for equality, not as a floor. */</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">pvzstd_abi_version</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">PVZSTD_ABI_VERSION</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span><span class="w"> </span><span class="s">"pvzstd ABI mismatch: built against %u, linked %u</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+<span class="w">            </span><span class="p">(</span><span class="kt">unsigned</span><span class="p">)</span><span class="n">PVZSTD_ABI_VERSION</span><span class="p">,</span><span class="w"> </span><span class="n">pvzstd_abi_version</span><span class="p">());</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">file_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="w">  </span><span class="n">pvzstd_status</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pvzstd_open_versioned</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="w"> </span><span class="o">&amp;</span><span class="n">reader</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">file_version</span><span class="p">);</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">status</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">PVZSTD_OK</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span><span class="w"> </span><span class="s">"open: %s (container version %u, this build decodes %u)</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+<span class="w">            </span><span class="n">pvzstd_status_message</span><span class="p">(</span><span class="n">status</span><span class="p">),</span><span class="w"> </span><span class="n">file_version</span><span class="p">,</span><span class="w"> </span><span class="n">pvzstd_max_file_version</span><span class="p">());</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">pvzstd_array_count</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span><span class="w"> </span><span class="s">"container holds no arrays</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+<span class="w">    </span><span class="n">pvzstd_close</span><span class="p">(</span><span class="n">reader</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="n">pvzstd_array_info</span><span class="w"> </span><span class="n">info</span><span class="p">;</span>
+<span class="w">  </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pvzstd_array_info_at</span><span class="p">(</span><span class="n">reader</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">info</span><span class="p">);</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">status</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">PVZSTD_OK</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span><span class="w"> </span><span class="s">"info: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="w"> </span><span class="n">pvzstd_status_message</span><span class="p">(</span><span class="n">status</span><span class="p">));</span>
+<span class="w">    </span><span class="n">pvzstd_close</span><span class="p">(</span><span class="n">reader</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">dst</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">malloc</span><span class="p">((</span><span class="kt">size_t</span><span class="p">)</span><span class="n">info</span><span class="p">.</span><span class="n">nbytes</span><span class="p">);</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">dst</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb">NULL</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">info</span><span class="p">.</span><span class="n">nbytes</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">pvzstd_close</span><span class="p">(</span><span class="n">reader</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pvzstd_read_array_at</span><span class="p">(</span><span class="n">reader</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">dst</span><span class="p">,</span><span class="w"> </span><span class="n">info</span><span class="p">.</span><span class="n">nbytes</span><span class="p">);</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">status</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">PVZSTD_OK</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span><span class="w"> </span><span class="s">"read: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="w"> </span><span class="n">pvzstd_status_message</span><span class="p">(</span><span class="n">status</span><span class="p">));</span>
+<span class="w">    </span><span class="n">free</span><span class="p">(</span><span class="n">dst</span><span class="p">);</span>
+<span class="w">    </span><span class="n">pvzstd_close</span><span class="p">(</span><span class="n">reader</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="n">printf</span><span class="p">(</span><span class="s">"%s: dtype %s, ndim %u, %llu bytes</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="w"> </span><span class="n">info</span><span class="p">.</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">info</span><span class="p">.</span><span class="n">dtype</span><span class="p">,</span>
+<span class="w">         </span><span class="p">(</span><span class="kt">unsigned</span><span class="p">)</span><span class="n">info</span><span class="p">.</span><span class="n">ndim</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="kt">long</span><span class="p">)</span><span class="n">info</span><span class="p">.</span><span class="n">nbytes</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">free</span><span class="p">(</span><span class="n">dst</span><span class="p">);</span><span class="w">            </span><span class="cm">/* the destination is the caller's */</span>
+<span class="w">  </span><span class="n">pvzstd_close</span><span class="p">(</span><span class="n">reader</span><span class="p">);</span><span class="w"> </span><span class="cm">/* info.name and info.shape die here */</span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>with</p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">cmake_minimum_required</span><span class="p">(</span><span class="s">VERSION</span><span class="w"> </span><span class="s">3.16</span><span class="p">)</span>
+<span class="nb">project</span><span class="p">(</span><span class="s">pvzstd_example</span><span class="w"> </span><span class="s">LANGUAGES</span><span class="w"> </span><span class="s">C</span><span class="p">)</span>
+
+<span class="nb">find_package</span><span class="p">(</span><span class="s">pvzstd</span><span class="w"> </span><span class="s">CONFIG</span><span class="w"> </span><span class="s">REQUIRED</span><span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span><span class="s">read_one</span><span class="w"> </span><span class="s">read_one.c</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">read_one</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">pvzstd::pvzstd</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Against a container written by <code class="docutils literal notranslate"><span class="pre">pyvista_zstd.write</span></code>, it prints something like:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="mi">00007</span><span class="n">c31d6209960points</span><span class="p">:</span> <span class="n">dtype</span> <span class="o">&lt;</span><span class="n">f4</span><span class="p">,</span> <span class="n">ndim</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">10104</span> <span class="nb">bytes</span>
+</pre></div>
+</div>
+<p>The UID prefix on the name is the dataset UID the format carries. It derives
+from an object address in the writing process, so it is not stable across
+processes and must be treated as an opaque token, never parsed for meaning.</p>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item"><div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building">Building</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#options">Options</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#consuming-it">Consuming it</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#against-an-install-tree">Against an install tree</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#against-the-source">Against the source</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-static-build-does-not-carry-zstd">The static build does not carry zstd</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-abi-version">The ABI version</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-a-container">Reading a container</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#opening-from-memory">Opening from memory</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#describing-arrays">Describing arrays</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-payloads">Reading payloads</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#metadata-and-frame-sizes">Metadata and frame sizes</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#webassembly-must-catch-exceptions">WebAssembly must catch exceptions</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#writing-and-appending">Writing and appending</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-append-at-a-time">One append at a time</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#on-webassembly">On WebAssembly</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-worked-example">A worked example</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Alex Kaszynski
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2025-2026, The PyVista Developers.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

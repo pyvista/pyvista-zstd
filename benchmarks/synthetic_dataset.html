@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Synthetic Dataset Benchmarks &#8212; pyvista-zstd 0.3.1 documentation</title>
+    <title>Synthetic Dataset Benchmarks &#8212; pyvista-zstd 0.4.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=385a908f"></script>
+    <script src="../_static/documentation_options.js?v=183391d5"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="PyVista Examples Benchmarks" href="pv_examples.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.3.1" />
+  <meta name="docsearch:version" content="0.4.0" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.3.1 documentation - Home"/>
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.3.1 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.0 documentation - Home"/>
   
   
 </a></div>
@@ -181,11 +181,14 @@
 <ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="../api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../_autosummary/pyvista_zstd.read.html">pyvista_zstd.read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../_autosummary/pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../_autosummary/pyvista_zstd.write.html">pyvista_zstd.write</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.__init__.html">pyvista_zstd.Reader.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.read.html">pyvista_zstd.Reader.read</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.show_frame_compression.html">pyvista_zstd.Reader.show_frame_compression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../_autosummary/pyvista_zstd.Reader.available_cell_arrays.html">pyvista_zstd.Reader.available_cell_arrays</a></li>
@@ -206,6 +209,9 @@
 </details></li>
 </ul>
 </details></li>
+</ul>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../c_api.html">The C library</a></li>
 </ul>
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Benchmarks</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -440,12 +446,12 @@ Larger datasets show the most pronounced improvements.</p>
 <section id="benchmark-script">
 <h2>Benchmark Script<a class="headerlink" href="#benchmark-script" title="Link to this heading">#</a></h2>
 <p>The benchmarks were executed using the following Python script:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""</span>
 <span class="sd">Synthetic DataSet benchmarks.</span>
 
 <span class="sd">Create a synatic unstructured grid from imagedata.</span>
 
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -461,7 +467,7 @@ Larger datasets show the most pronounced improvements.</p>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">pyvista_zstd</span>
 
-<span class="n">tmp_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/tmp/pyvista_zstd_test&quot;</span><span class="p">)</span>
+<span class="n">tmp_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"/tmp/pyvista_zstd_test"</span><span class="p">)</span>
 <span class="n">tmp_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
@@ -469,16 +475,16 @@ Larger datasets show the most pronounced improvements.</p>
 
 <span class="c1"># Synthetic ImageData -&gt; UnstructuredGrid</span>
 <span class="k">for</span> <span class="n">n_dim</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">300</span><span class="p">,</span> <span class="mi">20</span><span class="p">)):</span>  <span class="c1"># adjust step for speed</span>
-    <span class="n">name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;synthetic_</span><span class="si">{</span><span class="n">n_dim</span><span class="si">}</span><span class="s2">^3&quot;</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"synthetic_</span><span class="si">{</span><span class="n">n_dim</span><span class="si">}</span><span class="s2">^3"</span>
     <span class="n">imdata</span> <span class="o">=</span> <span class="n">pv</span><span class="o">.</span><span class="n">ImageData</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="p">(</span><span class="n">n_dim</span><span class="p">,</span> <span class="n">n_dim</span><span class="p">,</span> <span class="n">n_dim</span><span class="p">))</span>
     <span class="n">ugrid</span> <span class="o">=</span> <span class="n">imdata</span><span class="o">.</span><span class="n">to_tetrahedra</span><span class="p">()</span>
 
     <span class="c1"># Add point/cell data</span>
-    <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;sample_point_data&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_points</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
-    <span class="n">ugrid</span><span class="p">[</span><span class="s2">&quot;sample_cell_data&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_cells</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="n">ugrid</span><span class="p">[</span><span class="s2">"sample_point_data"</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_points</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="n">ugrid</span><span class="p">[</span><span class="s2">"sample_cell_data"</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="n">ugrid</span><span class="o">.</span><span class="n">n_cells</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
 
     <span class="c1"># Save/read timing for VTK</span>
-    <span class="n">filename</span> <span class="o">=</span> <span class="n">tmp_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.vtu&quot;</span>
+    <span class="n">filename</span> <span class="o">=</span> <span class="n">tmp_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.vtu"</span>
     <span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
     <span class="n">ugrid</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
     <span class="n">vtk_write_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">tstart</span>
@@ -490,7 +496,7 @@ Larger datasets show the most pronounced improvements.</p>
     <span class="n">vtk_fs</span> <span class="o">=</span> <span class="n">filename</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span>
 
     <span class="c1"># Save/read timing for pyvista-zstd</span>
-    <span class="n">out_file</span> <span class="o">=</span> <span class="n">tmp_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.pv&quot;</span>
+    <span class="n">out_file</span> <span class="o">=</span> <span class="n">tmp_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.pv"</span>
     <span class="n">tstart</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
     <span class="n">writer</span> <span class="o">=</span> <span class="n">pyvista_zstd</span><span class="o">.</span><span class="n">Writer</span><span class="p">(</span><span class="n">ugrid</span><span class="p">,</span> <span class="n">out_file</span><span class="p">)</span>
     <span class="n">writer</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">n_threads</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
@@ -505,55 +511,55 @@ Larger datasets show the most pronounced improvements.</p>
     <span class="nb">print</span><span class="p">(</span><span class="n">reader</span><span class="o">.</span><span class="n">nbytes</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
     <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
         <span class="p">{</span>
-            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
-            <span class="s2">&quot;ds_type&quot;</span><span class="p">:</span> <span class="s2">&quot;UnstructuredGrid&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;raw_nbytes&quot;</span><span class="p">:</span> <span class="n">reader</span><span class="o">.</span><span class="n">nbytes</span><span class="p">,</span>
-            <span class="s2">&quot;vtk_nbytes&quot;</span><span class="p">:</span> <span class="n">vtk_fs</span><span class="p">,</span>
-            <span class="s2">&quot;pyvista_zstd_nbytes&quot;</span><span class="p">:</span> <span class="n">pyvista_zstd_fs</span><span class="p">,</span>
-            <span class="s2">&quot;vtk_write_time&quot;</span><span class="p">:</span> <span class="n">vtk_write_time</span><span class="p">,</span>
-            <span class="s2">&quot;pyvista_zstd_write_time&quot;</span><span class="p">:</span> <span class="n">pyvista_zstd_write_time</span><span class="p">,</span>
-            <span class="s2">&quot;vtk_read_time&quot;</span><span class="p">:</span> <span class="n">vtk_read_time</span><span class="p">,</span>
-            <span class="s2">&quot;pyvista_zstd_read_time&quot;</span><span class="p">:</span> <span class="n">pyvista_zstd_read_time</span><span class="p">,</span>
+            <span class="s2">"name"</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
+            <span class="s2">"ds_type"</span><span class="p">:</span> <span class="s2">"UnstructuredGrid"</span><span class="p">,</span>
+            <span class="s2">"raw_nbytes"</span><span class="p">:</span> <span class="n">reader</span><span class="o">.</span><span class="n">nbytes</span><span class="p">,</span>
+            <span class="s2">"vtk_nbytes"</span><span class="p">:</span> <span class="n">vtk_fs</span><span class="p">,</span>
+            <span class="s2">"pyvista_zstd_nbytes"</span><span class="p">:</span> <span class="n">pyvista_zstd_fs</span><span class="p">,</span>
+            <span class="s2">"vtk_write_time"</span><span class="p">:</span> <span class="n">vtk_write_time</span><span class="p">,</span>
+            <span class="s2">"pyvista_zstd_write_time"</span><span class="p">:</span> <span class="n">pyvista_zstd_write_time</span><span class="p">,</span>
+            <span class="s2">"vtk_read_time"</span><span class="p">:</span> <span class="n">vtk_read_time</span><span class="p">,</span>
+            <span class="s2">"pyvista_zstd_read_time"</span><span class="p">:</span> <span class="n">pyvista_zstd_read_time</span><span class="p">,</span>
         <span class="p">}</span>
     <span class="p">)</span>
 
 <span class="c1"># Build DataFrame and compute ratios</span>
 <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
-<span class="n">df</span><span class="p">[</span><span class="s2">&quot;write_speedup&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_write_time&quot;</span><span class="p">]</span>
-<span class="n">df</span><span class="p">[</span><span class="s2">&quot;read_speedup&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_read_time&quot;</span><span class="p">]</span>
-<span class="n">df</span><span class="p">[</span><span class="s2">&quot;compression_ratio_vtk&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;vtk_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">]</span>
-<span class="n">df</span><span class="p">[</span><span class="s2">&quot;compression_ratio_pyvista_zstd&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">]</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">"write_speedup"</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">"vtk_write_time"</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">"pyvista_zstd_write_time"</span><span class="p">]</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">"read_speedup"</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">"vtk_read_time"</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">"pyvista_zstd_read_time"</span><span class="p">]</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">"compression_ratio_vtk"</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">"vtk_nbytes"</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">"raw_nbytes"</span><span class="p">]</span>
+<span class="n">df</span><span class="p">[</span><span class="s2">"compression_ratio_pyvista_zstd"</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">"pyvista_zstd_nbytes"</span><span class="p">]</span> <span class="o">/</span> <span class="n">df</span><span class="p">[</span><span class="s2">"raw_nbytes"</span><span class="p">]</span>
 
-<span class="n">summary</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">summary</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s2">"raw_nbytes"</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
 
 <span class="n">summary</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>  <span class="c1"># synthetic benchmark results</span>
 
-<span class="n">sns</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">style</span><span class="o">=</span><span class="s2">&quot;whitegrid&quot;</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">style</span><span class="o">=</span><span class="s2">"whitegrid"</span><span class="p">)</span>
 
 <span class="c1"># Convert bytes to MB for better readability</span>
-<span class="n">summary</span><span class="p">[</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;raw_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
-<span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
-<span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_MB&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_nbytes&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
+<span class="n">summary</span><span class="p">[</span><span class="s2">"raw_MB"</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"raw_nbytes"</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
+<span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_MB"</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_nbytes"</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
+<span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_MB"</span><span class="p">]</span> <span class="o">=</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_nbytes"</span><span class="p">]</span> <span class="o">/</span> <span class="mf">1e6</span>
 
 
 <span class="c1">###############################################################################</span>
 <span class="c1"># 1. File size comparison with ratio fit</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
-<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;pyvista_zstd_MB&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">"vtk_MB"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"pyvista_zstd_MB"</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
 
 <span class="c1"># 1:1 reference line</span>
-<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_MB&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">&quot;k--&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;1:1 line&quot;</span><span class="p">)</span>
+<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_MB"</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_MB"</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">"k--"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"1:1 line"</span><span class="p">)</span>
 
 <span class="c1"># Linear fit forced through origin to get ratio</span>
-<span class="n">ratio_coef</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_MB&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">))</span>
-<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">]</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_MB&quot;</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">&quot;r-&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK&quot;</span><span class="p">)</span>
+<span class="n">ratio_coef</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_MB"</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_MB"</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_MB"</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">))</span>
+<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_MB"</span><span class="p">]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_MB"</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">"r-"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK"</span><span class="p">)</span>
 
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;VTK XML file size (MB)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;pyvista-zstd file size (MB)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;File size comparison: pyvista-zstd vs VTK XML&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"VTK XML file size (MB)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"pyvista-zstd file size (MB)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">"File size comparison: pyvista-zstd vs VTK XML"</span><span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
@@ -561,20 +567,20 @@ Larger datasets show the most pronounced improvements.</p>
 <span class="c1">###############################################################################</span>
 <span class="c1"># 2. Write time comparison with ratio fit</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
-<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;pyvista_zstd_write_time&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">"vtk_write_time"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"pyvista_zstd_write_time"</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
 
-<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_write_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">&quot;k--&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;1:1 line&quot;</span><span class="p">)</span>
+<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_write_time"</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_write_time"</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">"k--"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"1:1 line"</span><span class="p">)</span>
 
 <span class="n">ratio_coef</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span>
-    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_write_time&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_write_time"</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_write_time"</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_write_time"</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
 <span class="p">)</span>
-<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">]</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_write_time&quot;</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">&quot;r-&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK&quot;</span><span class="p">)</span>
+<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_write_time"</span><span class="p">]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_write_time"</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">"r-"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK"</span><span class="p">)</span>
 
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;VTK write time (s)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;pyvista-zstd write time (s)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Write performance comparison: pyvista-zstd vs VTK XML&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"VTK write time (s)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"pyvista-zstd write time (s)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">"Write performance comparison: pyvista-zstd vs VTK XML"</span><span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
@@ -582,20 +588,20 @@ Larger datasets show the most pronounced improvements.</p>
 <span class="c1">###############################################################################</span>
 <span class="c1"># 3. Read time comparison with ratio fit</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
-<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;pyvista_zstd_read_time&quot;</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">scatterplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">"vtk_read_time"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"pyvista_zstd_read_time"</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
 
-<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_read_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">&quot;k--&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;1:1 line&quot;</span><span class="p">)</span>
+<span class="n">max_val</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_read_time"</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_read_time"</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_val</span><span class="p">],</span> <span class="s2">"k--"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"1:1 line"</span><span class="p">)</span>
 
 <span class="n">ratio_coef</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span>
-    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;pyvista_zstd_read_time&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_read_time"</span><span class="p">]</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"pyvista_zstd_read_time"</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_read_time"</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
 <span class="p">)</span>
-<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">]</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;vtk_read_time&quot;</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">&quot;r-&quot;</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK&quot;</span><span class="p">)</span>
+<span class="n">fit_line</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">ratio_coef</span> <span class="o">*</span> <span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_read_time"</span><span class="p">]</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">"vtk_read_time"</span><span class="p">],</span> <span class="n">fit_line</span><span class="p">,</span> <span class="s2">"r-"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Fit ratio: </span><span class="si">{</span><span class="n">ratio_coef</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">× VTK"</span><span class="p">)</span>
 
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;VTK read time (s)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;pyvista-zstd read time (s)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Read performance comparison: pyvista-zstd vs VTK XML&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"VTK read time (s)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"pyvista-zstd read time (s)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">"Read performance comparison: pyvista-zstd vs VTK XML"</span><span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
@@ -605,33 +611,33 @@ Larger datasets show the most pronounced improvements.</p>
 <span class="c1"># 4. Ratios summary (speedup and compression)</span>
 <span class="c1"># 4a. Speedup summary</span>
 <span class="n">summary_speedup</span> <span class="o">=</span> <span class="n">summary</span><span class="o">.</span><span class="n">melt</span><span class="p">(</span>
-    <span class="n">id_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">],</span>
-    <span class="n">value_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;write_speedup&quot;</span><span class="p">,</span> <span class="s2">&quot;read_speedup&quot;</span><span class="p">],</span>
-    <span class="n">var_name</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span>
-    <span class="n">value_name</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span>
+    <span class="n">id_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">"raw_MB"</span><span class="p">],</span>
+    <span class="n">value_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">"write_speedup"</span><span class="p">,</span> <span class="s2">"read_speedup"</span><span class="p">],</span>
+    <span class="n">var_name</span><span class="o">=</span><span class="s2">"metric"</span><span class="p">,</span>
+    <span class="n">value_name</span><span class="o">=</span><span class="s2">"value"</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
-<span class="n">sns</span><span class="o">.</span><span class="n">lineplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary_speedup</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">hue</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Raw dataset size (MB)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Speedup (pyvista-zstd / VTK XML)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Read/Write Speedup vs Dataset Size&quot;</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">lineplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary_speedup</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">"raw_MB"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"value"</span><span class="p">,</span> <span class="n">hue</span><span class="o">=</span><span class="s2">"metric"</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s2">"o"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"Raw dataset size (MB)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"Speedup (pyvista-zstd / VTK XML)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">"Read/Write Speedup vs Dataset Size"</span><span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 
 <span class="c1"># 4b. Compression ratio summary</span>
 <span class="n">summary_compression</span> <span class="o">=</span> <span class="n">summary</span><span class="o">.</span><span class="n">melt</span><span class="p">(</span>
-    <span class="n">id_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">],</span>
-    <span class="n">value_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;compression_ratio_vtk&quot;</span><span class="p">,</span> <span class="s2">&quot;compression_ratio_pyvista_zstd&quot;</span><span class="p">],</span>
-    <span class="n">var_name</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span>
-    <span class="n">value_name</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span>
+    <span class="n">id_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">"raw_MB"</span><span class="p">],</span>
+    <span class="n">value_vars</span><span class="o">=</span><span class="p">[</span><span class="s2">"compression_ratio_vtk"</span><span class="p">,</span> <span class="s2">"compression_ratio_pyvista_zstd"</span><span class="p">],</span>
+    <span class="n">var_name</span><span class="o">=</span><span class="s2">"metric"</span><span class="p">,</span>
+    <span class="n">value_name</span><span class="o">=</span><span class="s2">"value"</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
-<span class="n">sns</span><span class="o">.</span><span class="n">lineplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary_compression</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">&quot;raw_MB&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">hue</span><span class="o">=</span><span class="s2">&quot;metric&quot;</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Raw dataset size (MB)&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Compression Ratio&quot;</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Compression Ratios vs Dataset Size&quot;</span><span class="p">)</span>
+<span class="n">sns</span><span class="o">.</span><span class="n">lineplot</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">summary_compression</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="s2">"raw_MB"</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="s2">"value"</span><span class="p">,</span> <span class="n">hue</span><span class="o">=</span><span class="s2">"metric"</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s2">"o"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"Raw dataset size (MB)"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">"Compression Ratio"</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">"Compression Ratios vs Dataset Size"</span><span class="p">)</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </pre></div>

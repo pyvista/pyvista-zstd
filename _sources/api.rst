@@ -5,14 +5,19 @@ API reference for ``pyvista-zstd``.
 
 Convenience Functions
 ---------------------
-``pyvista-zstd`` exposes two convenience functions to easily read and write compressed
-datasets to disk using `Zstandard <https://github.com/facebook/zstd>`_
+``pyvista-zstd`` exposes three convenience functions to easily read and write compressed
+datasets using `Zstandard <https://github.com/facebook/zstd>`_
+
+:func:`pyvista_zstd.read` and :func:`pyvista_zstd.write` work on files.
+A container that is already in memory, rather than on disk, is read with
+:func:`pyvista_zstd.read_buffer`.
 
 
 .. autosummary::
    :toctree: _autosummary
 
    pyvista_zstd.read
+   pyvista_zstd.read_buffer
    pyvista_zstd.write
 
 

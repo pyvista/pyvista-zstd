@@ -42,6 +42,21 @@ inline int64_t TellAt(std::FILE *fp) {
 #endif
 }
 
+// Whether a path is there, asked without opening it.
+//
+// Opening it is not a way to ask this. A handle on a file, even one held for an
+// instant and only for reading, is enough to make another process's delete of
+// that file fail on Windows, and the one file this is asked about is the append
+// lock, whose holder deletes it to release it.
+inline bool PathExists(const char *path) {
+#if defined(_WIN32)
+  return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+#else
+  struct stat st{};
+  return ::stat(path, &st) == 0;
+#endif
+}
+
 // The append lock for one container: a file beside it that exists only while an
 // append is in flight.
 //
@@ -65,6 +80,9 @@ enum class LockResult {
 
 class AppendLock {
  public:
+  // Retries of the exclusive create, spent only on a lock seen to be gone.
+  static constexpr int kAcquireAttempts = 8;
+
   AppendLock() = default;
   ~AppendLock() { Release(); }
   AppendLock(const AppendLock &) = delete;
@@ -72,23 +90,33 @@ class AppendLock {
 
   LockResult Acquire(const std::string &container) {
     const std::string lock = container + ".append.lock";
-    // "x" fails if the file exists, and creating-if-absent is one operation:
-    // testing first and creating second is the race this is here to close.
-    std::FILE *fp = std::fopen(lock.c_str(), "wbx");
-    if (fp == nullptr) {
+    for (int attempt = 0; attempt < kAcquireAttempts; ++attempt) {
+      // "x" fails if the file exists, and creating-if-absent is one operation:
+      // testing first and creating second is the race this is here to close.
+      std::FILE *fp = std::fopen(lock.c_str(), "wbx");
+      if (fp != nullptr) {
+        std::fclose(fp);
+        path_ = lock;
+        return LockResult::kAcquired;
+      }
       // Held, or unwritable? Told apart by whether the lock is there rather
       // than by errno, whose value for an exclusive create onto an existing
       // file is not the same number on every target. A caller told "another
       // append holds this" about a directory it cannot write to would go
       // looking for a writer that does not exist.
-      std::FILE *probe = std::fopen(lock.c_str(), "rb");
-      if (probe == nullptr) return LockResult::kFailed;
-      std::fclose(probe);
-      return LockResult::kHeld;
+      if (PathExists(lock.c_str())) return LockResult::kHeld;
+      // Neither: the holder released the lock in the moment between the create
+      // and the question, so this call lost a race rather than found a broken
+      // directory, and the create is worth making again. Reporting the empty
+      // answer as a failure is how ordinary contention turned into an I/O
+      // error, which is the one outcome a losing append must never get.
+      //
+      // Bounded, because a create that keeps failing over a lock that is never
+      // there is a directory this process cannot write to. Contention resolves
+      // inside the bound: whoever is racing here either creates the file or
+      // finds somebody else's.
     }
-    std::fclose(fp);
-    path_ = lock;
-    return LockResult::kAcquired;
+    return LockResult::kFailed;
   }
 
   void Release() {

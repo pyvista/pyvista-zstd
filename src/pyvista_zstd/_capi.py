@@ -207,26 +207,31 @@ def _candidate_names() -> list[str]:
     return ["libpvzstd.so"]
 
 
-def _candidate_paths() -> Iterator[str]:
+def _candidate_paths() -> Iterator[tuple[str, bool]]:
     """
-    Yield places the shared library may live, in priority order.
+    Yield ``(path, chosen)`` pairs, in priority order.
 
     The bundled copy inside the package wins over the system search path, so
     an installed wheel cannot be silently served by an unrelated build.
+
+    ``chosen`` marks the one path a caller asked for by name. It travels with
+    the path because the loader treats the two kinds differently: a guess that
+    does not load is passed over, a request that does not load is an error.
     """
     override = os.environ.get(_LIBRARY_ENV_VAR)
     if override:
-        yield override
+        yield override, True
 
     here = Path(__file__).parent
     for directory in (here / "lib", here):
         for name in _candidate_names():
             candidate = directory / name
             if candidate.exists():
-                yield str(candidate)
+                yield str(candidate), False
 
     # Last: let the platform loader search.
-    yield from _candidate_names()
+    for name in _candidate_names():
+        yield name, False
 
 
 _lib: ctypes.CDLL | None = None
@@ -375,6 +380,39 @@ def _bind_writer(lib: ctypes.CDLL) -> None:
     ]
 
 
+def _try_candidate(candidate: str) -> tuple[ctypes.CDLL | None, str]:
+    """
+    Load one path, returning the library or the reason it was declined.
+
+    The ABI number is read before the rest of the signatures are declared. It
+    is the one entry point every version of the core has exported, so asking
+    for it first makes a version gap report itself as a version gap, rather
+    than as whichever symbol a later ABI added and this one lacks.
+    """
+    try:
+        lib = ctypes.CDLL(candidate)
+        # Enough of a declaration to read the number; _bind() repeats it.
+        lib.pvzstd_abi_version.restype = c_uint32
+        lib.pvzstd_abi_version.argtypes = []
+        found = int(lib.pvzstd_abi_version())
+    except (OSError, AttributeError) as exc:
+        return None, str(exc)
+
+    if found != ABI_VERSION:
+        # Worse than a missing one: this module's struct layout would be read
+        # against a different contract.
+        return None, f"ABI version {found}, expected {ABI_VERSION}"
+
+    try:
+        _bind(lib)
+    except AttributeError as exc:
+        # The ABI number agrees and a symbol is still missing, so the library
+        # is mislabelled rather than merely old.
+        return None, f"reports ABI {found} but is missing a symbol: {exc}"
+
+    return lib, ""
+
+
 def _load() -> ctypes.CDLL:
     global _lib, _lib_path, _load_error  # noqa: PLW0603 - module-level cache
 
@@ -384,26 +422,22 @@ def _load() -> ctypes.CDLL:
         raise CoreUnavailableError(_load_error)
 
     attempts: list[str] = []
-    for candidate in _candidate_paths():
-        try:
-            lib = ctypes.CDLL(candidate)
-            # Binding is inside the guard because a version bump that ADDS a
-            # symbol makes an older library fail here, at the missing
-            # attribute, before the check below can name the mismatch.
-            _bind(lib)
-            found = int(lib.pvzstd_abi_version())
-        except (OSError, AttributeError) as exc:
-            attempts.append(f"{candidate}: {exc}")
-            continue
-        if found != ABI_VERSION:
-            # Worse than a missing one: this module's struct layout would be read
-            # against a different contract.
-            attempts.append(f"{candidate}: ABI version {found}, expected {ABI_VERSION}")
-            continue
-
-        _lib = lib
-        _lib_path = candidate
-        return lib
+    for candidate, chosen in _candidate_paths():
+        lib, reason = _try_candidate(candidate)
+        if lib is not None:
+            _lib = lib
+            _lib_path = candidate
+            return lib
+        if chosen:
+            # Passing over it would run the caller's work against a library
+            # they did not pick and say nothing about it, which is the kind of
+            # thing a debugging session ends up blaming on everything else.
+            _load_error = (
+                f"{_LIBRARY_ENV_VAR} names {candidate}, which cannot be used: {reason}. "
+                f"Unset {_LIBRARY_ENV_VAR} to fall back to the bundled library."
+            )
+            raise CoreUnavailableError(_load_error)
+        attempts.append(f"{candidate}: {reason}")
 
     _load_error = "could not load the pvzstd shared library. Tried:\n  " + "\n  ".join(attempts)
     raise CoreUnavailableError(_load_error)

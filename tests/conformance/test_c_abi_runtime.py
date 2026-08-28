@@ -80,7 +80,7 @@ def test_a_library_without_the_symbols_is_a_load_failure() -> None:
         import pyvista_zstd._capi as capi
 
         # Offer the decoy and nothing else, or this measures the fallback.
-        capi._candidate_paths = lambda: iter([decoy])
+        capi._candidate_paths = lambda: iter([(decoy, False)])
         capi._lib = None
         capi._lib_path = None
         capi._load_error = None
@@ -160,3 +160,120 @@ def test_read_arrays_decodes_the_same_bytes_at_every_thread_setting(container: s
     assert first, "read nothing, so agreeing about it proves nothing"
     for setting, got in zip(settings[1:], results[1:], strict=True):
         assert got == first, f"n_threads={setting} decoded different bytes"
+
+
+class _NoSymbols:
+    """
+    A stand-in for a core built before a symbol this binding needs existed.
+
+    Only ``pvzstd_abi_version`` resolves; anything else raises the same
+    ``AttributeError`` ctypes raises for a symbol the shared object does not
+    export. That is the shape of a real ABI gap that adds entry points, and it
+    is what makes "which failure gets reported" observable without shipping a
+    second compiled library to test against.
+    """
+
+    class _Entry:
+        def __init__(self, value: int) -> None:
+            self._value = value
+            self.restype: object = None
+            self.argtypes: object = ()
+
+        def __call__(self) -> int:
+            return self._value
+
+    def __init__(self, abi: int) -> None:
+        self.pvzstd_abi_version = self._Entry(abi)
+
+    def __getattr__(self, name: str) -> object:
+        msg = f"undefined symbol: {name}"
+        raise AttributeError(msg)
+
+
+@pytest.fixture
+def decoy() -> str:
+    """Return a loadable shared library that exports no ``pvzstd_*`` symbol."""
+    names = {
+        "win32": ("msvcrt.dll", "ucrtbase.dll"),
+        "darwin": ("libz.dylib", "libm.dylib", "libSystem.B.dylib"),
+    }.get(sys.platform, ("libz.so.1", "libz.so", "libm.so.6", "libc.so.6"))
+    for name in names:
+        try:
+            ctypes.CDLL(name)
+        except OSError:
+            continue
+        return name
+    pytest.skip("no loadable non-pvzstd shared library to offer the loader")
+    raise AssertionError  # pragma: no cover - pytest.skip does not return
+
+
+def test_an_abi_mismatch_is_reported_as_a_version_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    A library one ABI behind is declined for its version, not for a symbol.
+
+    Declaring every signature first would trip over whichever entry point the
+    newer ABI added and blame that, which reads as a broken build rather than
+    as the old library it is.
+    """
+    stale = _capi.ABI_VERSION - 1
+    monkeypatch.setattr(_capi.ctypes, "CDLL", lambda _path: _NoSymbols(stale))
+
+    lib, reason = _capi._try_candidate("stale-core")  # noqa: SLF001
+
+    assert lib is None
+    assert reason == f"ABI version {stale}, expected {_capi.ABI_VERSION}"
+    assert "undefined symbol" not in reason
+
+
+def test_a_library_asked_for_by_name_is_never_passed_over(monkeypatch: pytest.MonkeyPatch, decoy: str) -> None:
+    """
+    A library the caller named and the loader cannot use is an error.
+
+    Falling through to the bundled copy would run the caller's work against a
+    library they did not choose, report that library's path as the one in use,
+    and say nothing about the one they asked for.
+    """
+    bundled = _capi.library_path()
+    monkeypatch.setattr(_capi, "_candidate_paths", lambda: iter([(decoy, True), (bundled, False)]))
+    monkeypatch.setattr(_capi, "_lib", None)
+    monkeypatch.setattr(_capi, "_lib_path", None)
+    monkeypatch.setattr(_capi, "_load_error", None)
+
+    with pytest.raises(_capi.CoreUnavailableError) as raised:
+        _capi._load()  # noqa: SLF001
+
+    message = str(raised.value)
+    assert decoy in message, f"refused without naming the library asked for: {message}"
+    assert _capi._LIBRARY_ENV_VAR in message  # noqa: SLF001
+    assert bundled not in message, "fell back to the bundled library instead of refusing"
+
+
+def test_a_candidate_nobody_asked_for_is_still_passed_over(monkeypatch: pytest.MonkeyPatch, decoy: str) -> None:
+    """
+    Guesses stay guesses: one that does not load costs nothing but a turn.
+
+    The counterpart to the test above -- the loader walks a list of places the
+    library might be, and a miss there is ordinary, not a failure.
+    """
+    bundled = _capi.library_path()
+    monkeypatch.setattr(_capi, "_candidate_paths", lambda: iter([(decoy, False), (bundled, False)]))
+    monkeypatch.setattr(_capi, "_lib", None)
+    monkeypatch.setattr(_capi, "_lib_path", None)
+    monkeypatch.setattr(_capi, "_load_error", None)
+
+    _capi._load()  # noqa: SLF001
+
+    assert _capi._lib_path == bundled  # noqa: SLF001
+
+
+def test_the_environment_variable_is_what_marks_a_candidate_chosen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``PVZSTD_LIBRARY`` is the only thing that makes a path a request."""
+    named = "/nowhere/libpvzstd.so"
+    monkeypatch.setenv(_capi._LIBRARY_ENV_VAR, named)  # noqa: SLF001
+
+    candidates = list(_capi._candidate_paths())  # noqa: SLF001
+
+    assert candidates[0] == (named, True)
+    assert not any(chosen for _path, chosen in candidates[1:])

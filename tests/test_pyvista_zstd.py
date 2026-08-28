@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 TEST_DATA_DIR = Path(__file__).parent / "test_data"
 LEGACY_ZVTK_FIXTURE = TEST_DATA_DIR / "legacy_sphere.zvtk"
-SPHERE_V2_PV_FIXTURE = TEST_DATA_DIR / "sphere_v2.pv"
+SPHERE_FILE_VERSION_0_FIXTURE = TEST_DATA_DIR / "sphere_file_version_0.pv"
 
 
 def _expected_fixture_sphere() -> PolyData:
@@ -433,20 +433,20 @@ def test_write_pv_does_not_warn(tmp_path: Path) -> None:
     assert not [wi for wi in w if issubclass(wi.category, FutureWarning)]
 
 
-def test_read_sphere_v2_pv_fixture() -> None:
+def test_read_file_version_0_pv_fixture() -> None:
     """
-    Read the committed ``.pv`` fixture from the current pyvista-zstd release.
+    Read the committed ``.pv`` fixture written before any format version bump.
 
-    ``tests/test_data/sphere_v2.pv`` was written by pyvista-zstd at the
-    current file format version. If a spec change breaks this fixture, the
-    change is backwards-incompatible and must either preserve the old layout
-    or bump :data:`pyvista_zstd.FILE_VERSION`.
+    ``tests/test_data/sphere_file_version_0.pv`` is stamped ``file_version``
+    0: no byte filter, no fixed-width cell sizes. Every release since has
+    added one of those and moved the number, so what this locks in is that
+    the additions stayed backwards compatible and the old layout still reads.
     """
     expected = _expected_fixture_sphere()
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        out = pyvista_zstd.read(SPHERE_V2_PV_FIXTURE)
+        out = pyvista_zstd.read(SPHERE_FILE_VERSION_0_FIXTURE)
 
     assert not [wi for wi in w if issubclass(wi.category, FutureWarning)]
     assert out == expected

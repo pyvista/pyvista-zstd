@@ -56,6 +56,23 @@ Install with:
 
    pip install pyvista-zstd
 
+The package is a C++ library with a Python wrapper around it, so an install is
+either a prebuilt wheel or a compile. Wheels are published for:
+
++---------+--------------------------------------------------+
+| Linux   | x86_64 (manylinux2014 and manylinux_2_28)        |
++---------+--------------------------------------------------+
+| macOS   | x86_64 and arm64                                 |
++---------+--------------------------------------------------+
+| Windows | AMD64                                            |
++---------+--------------------------------------------------+
+
+Everywhere else -- musl-based Linux, Linux on aarch64, Windows on ARM -- ``pip``
+falls back to the source distribution and builds the core during the install,
+which needs a C++17 compiler on the machine. CMake does not: it comes from the
+build requirements. A machine without a compiler fails the install rather than
+producing a package that imports and cannot read anything.
+
 Compatible with all VTK dataset types. Uses
 `PyVista <https://docs.pyvista.org/>`__ under the hood.
 

@@ -231,6 +231,29 @@ def test_unsupported_file_version_is_rejected(tmp_path: Path) -> None:
         pz.read(path)
 
 
+def test_read_buffer_refuses_an_unreadable_file_version(tmp_path: Path) -> None:
+    """
+    Reading the same bytes from memory refuses on the same terms.
+
+    The refusal belongs to the core's open, and there are two of those. A door
+    that only warned would hand back a dataset assembled from arrays this build
+    read under rules it does not know.
+    """
+    grid = _float_grid()
+    path = tmp_path / "future_buffer.pv"
+    pz.write(grid, path, shuffle=True)
+
+    bodies = _frames(path.read_bytes())
+    meta = json.loads(bodies[-1].decode("utf-8"))
+    meta["file_version"] = FILE_VERSION + 99
+    blob = json.dumps(meta).encode("utf-8")
+    _rewrite_frames(path, {-1: blob, -2: _resized(bodies[-2], len(blob))})
+
+    with pytest.raises(ValueError, match="newer than the version supported") as raised:
+        pz.read_buffer(path.read_bytes())
+    assert raised.value.found == FILE_VERSION + 99
+
+
 def test_file_version_matches_the_core(tmp_path: Path) -> None:
     """
     The published constant and the core's ceiling are one number, not two.

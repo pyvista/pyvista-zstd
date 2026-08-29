@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>pyvista-zstd &#8212; pyvista-zstd 0.4.0 documentation</title>
+    <title>pyvista-zstd &#8212; pyvista-zstd 0.4.1 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=183391d5"></script>
+    <script src="_static/documentation_options.js?v=a3cf13c8"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -57,7 +57,7 @@
     <link rel="next" title="Examples" href="auto_examples/index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.4.0" />
+  <meta name="docsearch:version" content="0.4.1" />
   </head>
   
   
@@ -138,8 +138,8 @@
       
     
     
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.0 documentation - Home"/>
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.1 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.1 documentation - Home"/>
   
   
 </a></div>
@@ -470,7 +470,7 @@ either a prebuilt wheel or a compile. Wheels are published for:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <tbody>
 <tr class="row-odd"><td><p>Linux</p></td>
-<td><p>x86_64 (manylinux2014 and manylinux_2_28)</p></td>
+<td><p>x86_64 and aarch64 (manylinux2014 and manylinux_2_28)</p></td>
 </tr>
 <tr class="row-even"><td><p>macOS</p></td>
 <td><p>x86_64 and arm64</p></td>
@@ -481,10 +481,10 @@ either a prebuilt wheel or a compile. Wheels are published for:</p>
 </tbody>
 </table>
 </div>
-<p>Everywhere else – musl-based Linux, Linux on aarch64, Windows on ARM – <code class="docutils literal notranslate"><span class="pre">pip</span></code>
-falls back to the source distribution and builds the core during the install,
-which needs a C++17 compiler on the machine. CMake does not: it comes from the
-build requirements. A machine without a compiler fails the install rather than
+<p>Everywhere else – musl-based Linux, Windows on ARM – <code class="docutils literal notranslate"><span class="pre">pip</span></code> falls back to
+the source distribution and builds the core during the install, which needs a
+C++17 compiler on the machine. CMake does not: it comes from the build
+requirements. A machine without a compiler fails the install rather than
 producing a package that imports and cannot read anything.</p>
 <p>Compatible with all VTK dataset types. Uses
 <a class="reference external" href="https://docs.pyvista.org/">PyVista</a> under the hood.</p>

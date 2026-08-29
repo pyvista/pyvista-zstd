@@ -66,10 +66,17 @@ version_file = "src/pyvista_zstd/_version.py"
 # NumPy <= 2.2.6, the last release with a cp310 manylinux2014 wheel, so the old
 # image still resolves; 3.12 resolves NumPy 2.5.x, whose lowest x86_64 tag is
 # manylinux_2_27 and which will not build on the 2014 image's gcc 10.2.1.
+#
+# Both Linux architectures name both images. The wheels are py3-none-<platform>,
+# so leaving aarch64 on the manylinux_2_28 default for every interpreter would
+# give the cp310 and cp312 builds one filename and the second would land on top
+# of the first.
 [tool.cibuildwheel]
+manylinux-aarch64-image = "manylinux_2_28"
 manylinux-x86_64-image = "manylinux_2_28"
 
 [[tool.cibuildwheel.overrides]]
+manylinux-aarch64-image = "manylinux2014"
 manylinux-x86_64-image = "manylinux2014"
 select = "cp310-*"
 

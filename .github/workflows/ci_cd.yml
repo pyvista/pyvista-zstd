@@ -144,7 +144,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Linux carries its architecture per entry rather than deriving it from
+        # the runner, so the arch a lane builds is readable next to the lane.
+        # aarch64 is built natively on a GitHub-hosted arm64 runner; QEMU would
+        # be the alternative and is an order of magnitude slower.
+        include:
+          - os: ubuntu-latest
+            archs_linux: x86_64
+          - os: ubuntu-24.04-arm
+            archs_linux: aarch64
+          - os: macos-latest
+          - os: windows-latest
 
     steps:
       - uses: actions/checkout@v7
@@ -160,10 +170,10 @@ jobs:
           CIBW_SKIP: "*-musllinux_* cp310-macosx_* cp310-win*"
           # glibc 2.17 has no Pillow wheel; the cp312 wheel still proves the library loads.
           CIBW_TEST_SKIP: "cp310-manylinux*"
-          # The platforms named here are the ones README.rst promises a wheel
-          # for. Anything outside them installs from the sdist and needs a C++
-          # compiler; keep the two in step.
-          CIBW_ARCHS_LINUX: x86_64
+          # The platforms named here and in the matrix are the ones README.rst
+          # promises a wheel for. Anything outside them installs from the sdist
+          # and needs a C++ compiler; keep the two in step.
+          CIBW_ARCHS_LINUX: ${{ matrix.archs_linux }}
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
           CIBW_ENVIRONMENT: PVZSTD_BUILD_CORE=1

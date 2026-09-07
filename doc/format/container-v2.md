@@ -216,9 +216,9 @@ filtered bytes as-is silently corrupts the array (`:864-868`).
 
 ### 3.1 Name encoding
 
-Array names are prefixed by a 16-character dataset UID (`_make_ds_id`, `:633`,
-`f"{id(ds):016x}"`), so a frame name looks like
-`00007fb61b52bb80scal_f32__point_data`. Association is carried as a **name
+Array names are prefixed by a 16-character dataset UID
+(`Writer._make_ds_id`, a zero-padded hex index assigned in write order), so a
+frame name looks like `0000000000000000scal_f32__point_data`. Association is carried as a **name
 suffix**, not a separate field: `__point_data`, `__cell_data`. Topology and
 geometry frames use bare suffix-free names under the same UID prefix —
 `points`, `celltypes`, `cells_offset`, `cells_connectivity`, and for PolyData
@@ -226,8 +226,10 @@ the `verts_ / lines_ / strips_ / polys_` `_offset` and `_connectivity` pairs.
 The two JSON frames are `__ds_metadata` (UID-prefixed) and
 `__pyvista_zstd_metadata` (**not** UID-prefixed).
 
-Because the UID derives from a Python object address, it is **not stable across
-processes** and must be treated as an opaque token, never parsed for meaning.
+The index makes output reproducible: content-identical datasets write
+byte-identical files in any process. Files from releases before 0.4.2 carry a
+Python object address instead, so a reader must treat the UID as an opaque
+token, never parsed for meaning.
 Empty topology arrays are still written as full (header, payload) pairs with
 `shape=(0,)`.
 

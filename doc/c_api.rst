@@ -603,8 +603,9 @@ with
 
 Against a container written by ``pyvista_zstd.write``, it prints something like::
 
-   00007c31d6209960points: dtype <f4, ndim 2, 10104 bytes
+   0000000000000000points: dtype <f4, ndim 2, 10104 bytes
 
-The UID prefix on the name is the dataset UID the format carries. It derives
-from an object address in the writing process, so it is not stable across
-processes and must be treated as an opaque token, never parsed for meaning.
+The UID prefix on the name is the dataset UID the format carries. The Python
+writer assigns it as an index in write order, so the same dataset writes the
+same bytes in any process; files written by older releases carry an object
+address instead. Treat it as an opaque token, never parsed for meaning.

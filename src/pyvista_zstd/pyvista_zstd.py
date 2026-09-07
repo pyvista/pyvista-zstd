@@ -243,13 +243,15 @@ class DataSetMetadata:
     offset: int | None = None
 
     @classmethod
-    def from_dataset(
+    def from_dataset(  # noqa: PLR0913
         cls,
         ds: pv.DataSet,
         point_info: dict[str, ArrayInfo],
         cell_info: dict[str, ArrayInfo],
         field_info: dict[str, ArrayInfo],
         fixed_cell_sizes: dict[str, int],
+        *,
+        uid: str,
     ) -> DataSetMetadata:
         """Create metadata from a dataset."""
         # Many pyvista calls require intermediate object assembly, side step or
@@ -275,7 +277,7 @@ class DataSetMetadata:
         cd = ds.cell_data
         kwargs: dict[str, Any] = {
             "ds_type": type(ds).__name__,
-            "uid": _make_ds_id(ds),
+            "uid": uid,
             "n_points": ds.n_points,
             "points_dtype": str(points_dtype) if points_dtype is not None else None,
             "n_cells": ds.n_cells,
@@ -426,26 +428,25 @@ def _extract_cell_array(
     return _numpy_to_vtk_cells(segments[offset_key], segments[conn_key])
 
 
-def _add_arrays_pointset(ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays[f"{_make_ds_id(ds)}{POINTS_KEY}"] = ds.points
+def _add_arrays_pointset(ds_id: str, ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
+    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
 
 
-def _add_arrays_rgrid(ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
+def _add_arrays_rgrid(ds_id: str, ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
     if ds.n_points:
-        ds_id = _make_ds_id(ds)
         arrays[f"{ds_id}{RGRID_X_SUFFIX}"] = ds.x
         arrays[f"{ds_id}{RGRID_Y_SUFFIX}"] = ds.y
         arrays[f"{ds_id}{RGRID_Z_SUFFIX}"] = ds.z
 
 
 def _add_arrays_polydata(
+    ds_id: str,
     ds: PolyData,
     arrays: dict[str, NDArray[Any]],
     fixed_cell_sizes: dict[str, int],
     *,
     force_int32: bool = True,
 ) -> None:
-    ds_id = _make_ds_id(ds)
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
     # Every one of these holds point ids, so the point count bounds them all.
     max_point_id = ds.n_points - 1
@@ -467,15 +468,13 @@ def _add_arrays_polydata(
 
 
 def _add_arrays_ugrid(
+    ds_id: str,
     ds: UnstructuredGrid,
     arrays: dict[str, NDArray[Any]],
     fixed_cell_sizes: dict[str, int],
-    ds_id: str | None = None,
     *,
     force_int32: bool = True,
 ) -> None:
-    if ds_id is None:
-        ds_id = _make_ds_id(ds)
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
     arrays[f"{ds_id}{CELL_TYPES_KEY}"] = ds.celltypes
 
@@ -521,19 +520,18 @@ def _add_arrays_ugrid(
 
 
 def _add_arrays_esgrid(
+    ds_id: str,
     ds: ExplicitStructuredGrid,
     arrays: dict[str, NDArray[Any]],
     fixed_cell_sizes: dict[str, int],
     *,
     force_int32: bool = True,
 ) -> None:
-    ds_id = _make_ds_id(ds)
     ugrid = ds.cast_to_unstructured_grid()
-    _add_arrays_ugrid(ugrid, arrays, fixed_cell_sizes, ds_id, force_int32=force_int32)
+    _add_arrays_ugrid(ds_id, ugrid, arrays, fixed_cell_sizes, force_int32=force_int32)
 
 
-def _add_arrays_sgrid(ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
-    ds_id = _make_ds_id(ds)
+def _add_arrays_sgrid(ds_id: str, ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
 
 
@@ -619,12 +617,6 @@ def write(  # noqa: PLR0913
     )
 
 
-def _make_ds_id(ds: DataSet) -> str:
-    """Make a unique dataset ID using the memory address."""
-    # padded for 32-bit
-    return f"{id(ds):016x}"
-
-
 class Writer:
     """Class to write a pyvista-zstd file."""
 
@@ -640,33 +632,37 @@ class Writer:
         self._ds = pv.wrap(ds)
         self._uses_fixed_width_cells = False
 
-        # used to hold a reference to the dataset. This is necessary for
-        # multiblocks to avoid having them collected and getting duplicate
-        # memory addresses
+        # Sequential UIDs keyed by object identity: a dataset shared between
+        # blocks is stored once, and the payload carries no process state.
+        self._ids: dict[int, str] = {}
         self._refs: list[DataSet | MultiBlock] = []
+
+    def _make_ds_id(self, ds: DataSet | MultiBlock) -> str:
+        key = id(ds)
+        if key not in self._ids:
+            self._refs.append(ds)
+            self._ids[key] = f"{len(self._ids):0{UID_N_CHAR}x}"
+        return self._ids[key]
 
     def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901, PLR0912
         """Extract dataset data as arrays."""
-        # Hold on to a reference of the dataset to avoid it being collected
-        # while we generate all memory IDs
-        self._refs.append(ds)
-        ds_id = _make_ds_id(ds)
+        ds_id = self._make_ds_id(ds)
         fixed_cell_sizes: dict[str, int] = {}
 
         if isinstance(ds, PolyData):
-            _add_arrays_polydata(ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
+            _add_arrays_polydata(ds_id, ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
         elif isinstance(ds, UnstructuredGrid):
-            _add_arrays_ugrid(ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
+            _add_arrays_ugrid(ds_id, ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
         elif isinstance(ds, ExplicitStructuredGrid):
-            _add_arrays_esgrid(ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
+            _add_arrays_esgrid(ds_id, ds, self._arrays, fixed_cell_sizes, force_int32=force_int32)
         elif isinstance(ds, ImageData):
             pass
         elif isinstance(ds, StructuredGrid):
-            _add_arrays_sgrid(ds, self._arrays)
+            _add_arrays_sgrid(ds_id, ds, self._arrays)
         elif isinstance(ds, PointSet):
-            _add_arrays_pointset(ds, self._arrays)
+            _add_arrays_pointset(ds_id, ds, self._arrays)
         elif isinstance(ds, RectilinearGrid):
-            _add_arrays_rgrid(ds, self._arrays)
+            _add_arrays_rgrid(ds_id, ds, self._arrays)
         elif isinstance(ds, MultiBlock):
             # placeholder, array insertion order matters
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = None
@@ -677,7 +673,7 @@ class Writer:
                 if ds_child is None:
                     child_ids.append(EMPTY_DS)
                 else:
-                    child_ids.append(_make_ds_id(ds_child))
+                    child_ids.append(self._make_ds_id(ds_child))
                     self._add_ds_arrays(ds_child, force_int32=force_int32)
 
             # edge case where multiblock can contain a NoneType key
@@ -710,7 +706,7 @@ class Writer:
             field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
         # supply dataset metadata
-        ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes)
+        ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes, uid=ds_id)
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
         self._uses_fixed_width_cells = self._uses_fixed_width_cells or bool(fixed_cell_sizes)
 
@@ -758,6 +754,7 @@ class Writer:
 
         # no need to hold onto any references as all IDs have been written
         self._refs = []
+        self._ids = {}
 
 
 def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:

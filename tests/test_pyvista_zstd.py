@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import subprocess
+import sys
 from typing import TYPE_CHECKING
 import warnings
 
@@ -731,6 +733,71 @@ def test_multiblock_two_empty_blocks(ugrid: UnstructuredGrid, tmp_path: Path) ->
     assert [out.get_block_name(i) for i in range(out.n_blocks)] == ["a", "real", "b"]
     assert out["a"] is None
     assert out["b"] is None
+
+
+def _reproducible_polydata() -> PolyData:
+    mesh = pv.Sphere(theta_resolution=6, phi_resolution=6)
+    mesh.point_data["temperature"] = np.arange(mesh.n_points, dtype=np.float32)
+    mesh.cell_data["region"] = np.arange(mesh.n_cells, dtype=np.int32)
+    mesh.field_data["tag"] = np.array([7])
+    return mesh
+
+
+def _reproducible_ugrid() -> UnstructuredGrid:
+    return pv.ImageData(dimensions=(4, 4, 4)).cast_to_unstructured_grid()
+
+
+def _reproducible_multiblock() -> MultiBlock:
+    shared = _reproducible_ugrid()
+    rgrid = pv.RectilinearGrid(np.arange(3.0), np.arange(2.0), np.arange(2.0))
+    inner = MultiBlock([shared, None, rgrid])
+    return MultiBlock([_reproducible_polydata(), inner, shared, pv.ImageData(dimensions=(3, 3, 3))])
+
+
+@pytest.mark.parametrize("build", [_reproducible_polydata, _reproducible_ugrid, _reproducible_multiblock])
+def test_write_is_reproducible(build, tmp_path: Path) -> None:
+    """
+    Two separately constructed, content-identical datasets write identical bytes.
+
+    Writing one object twice is stable even when the UID leaks its address,
+    so the two datasets here must be distinct objects.
+    """
+    first, second = build(), build()
+    assert first is not second
+    pyvista_zstd.write(first, tmp_path / "first.pv")
+    pyvista_zstd.write(second, tmp_path / "second.pv")
+    assert (tmp_path / "first.pv").read_bytes() == (tmp_path / "second.pv").read_bytes()
+
+
+def test_write_is_reproducible_across_processes(tmp_path: Path) -> None:
+    """The payload carries no process state: two interpreters write the same bytes."""
+    script = (
+        "import sys, pyvista as pv, pyvista_zstd\n"
+        "pyvista_zstd.write(pv.Sphere(theta_resolution=6, phi_resolution=6), sys.argv[1])\n"
+    )
+    paths = [tmp_path / "first.pv", tmp_path / "second.pv"]
+    for path in paths:
+        subprocess.run([sys.executable, "-c", script, str(path)], check=True)  # noqa: S603
+    assert paths[0].read_bytes() == paths[1].read_bytes()
+
+
+def test_dataset_uids_are_traversal_order(ugrid: UnstructuredGrid, polydata: PolyData, tmp_path: Path) -> None:
+    """UIDs are indices assigned in write order, and a block referenced twice keeps one."""
+    inner = MultiBlock([polydata, ugrid])
+    mblock = MultiBlock([ugrid, inner, None])
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(mblock, tmp_filename)
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    frame_names = reader._metadata.frame_names  # noqa: SLF001
+    metadata_uids = [
+        name[: impl.UID_N_CHAR]
+        for name in frame_names
+        if name.endswith((impl.DS_METADATA_KEY, impl.MULTIBLOCK_METADATA_KEY))
+    ]
+    assert metadata_uids == [f"{i:0{impl.UID_N_CHAR}x}" for i in range(4)]
+    assert reader[0].uid == reader[1][1].uid
+    assert reader[2].uid == impl.EMPTY_DS
 
 
 def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:

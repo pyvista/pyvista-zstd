@@ -1187,6 +1187,9 @@ class Reader:
         A whole container, contiguous. Exactly one of *filename* and *buffer*
         is given; a buffer has no suffix to check, so its bytes decide whether
         it is a container.
+    check_extension : bool, default: True
+        Set False for an application-specific filename extension. Container
+        contents and version are still validated normally.
     backend : str, optional
         Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
@@ -1242,11 +1245,14 @@ class Reader:
         *,
         buffer: bytes | bytearray | memoryview | NDArray[Any] | None = None,
         backend: str | None = None,
+        check_extension: bool = True,
     ) -> None:
         """
         Initialize the decompressor.
 
         ``backend`` is deprecated and ignored.
+        ``check_extension=False`` permits application-specific filenames;
+        container contents and version are still validated normally.
         """
         _warn_backend_deprecated(backend)
         if (filename is None) == (buffer is None):
@@ -1262,7 +1268,7 @@ class Reader:
         self._closed = False
 
         # Only a path carries a suffix to judge; a buffer is judged by its bytes.
-        if self._filename is not None and self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
+        if check_extension and self._filename is not None and self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
             msg = f"Filename must end in one of {SUPPORTED_READ_SUFFIXES}, not '{self._filename.suffix}'"
             raise ValueError(msg)
 

@@ -190,6 +190,9 @@ class AppendReader:
     ----------
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
+    check_extension : bool, default: True
+        Set False for an application-specific filename extension. Container
+        validation remains enabled.
     backend : str, optional
         Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
@@ -206,15 +209,18 @@ class AppendReader:
         filename: Path | str,
         *,
         backend: str | None = None,
+        check_extension: bool = True,
     ) -> None:
         """
         Open ``filename`` for field-array reads.
 
         ``backend`` is deprecated and ignored.
+        ``check_extension=False`` permits application-specific filenames;
+        container validation remains enabled.
         """
         _warn_backend_deprecated(backend)
         self._core: CoreReader | None = None
-        self._path = _checked_path(filename)
+        self._path = _checked_path(filename) if check_extension else Path(filename)
 
     @property
     def _core_reader(self) -> CoreReader:

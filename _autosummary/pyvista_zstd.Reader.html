@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>pyvista_zstd.Reader &#8212; pyvista-zstd 0.4.1 documentation</title>
+    <title>pyvista_zstd.Reader &#8212; pyvista-zstd 0.4.2 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=a3cf13c8"></script>
+    <script src="../_static/documentation_options.js?v=b4bb93ae"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="pyvista_zstd.write" href="pyvista_zstd.write.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.4.1" />
+  <meta name="docsearch:version" content="0.4.2" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.1 documentation - Home"/>
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.1 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.2 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.2 documentation - Home"/>
   
   
 </a></div>
@@ -381,14 +381,14 @@
 <h1>pyvista_zstd.Reader<a class="headerlink" href="#pyvista-zstd-reader" title="Link to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="pyvista_zstd.Reader">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyvista_zstd.</span></span><span class="sig-name descname"><span class="pre">Reader</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">buffer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytes" title="(in Python v3.11)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytearray" title="(in Python v3.11)"><span class="pre">bytearray</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#memoryview" title="(in Python v3.11)"><span class="pre">memoryview</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">NDArray</span><span class="p"><span class="pre">[</span></span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyvista_zstd.Reader" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyvista_zstd.</span></span><span class="sig-name descname"><span class="pre">Reader</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">buffer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytes" title="(in Python v3.11)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#bytearray" title="(in Python v3.11)"><span class="pre">bytearray</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#memoryview" title="(in Python v3.11)"><span class="pre">memoryview</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">NDArray</span><span class="p"><span class="pre">[</span></span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/stdtypes.html#str" title="(in Python v3.11)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3.11/library/constants.html#None" title="(in Python v3.11)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check_extension</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3.11/library/functions.html#bool" title="(in Python v3.11)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyvista_zstd.Reader" title="Link to this definition">#</a></dt>
 <dd><p>Class to control pyvista-zstd file decompression.</p>
 <p>Use this class in lieu of <a class="reference internal" href="pyvista_zstd.read.html#pyvista_zstd.read" title="pyvista_zstd.read"><code class="xref py py-func docutils literal notranslate"><span class="pre">pyvista_zstd.read()</span></code></a> to fine-tune reading in
 compressed files. With this you can:</p>
 <ul class="simple">
 <li><p>Inspect the dataset before reading it.</p></li>
 <li><p>Control which arrays to read in.</p></li>
-<li><p>For files containing a <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.48.4)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>, select which blocks
+<li><p>For files containing a <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.0)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>, select which blocks
 to read in.</p></li>
 </ul>
 <p>A container already resident is read by passing <code class="docutils literal notranslate"><span class="pre">buffer</span></code> instead of
@@ -413,6 +413,9 @@ detected – the borrow pins the buffer, so a resize raises
 <dt><strong>buffer</strong><span class="classifier">bytes | bytearray | memoryview | numpy.ndarray, optional</span></dt><dd><p>A whole container, contiguous. Exactly one of <em>filename</em> and <em>buffer</em>
 is given; a buffer has no suffix to check, so its bytes decide whether
 it is a container.</p>
+</dd>
+<dt><strong>check_extension</strong><span class="classifier">bool, default: True</span></dt><dd><p>Set False for an application-specific filename extension. Container
+contents and version are still validated normally.</p>
 </dd>
 <dt><strong>backend</strong><span class="classifier">str, optional</span></dt><dd><p>Deprecated and ignored; passing it raises a <a class="reference external" href="https://docs.python.org/3.11/library/exceptions.html#DeprecationWarning" title="(in Python v3.11)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DeprecationWarning</span></code></a>.</p>
 </dd>
@@ -500,7 +503,7 @@ it is a container.</p>
 <p class="rubric">Methods</p>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.__init__.html#pyvista_zstd.Reader.__init__" title="pyvista_zstd.Reader.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.__init__</span></code></a>([filename, buffer, backend])</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="pyvista_zstd.Reader.__init__.html#pyvista_zstd.Reader.__init__" title="pyvista_zstd.Reader.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.__init__</span></code></a>([filename, buffer, backend, ...])</p></td>
 <td><p>Initialize the decompressor.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="pyvista_zstd.Reader.close.html#pyvista_zstd.Reader.close" title="pyvista_zstd.Reader.close"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Reader.close</span></code></a>()</p></td>

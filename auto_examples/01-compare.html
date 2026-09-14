@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Compare Saving a Surface DataSet &#8212; pyvista-zstd 0.4.1 documentation</title>
+    <title>Compare Saving a Surface DataSet &#8212; pyvista-zstd 0.4.2 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=a3cf13c8"></script>
+    <script src="../_static/documentation_options.js?v=b4bb93ae"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="Selectively Load a MultiBlock" href="02-selective-multiblock.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.4.1" />
+  <meta name="docsearch:version" content="0.4.2" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.1 documentation - Home"/>
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.1 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.2 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.2 documentation - Home"/>
   
   
 </a></div>
@@ -387,7 +387,7 @@ to download the full example code.</p>
 <p>Get the file size of the dataset</p>
 <div class="highlight-Python notranslate"><div class="highlight"><pre><span></span><span class="nb">print</span><span class="p">(</span><span class="s2">"Original PLY file"</span><span class="p">)</span>
 <span class="n">filename</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/pathlib.html#pathlib.Path" title="pathlib.Path" class="sphx-glr-backref-module-pathlib sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">Path</span></a><span class="p">(</span><span class="n">examples</span><span class="o">.</span><span class="n">download_nefertiti</span><span class="p">(</span><span class="n">load</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
-<span class="n">ds</span> <span class="o">=</span> <a href="https://docs.pyvista.org/api/utilities/_autosummary/pyvista.read.html#pyvista.read" title="pyvista.read" class="sphx-glr-backref-module-pyvista sphx-glr-backref-type-py-function"><span class="n">pv</span><span class="o">.</span><span class="n">read</span></a><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+<span class="n">ds</span> <span class="o">=</span> <a href="https://docs.pyvista.org/api/readers/_autosummary/pyvista.read.html#pyvista.read" title="pyvista.read" class="sphx-glr-backref-module-pyvista sphx-glr-backref-type-py-function"><span class="n">pv</span><span class="o">.</span><span class="n">read</span></a><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"File size:            </span><span class="si">{</span><span class="n">filename</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -396,7 +396,7 @@ to download the full example code.</p>
 <span class="n">vtk_filename</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/pathlib.html#pathlib.Path" title="pathlib.Path" class="sphx-glr-backref-module-pathlib sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">Path</span></a><span class="p">(</span><span class="s2">"nefertiti.vtk"</span><span class="p">)</span>
 <span class="n">ttot</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/timeit.html#timeit.timeit" title="timeit.timeit" class="sphx-glr-backref-module-timeit sphx-glr-backref-type-py-function"><span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span></a><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">ds</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">vtk_filename</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Time to save:   </span><span class="si">{</span><span class="n">ttot</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">10</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> s"</span><span class="p">)</span>
-<span class="n">ttot</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/timeit.html#timeit.timeit" title="timeit.timeit" class="sphx-glr-backref-module-timeit sphx-glr-backref-type-py-function"><span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span></a><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <a href="https://docs.pyvista.org/api/utilities/_autosummary/pyvista.read.html#pyvista.read" title="pyvista.read" class="sphx-glr-backref-module-pyvista sphx-glr-backref-type-py-function"><span class="n">pv</span><span class="o">.</span><span class="n">read</span></a><span class="p">(</span><span class="n">vtk_filename</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<span class="n">ttot</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/timeit.html#timeit.timeit" title="timeit.timeit" class="sphx-glr-backref-module-timeit sphx-glr-backref-type-py-function"><span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span></a><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <a href="https://docs.pyvista.org/api/readers/_autosummary/pyvista.read.html#pyvista.read" title="pyvista.read" class="sphx-glr-backref-module-pyvista sphx-glr-backref-type-py-function"><span class="n">pv</span><span class="o">.</span><span class="n">read</span></a><span class="p">(</span><span class="n">vtk_filename</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Time to read:   </span><span class="si">{</span><span class="n">ttot</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">10</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> s"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  File size:      </span><span class="si">{</span><span class="n">vtk_filename</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
@@ -406,7 +406,7 @@ to download the full example code.</p>
 <span class="n">vtp_filename</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/pathlib.html#pathlib.Path" title="pathlib.Path" class="sphx-glr-backref-module-pathlib sphx-glr-backref-type-py-class sphx-glr-backref-instance"><span class="n">Path</span></a><span class="p">(</span><span class="s2">"nefertiti.vtp"</span><span class="p">)</span>
 <span class="n">ttot</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/timeit.html#timeit.timeit" title="timeit.timeit" class="sphx-glr-backref-module-timeit sphx-glr-backref-type-py-function"><span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span></a><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">ds</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">vtp_filename</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Time to save:   </span><span class="si">{</span><span class="n">ttot</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">5</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> s"</span><span class="p">)</span>
-<span class="n">ttot</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/timeit.html#timeit.timeit" title="timeit.timeit" class="sphx-glr-backref-module-timeit sphx-glr-backref-type-py-function"><span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span></a><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <a href="https://docs.pyvista.org/api/utilities/_autosummary/pyvista.read.html#pyvista.read" title="pyvista.read" class="sphx-glr-backref-module-pyvista sphx-glr-backref-type-py-function"><span class="n">pv</span><span class="o">.</span><span class="n">read</span></a><span class="p">(</span><span class="n">vtp_filename</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<span class="n">ttot</span> <span class="o">=</span> <a href="https://docs.python.org/3.11/library/timeit.html#timeit.timeit" title="timeit.timeit" class="sphx-glr-backref-module-timeit sphx-glr-backref-type-py-function"><span class="n">timeit</span><span class="o">.</span><span class="n">timeit</span></a><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <a href="https://docs.pyvista.org/api/readers/_autosummary/pyvista.read.html#pyvista.read" title="pyvista.read" class="sphx-glr-backref-module-pyvista sphx-glr-backref-type-py-function"><span class="n">pv</span><span class="o">.</span><span class="n">read</span></a><span class="p">(</span><span class="n">vtp_filename</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  Time to read:   </span><span class="si">{</span><span class="n">ttot</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">10</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> s"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  File size:      </span><span class="si">{</span><span class="n">vtp_filename</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="o">**</span><span class="mi">2</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>

@@ -67,7 +67,7 @@ jobs:
         run: uv pip install --system .[docs]
 
       - name: Setup headless display
-        uses: pyvista/setup-headless-display-action@v5.0
+        uses: pyvista/setup-headless-display-action@v5.1
 
       - name: Build Documentation
         run: |
@@ -162,7 +162,7 @@ jobs:
           fetch-depth: 0
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v4.2.0
+        uses: pypa/cibuildwheel@v4.2.1
         env:
           # cp310 exists only to reach glibc 2.17; see [tool.cibuildwheel] in pyproject.toml.
           # Wheels are py3-none-<platform>, so a second macOS/Windows build would collide.

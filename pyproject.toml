@@ -40,7 +40,6 @@ Home = "https://github.com/pyvista/pyvista-zstd"
 
 
 [project.optional-dependencies]
-network = ["httpx>=0.28", "zstandard>=0.24"]
 docs = [
   "numpydoc==1.10.0",
   "sphinx-book-theme==1.2.0",
@@ -49,7 +48,13 @@ docs = [
   "sphinx-notfound-page==1.1.0",
   "sphinx==9.1.0",
 ]
-tests = ["pytest-cov==7.1.0", "pytest>=6.2.0", "zstandard>=0.24.0", "httpx>=0.28"]
+network = ["httpx>=0.28", "zstandard>=0.24"]
+tests = [
+  "httpx>=0.28",
+  "pytest-cov==7.1.0",
+  "pytest>=6.2.0",
+  "zstandard>=0.24.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

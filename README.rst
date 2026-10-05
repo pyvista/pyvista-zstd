@@ -14,7 +14,7 @@ pyvista-zstd
 Seamlessly compress VTK datasets using `Zstandard <https://github.com/facebook/zstd>`_.
 
 Partial reads over HTTPS
------------------------
+------------------------
 
 Install ``pyvista-zstd[network]`` to read an individual field array from a remote
 container. The producer exports a small sidecar with ``build_range_index``. Serve

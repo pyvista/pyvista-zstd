@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>pyvista-zstd &#8212; pyvista-zstd 0.4.2 documentation</title>
+    <title>pyvista-zstd &#8212; pyvista-zstd 0.5.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=b4bb93ae"></script>
+    <script src="_static/documentation_options.js?v=e4e9a439"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -57,7 +57,7 @@
     <link rel="next" title="Examples" href="auto_examples/index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.4.2" />
+  <meta name="docsearch:version" content="0.5.0" />
   </head>
   
   
@@ -138,8 +138,8 @@
       
     
     
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.4.2 documentation - Home"/>
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.4.2 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.5.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.5.0 documentation - Home"/>
   
   
 </a></div>
@@ -366,12 +366,15 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista-integration">PyVista Integration</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-c-library">The C library</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rational">Rational</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vtk-compression-with-zstandard-pyvista-zstd">VTK Compression with Zstandard: pyvista-zstd</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-information">Additional Information</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#partial-reads-over-https">Partial reads over HTTPS</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista-integration">PyVista Integration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-c-library">The C library</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rational">Rational</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#vtk-compression-with-zstandard-pyvista-zstd">VTK Compression with Zstandard: pyvista-zstd</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-information">Additional Information</a><ul class="nav section-nav flex-column">
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -389,6 +392,29 @@
 <h1>pyvista-zstd<a class="headerlink" href="#pyvista-zstd" title="Link to this heading">#</a></h1>
 <p><a class="reference external" href="https://pypi.org/project/pyvista-zstd/"><img alt="pypi" src="https://img.shields.io/pypi/v/pyvista-zstd.svg?logo=python&amp;logoColor=white" /></a> <a class="reference external" href="https://github.com/pyvista/pyvista-zstd/actions/workflows/ci_cd.yml"><img alt="ci" src="https://github.com/pyvista/pyvista-zstd/actions/workflows/ci_cd.yml/badge.svg" /></a> <a class="reference external" href="https://opensource.org/license/mit/"><img alt="mit" src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a></p>
 <p>Seamlessly compress VTK datasets using <a class="reference external" href="https://github.com/facebook/zstd">Zstandard</a>.</p>
+<section id="partial-reads-over-https">
+<h2>Partial reads over HTTPS<a class="headerlink" href="#partial-reads-over-https" title="Link to this heading">#</a></h2>
+<p>Install <code class="docutils literal notranslate"><span class="pre">pyvista-zstd[network]</span></code> to read an individual field array from a remote
+container. The producer exports a small sidecar with <code class="docutils literal notranslate"><span class="pre">build_range_index</span></code>. Serve
+the container with HTTP byte-range support and the sidecar’s matching ETag.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyvista_zstd.network</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_range_index</span><span class="p">,</span> <span class="n">HTTPRangeReader</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="c1"># Producer: export JSON metadata without decompressing result payloads.</span>
+<span class="n">index</span> <span class="o">=</span> <span class="n">build_range_index</span><span class="p">(</span><span class="s2">"results.pv"</span><span class="p">)</span>
+
+<span class="c1"># Consumer: the index travels separately; only this field's frames are read.</span>
+<span class="k">with</span> <span class="n">httpx</span><span class="o">.</span><span class="n">Client</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+    <span class="n">reader</span> <span class="o">=</span> <span class="n">HTTPRangeReader</span><span class="p">(</span>
+        <span class="s2">"https://results.example/results.pv"</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">client</span><span class="o">=</span><span class="n">client</span>
+    <span class="p">)</span>
+    <span class="n">displacement</span> <span class="o">=</span> <span class="n">reader</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="s2">"displacement_000003"</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Reads require a 206 response, an exact Content-Range, and the indexed ETag.
+Servers that ignore ranges are refused before the response body is read.
+Refreshing a file after an append requires a new sidecar. TLS verification uses
+the caller’s HTTP client configuration and is enabled by default in httpx.</p>
 <p><strong>Read in VTK datasets 37x faster, write 14x faster, all while using 28% less
 space versus VTK’s modern XML format.</strong></p>
 <figure class="align-default" id="id1">
@@ -460,7 +486,7 @@ space versus VTK’s modern XML format.</strong></p>
 </table>
 </div>
 <section id="usage">
-<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
+<h3>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h3>
 <p>Install with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>pyvista-zstd
 </pre></div>
@@ -524,7 +550,7 @@ explicit offsets.</p>
 </div>
 </section>
 <section id="pyvista-integration">
-<h2>PyVista Integration<a class="headerlink" href="#pyvista-integration" title="Link to this heading">#</a></h2>
+<h3>PyVista Integration<a class="headerlink" href="#pyvista-integration" title="Link to this heading">#</a></h3>
 <p>When <code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code> is installed, it automatically registers with PyVista’s
 reader registry. This means <code class="docutils literal notranslate"><span class="pre">pv.read()</span></code> handles <code class="docutils literal notranslate"><span class="pre">.pv</span></code> files
 directly:</p>
@@ -537,7 +563,7 @@ directly:</p>
 entry point group, so the registration happens at install time.</p>
 </section>
 <section id="the-c-library">
-<h2>The C library<a class="headerlink" href="#the-c-library" title="Link to this heading">#</a></h2>
+<h3>The C library<a class="headerlink" href="#the-c-library" title="Link to this heading">#</a></h3>
 <p>The reader and writer are a C++ core with a pure C ABI, <code class="docutils literal notranslate"><span class="pre">pvzstd</span></code>, declared in
 <code class="docutils literal notranslate"><span class="pre">cpp/include/pvzstd/pvzstd.h</span></code>. The Python package is one consumer of it,
 bound with <code class="docutils literal notranslate"><span class="pre">ctypes</span></code>; a C or C++ consumer – or a WebAssembly build – can link
@@ -552,7 +578,7 @@ contract, and a worked example. The on-disk format is specified in
 <code class="docutils literal notranslate"><span class="pre">doc/format/container-v2.md</span></code>.</p>
 </section>
 <section id="rational">
-<h2>Rational<a class="headerlink" href="#rational" title="Link to this heading">#</a></h2>
+<h3>Rational<a class="headerlink" href="#rational" title="Link to this heading">#</a></h3>
 <p>VTK’s XML writer is flexible and supports <a class="reference external" href="https://docs.vtk.org/en/latest/vtk_file_formats/vtkxml_file_format.html">most
 datasets</a>,
 but its compression is limited to a single thread, has only a subset of
@@ -616,7 +642,7 @@ takes 19 seconds to compress.</p>
 compression rate of 105.89 MB/s.</p>
 </section>
 <section id="vtk-compression-with-zstandard-pyvista-zstd">
-<h2>VTK Compression with Zstandard: pyvista-zstd<a class="headerlink" href="#vtk-compression-with-zstandard-pyvista-zstd" title="Link to this heading">#</a></h2>
+<h3>VTK Compression with Zstandard: pyvista-zstd<a class="headerlink" href="#vtk-compression-with-zstandard-pyvista-zstd" title="Link to this heading">#</a></h3>
 <p>This library, <code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code>, writes out VTK datasets with minimal overhead
 and uses <a class="reference external" href="https://github.com/facebook/zstd">Zstandard</a> for
 compression. Moreover, it’s been implemented with multi-threading
@@ -722,7 +748,7 @@ kernel <code class="docutils literal notranslate"><span class="pre">6.12.41</spa
 2TB Samsung 990 Pro without LUKS mounted at <code class="docutils literal notranslate"><span class="pre">/tmp</span></code>.</p>
 </section>
 <section id="additional-information">
-<h2>Additional Information<a class="headerlink" href="#additional-information" title="Link to this heading">#</a></h2>
+<h3>Additional Information<a class="headerlink" href="#additional-information" title="Link to this heading">#</a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code> directory contains additional benchmarks using many
 datasets, including all applicable datasets in <code class="docutils literal notranslate"><span class="pre">pyvista.examples</span></code> (see
 <a class="reference external" href="https://docs.pyvista.org/api/examples/dataset_gallery#dataset-gallery">PyVista Dataset
@@ -737,6 +763,7 @@ Gallery</a>).</p>
 </div>
 <div class="toctree-wrapper compound">
 </div>
+</section>
 </section>
 </section>
 
@@ -763,12 +790,15 @@ Gallery</a>).</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista-integration">PyVista Integration</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-c-library">The C library</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rational">Rational</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vtk-compression-with-zstandard-pyvista-zstd">VTK Compression with Zstandard: pyvista-zstd</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-information">Additional Information</a><ul class="nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#partial-reads-over-https">Partial reads over HTTPS</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pyvista-integration">PyVista Integration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-c-library">The C library</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rational">Rational</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#vtk-compression-with-zstandard-pyvista-zstd">VTK Compression with Zstandard: pyvista-zstd</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#additional-information">Additional Information</a><ul class="nav section-nav flex-column">
+</ul>
+</li>
 </ul>
 </li>
 </ul>

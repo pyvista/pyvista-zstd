@@ -13,6 +13,33 @@ pyvista-zstd
 
 Seamlessly compress VTK datasets using `Zstandard <https://github.com/facebook/zstd>`_.
 
+Partial reads over HTTPS
+-----------------------
+
+Install ``pyvista-zstd[network]`` to read an individual field array from a remote
+container. The producer exports a small sidecar with ``build_range_index``. Serve
+the container with HTTP byte-range support and the sidecar's matching ETag.
+
+.. code-block:: python
+
+    from pyvista_zstd.network import build_range_index, HTTPRangeReader
+    import httpx
+
+    # Producer: export JSON metadata without decompressing result payloads.
+    index = build_range_index("results.pv")
+
+    # Consumer: the index travels separately; only this field's frames are read.
+    with httpx.Client() as client:
+        reader = HTTPRangeReader(
+            "https://results.example/results.pv", index, client=client
+        )
+        displacement = reader.read_array("displacement_000003")
+
+Reads require a 206 response, an exact Content-Range, and the indexed ETag.
+Servers that ignore ranges are refused before the response body is read.
+Refreshing a file after an append requires a new sidecar. TLS verification uses
+the caller's HTTP client configuration and is enabled by default in httpx.
+
 **Read in VTK datasets 37x faster, write 14x faster, all while using 28% less
 space versus VTK’s modern XML format.**
 

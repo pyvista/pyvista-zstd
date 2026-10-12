@@ -840,8 +840,9 @@ def _segments_to_esgrid(
     if missing:
         msg = (
             f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
-            "These cell arrays define the i/j/k blocking and are required by "
-            "the cast; do not exclude them via selected_cell_arrays."
+            "These cell arrays define the i/j/k blocking: either they were excluded "
+            "via selected_cell_arrays, or the file was written by a pyvista-zstd "
+            "release that did not store them and must be rewritten from the source grid."
         )
         raise ValueError(msg)
 
@@ -937,7 +938,7 @@ def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
     return rgrid
 
 
-def _remove_unwritten_esgrid_blocking(ds: DataSet, metadata: DataSetMetadata) -> None:
+def _drop_internal_esgrid_blocking(ds: DataSet, metadata: DataSetMetadata) -> None:
     """Remove blocking arrays an ExplicitStructuredGrid did not carry as its own cell data."""
     if not isinstance(ds, ExplicitStructuredGrid):
         return
@@ -1606,7 +1607,7 @@ class Reader:
             raise RuntimeError(msg)
 
         _add_data(ds_id, ds, segments)
-        _remove_unwritten_esgrid_blocking(ds, ds_metadata)
+        _drop_internal_esgrid_blocking(ds, ds_metadata)
         _apply_metadata(ds, ds_metadata)
         return ds
 

@@ -845,19 +845,13 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
         esgrid.point_data["point_ids"] = np.arange(esgrid.n_points, dtype=np.int32)
     elif kind == "own_blocking":
         esgrid = esgrid.cast_to_unstructured_grid().cast_to_explicit_structured_grid()
+    elif kind == "hidden_cells":
+        esgrid.hide_cells([0, 7], inplace=True)
     return esgrid
 
 
-@pytest.mark.parametrize("kind", ["example", "cast", "user_arrays", "own_blocking"])
-def test_esgrid_round_trip(kind: str, tmp_path: Path) -> None:
-    """An ExplicitStructuredGrid reads back with its geometry, blocking and data intact."""
-    esgrid = _make_esgrid(kind)
-    filename = tmp_path / "esgrid.pv"
-    pyvista_zstd.write(esgrid, filename)
-
-    assert pyvista_zstd.Reader(filename).available_cell_arrays == set(esgrid.cell_data)
-    out = pv.read(filename)
-
+def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> None:
+    """Assert that a read-back grid matches the ExplicitStructuredGrid that was written."""
     assert isinstance(out, ExplicitStructuredGrid)
     assert out.dimensions == esgrid.dimensions
     np.testing.assert_array_equal(out.points, esgrid.points)
@@ -868,8 +862,39 @@ def test_esgrid_round_trip(kind: str, tmp_path: Path) -> None:
         np.testing.assert_array_equal(out.cell_data[name], array)
     for name, array in esgrid.point_data.items():
         np.testing.assert_array_equal(out.point_data[name], array)
-    if kind == "user_arrays":
-        np.testing.assert_array_equal(out.cell_data["centers"], out.cell_centers().points)
+
+
+@pytest.mark.parametrize("kind", ["example", "cast", "user_arrays", "own_blocking", "hidden_cells"])
+def test_esgrid_round_trip(kind: str, tmp_path: Path) -> None:
+    """An ExplicitStructuredGrid reads back with its geometry, blocking and data intact."""
+    esgrid = _make_esgrid(kind)
+    filename = tmp_path / "esgrid.pv"
+    pyvista_zstd.write(esgrid, filename)
+
+    assert pyvista_zstd.Reader(filename).available_cell_arrays == set(esgrid.cell_data)
+    _assert_esgrid_round_trip(pv.read(filename), esgrid)
+
+
+def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:
+    """An ExplicitStructuredGrid nested in a MultiBlock reads back intact."""
+    esgrid = _make_esgrid("user_arrays")
+    filename = tmp_path / "esgrid_multiblock.pv"
+    pyvista_zstd.write(MultiBlock({"esgrid": esgrid, "sphere": pv.Sphere()}), filename)
+
+    out = pv.read(filename)
+    _assert_esgrid_round_trip(out["esgrid"], esgrid)
+    assert isinstance(out["sphere"], PolyData)
+
+
+def test_esgrid_deselected_blocking_raises(tmp_path: Path) -> None:
+    """Deselecting a grid's own blocking arrays raises instead of returning a broken grid."""
+    filename = tmp_path / "esgrid.pv"
+    pyvista_zstd.write(_make_esgrid("own_blocking"), filename)
+
+    reader = pyvista_zstd.Reader(filename)
+    reader.selected_cell_arrays = set()
+    with pytest.raises(ValueError, match="excluded via selected_cell_arrays"):
+        reader.read()
 
 
 def test_vtk_imports_route_through_pyvista() -> None:

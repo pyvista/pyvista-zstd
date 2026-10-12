@@ -195,7 +195,7 @@ class MultiBlockMetadata:
     def to_json(self) -> str:
         """Convert to JSON."""
         raw = asdict(self)
-        # Omitted when empty: readers before this key reject unknown fields.
+        # Omitted when empty: pyvista-zstd 0.5.0 and earlier reject unknown members.
         if not raw["field_data_keys"]:
             del raw["field_data_keys"]
         return json.dumps(raw, separators=(",", ":"))
@@ -719,8 +719,8 @@ class Writer:
         """Stage the field arrays of a dataset or MultiBlock and return their metadata."""
         field_info: dict[str, ArrayInfo] = {}
         for key, value in ds.field_data.items():
-            # A scalar string field array comes back as ``str``; store it 0-d.
-            array = np.asarray(value)
+            # pyvista 0.49 returns a one-value string array as ``str``; store the array VTK holds.
+            array = np.atleast_1d(value)
             self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
             field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
         return field_info

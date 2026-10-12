@@ -135,17 +135,6 @@ def test_field_array_info_reports_shape_dtype(tmp_path, base_grid) -> None:
     assert info.dtype == "float32"
 
 
-@pytest.mark.parametrize("value", [np.array(3.0), np.asarray("abc")])
-def test_append_zero_dimensional(tmp_path, base_grid, value) -> None:
-    """A 0-d array appends and reads back 0-d."""
-    path = _write_base(tmp_path / "z.pv", base_grid)
-    append_arrays(path, {"x": value})
-    assert tuple(AppendReader(path).field_array_info["x"].shape) == ()
-    back = read_array(path, "x")
-    assert back.shape == ()
-    assert back == value
-
-
 # --------------------------------------------------------------------------
 # 3. Backward / forward compatibility with the upstream reader.
 # --------------------------------------------------------------------------

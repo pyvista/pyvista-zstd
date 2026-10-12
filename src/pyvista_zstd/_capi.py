@@ -940,7 +940,7 @@ class CoreWriter:
         The core borrows the buffer, so it is pinned until :meth:`write` or
         :meth:`close`.
         """
-        buf = np.require(arr, requirements="C")
+        buf = np.ascontiguousarray(arr)
         self._pinned.append(buf)
         shape = (c_uint64 * max(buf.ndim, 1))(*buf.shape)
         _check(
@@ -1010,7 +1010,7 @@ def append_arrays(
     pinned: list[Any] = []
     items = (_AppendArray * len(arrays))()
     for slot, (name, arr) in enumerate(arrays.items()):
-        buf = np.require(arr, requirements="C")
+        buf = np.ascontiguousarray(arr)
         shape = (c_uint64 * max(buf.ndim, 1))(*buf.shape)
         encoded = (
             name.encode("utf-8"),

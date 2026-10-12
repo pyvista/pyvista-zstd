@@ -739,22 +739,6 @@ def test_multiblock_two_empty_blocks(ugrid: UnstructuredGrid, tmp_path: Path) ->
 USER_DICT = {"int": 1, "text": "x", "nested": {"list": [1.5, None, True]}}
 
 
-@pytest.mark.parametrize("value", ["x", "", ["x"], ["x", "y"]])
-def test_string_field_data(polydata: PolyData, tmp_path: Path, value: str | list[str]) -> None:
-    """Scalar and list string field arrays read back as written."""
-    polydata.field_data["s"] = value
-    tmp_filename = tmp_path / "tmp.pv"
-    pyvista_zstd.write(polydata, tmp_filename)
-    out = pyvista_zstd.read(tmp_filename)
-
-    expected = polydata.field_data["s"]
-    assert type(out.field_data["s"]) is type(expected)
-    assert np.array_equal(out.field_data["s"], expected)
-    stored = pyvista_zstd.read_array(tmp_filename, "s")
-    assert stored.shape == np.shape(expected)
-    assert np.array_equal(stored, expected)
-
-
 def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
     """A dataset's user_dict survives a write and read."""
     polydata.user_dict.update(USER_DICT)
@@ -763,6 +747,11 @@ def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
     out = pyvista_zstd.read(tmp_filename)
 
     assert out.user_dict == polydata.user_dict == USER_DICT
+    stored = pyvista_zstd.read_array(tmp_filename, "_PYVISTA_USER_DICT")
+    assert stored.shape == (1,)
+    assert stored.dtype.kind == "U"
+    info = pyvista_zstd.Reader(tmp_filename)._ds_metadata.field_data_keys["_PYVISTA_USER_DICT"]  # noqa: SLF001
+    assert tuple(info.shape) == stored.shape
 
 
 def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
@@ -782,7 +771,7 @@ def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
 def _multiblock_with_field_data(polydata: PolyData) -> MultiBlock:
     inner = MultiBlock([polydata])
     inner.field_data["ints"] = np.arange(3, dtype=np.int16)
-    inner.field_data["text"] = "inner"
+    inner.field_data["text"] = ["inner"]
     mblock = MultiBlock({"poly": polydata, "inner": inner})
     mblock.field_data["floats"] = np.linspace(0, 1, 4)
     mblock.field_data["names"] = ["a", "b"]

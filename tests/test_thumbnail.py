@@ -164,6 +164,22 @@ def test_render(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not pv.system_supports_plotting(), reason="needs a render window")
+def test_render_has_no_light_fringe(tmp_path: Path) -> None:
+    """Edge pixels of a dark mesh are not lightened by the render background."""
+    path = tmp_path / "t.pv"
+    pv.global_theme.color = "#33344a"
+    try:
+        pz.write(pv.Sphere(), path, thumbnail=True)
+    finally:
+        pv.global_theme.restore_defaults()
+    image = np.asarray(Image.open(io.BytesIO(pz.read_thumbnail(path)))).astype(float)
+    alpha = image[..., 3]
+    faint = image[(alpha > 0) & (alpha < 64)][:, :3].mean()
+    opaque = image[alpha == 255][:, :3].mean()
+    assert faint < opaque + 20
+
+
+@pytest.mark.skipif(not pv.system_supports_plotting(), reason="needs a render window")
 def test_render_empty_dataset(tmp_path: Path) -> None:
     """Rendering a dataset with nothing to draw is reported."""
     with pytest.raises(RuntimeError, match="Could not render a thumbnail"):

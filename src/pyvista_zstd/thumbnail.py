@@ -110,6 +110,8 @@ def _render_png(ds: DataSet | MultiBlock) -> bytes:
     from PIL import Image  # noqa: PLC0415
 
     pl = pv.Plotter(off_screen=True, window_size=[_RENDER_SCALE * s for s in THUMBNAIL_SIZE])
+    # Over black, the transparent screenshot's colour is premultiplied by alpha.
+    pl.background_color = "black"
     try:
         pl.add_mesh(ds, show_scalar_bar=False)
         pl.render()
@@ -130,7 +132,9 @@ def _render_png(ds: DataSet | MultiBlock) -> bytes:
     square[top : top + height, left : left + width] = content
 
     buf = io.BytesIO()
-    Image.fromarray(square).resize(THUMBNAIL_SIZE, Image.Resampling.LANCZOS).save(buf, format="PNG", optimize=True)
+    premultiplied = Image.frombytes("RGBa", (side, side), square.tobytes())
+    image = premultiplied.resize(THUMBNAIL_SIZE, Image.Resampling.LANCZOS).convert("RGBA")
+    image.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 

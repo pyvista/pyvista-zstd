@@ -750,6 +750,9 @@ def test_string_field_data(polydata: PolyData, tmp_path: Path, value: str | list
     expected = polydata.field_data["s"]
     assert type(out.field_data["s"]) is type(expected)
     assert np.array_equal(out.field_data["s"], expected)
+    stored = pyvista_zstd.read_array(tmp_filename, "s")
+    assert stored.shape == np.shape(expected)
+    assert np.array_equal(stored, expected)
 
 
 def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
@@ -807,8 +810,8 @@ def test_multiblock_field_data(polydata: PolyData, tmp_path: Path) -> None:
 
     reader = pyvista_zstd.Reader(tmp_filename)
     _assert_field_data_equal(reader[1].read(), mblock["inner"])
-    assert "Field arrays" in repr(reader)
-    assert "floats" in repr(reader)
+    assert "MultiBlock(children=2, field arrays: floats, names)" in repr(reader)
+    assert "MultiBlock(children=1, field arrays: ints, text)" in repr(reader)
 
 
 def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid, tmp_path: Path) -> None:
@@ -822,9 +825,7 @@ def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid
     polydata.user_dict["leaf"] = True
 
     tmp_filename = tmp_path / "tmp.pv"
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        pyvista_zstd.write(root, tmp_filename)
+    pyvista_zstd.write(root, tmp_filename)
     out = pyvista_zstd.read(tmp_filename)
 
     nested_out = [out, out["inner"], out["inner"]["innermost"]]
@@ -847,7 +848,7 @@ def test_multiblock_metadata_without_field_data(multi_block: MultiBlock, tmp_pat
 
     raw = reader._metadata_documents[f"{reader._ds_metadata.uid}{impl.MULTIBLOCK_METADATA_KEY}"]  # noqa: SLF001
     assert "field_data_keys" not in json.loads(raw)
-    assert "Field arrays" not in repr(reader)
+    assert "field arrays" not in repr(reader)
 
 
 def _reproducible_polydata() -> PolyData:

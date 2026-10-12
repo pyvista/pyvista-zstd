@@ -60,7 +60,6 @@ from pyvista.core.pointset import UnstructuredGrid
 if TYPE_CHECKING:  # pragma: no cover
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
-    from pyvista.core.datasetattributes import DataSetAttributes
 
     from pyvista_zstd._capi import CoreReader
 
@@ -196,7 +195,7 @@ class MultiBlockMetadata:
     def to_json(self) -> str:
         """Convert to JSON."""
         raw = asdict(self)
-        # Omitted when empty, so a file without MultiBlock field data is unchanged.
+        # Omitted when empty: readers before this key reject unknown fields.
         if not raw["field_data_keys"]:
             del raw["field_data_keys"]
         return json.dumps(raw, separators=(",", ":"))
@@ -773,7 +772,7 @@ class Writer:
         self._ids = {}
 
 
-def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any], metadata: DataSetMetadata) -> None:
+def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
     # add point and cell data
     point_data = ds.point_data
     cell_data = ds.cell_data
@@ -788,14 +787,7 @@ def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any], metadata: D
         if key.endswith(CELL_DATA_SUFFIX):
             cell_data.set_array(array, key[UID_N_CHAR : -len(CELL_DATA_SUFFIX)])
         if key.endswith(FIELD_DATA_SUFFIX):
-            name = key[UID_N_CHAR : -len(FIELD_DATA_SUFFIX)]
-            _set_field_array(field_data, name, array, metadata.field_data_keys.get(name))
-
-
-def _set_field_array(field_data: DataSetAttributes, name: str, array: NDArray[Any], info: ArrayInfo | None) -> None:
-    """Add a stored field array, restoring a scalar the core stored as one element."""
-    is_scalar = info is not None and tuple(info.shape) == () and array.size == 1
-    field_data.set_array(array.reshape(()) if is_scalar else array, name)
+            field_data.set_array(array, key[UID_N_CHAR : -len(FIELD_DATA_SUFFIX)])
 
 
 def _segments_to_ugrid(
@@ -1162,7 +1154,10 @@ class _DataSetReader:
         if isinstance(self._meta, DataSetMetadata):
             return f"{prefix}{connector}{self._meta.ds_type}"
         if isinstance(self._meta, MultiBlockMetadata):
-            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)})"]
+            fields = ""
+            if self._meta.field_data_keys:
+                fields = f", field arrays: {', '.join(self._meta.field_data_keys)}"
+            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)}{fields})"]
             for i, child in enumerate(self._children):
                 last = i == len(self._children) - 1
                 child_prefix = prefix + ("   " if is_last else "│  ")
@@ -1503,7 +1498,7 @@ class Reader:
         threads = _capi.THREADS_AUTO if n_threads is None else n_threads
         segments = self._core_reader().read_arrays(keep=set(frames), n_threads=threads)
         for frame, name in frames.items():
-            _set_field_array(mb.field_data, name, segments[frame], meta.field_data_keys[name])
+            mb.field_data.set_array(segments[frame], name)
 
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
@@ -1627,7 +1622,7 @@ class Reader:
             msg = f"pyvista-zstd does not support DataSet type `{ds_type}` for decompression"
             raise RuntimeError(msg)
 
-        _add_data(ds_id, ds, segments, ds_metadata)
+        _add_data(ds_id, ds, segments)
         _apply_metadata(ds, ds_metadata)
         return ds
 
@@ -1635,6 +1630,8 @@ class Reader:
     def available_point_arrays(self) -> set[str]:
         """
         Return a set of all point array names available in the dataset.
+
+        Empty for a MultiBlock file, which reads every array.
 
         Returns
         -------
@@ -1668,6 +1665,8 @@ class Reader:
         """
         Return a set of all cell array names available in the dataset.
 
+        Empty for a MultiBlock file, which reads every array.
+
         Returns
         -------
         set[str]
@@ -1697,7 +1696,11 @@ class Reader:
 
     @property
     def available_field_arrays(self) -> set[str]:
-        """Return a set of all field array names available in the dataset."""
+        """
+        Return a set of all field array names available in the dataset.
+
+        Empty for a MultiBlock file, which reads every array.
+        """
         if isinstance(self._ds_metadata, MultiBlockMetadata):
             return set()
         return set(self._ds_metadata.field_data_keys)
@@ -1707,7 +1710,7 @@ class Reader:
         """
         Return the set of currently selected point arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_point_arrays is None:
             return self.available_point_arrays.copy()
@@ -1741,7 +1744,7 @@ class Reader:
         """
         Return the set of currently selected cell arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_cell_arrays is None:
             return self.available_cell_arrays.copy()
@@ -1775,7 +1778,7 @@ class Reader:
         """
         Return the set of currently selected field arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_field_arrays is None:
             return self.available_field_arrays.copy()
@@ -1818,15 +1821,6 @@ class Reader:
                     lines.append(f"      {k:<24} {info.dtype:<10} {shape}")
             return lines
 
-        def _format_field(arrays: dict[str, ArrayInfo]) -> list[str]:
-            if not arrays:
-                return []
-            lines = ["  Field arrays"]
-            for k, info in arrays.items():
-                shape = tuple(info.shape)
-                lines.append(f"      {k:<24} {info.dtype:<10} {shape}")
-            return lines
-
         ds_md = self._ds_metadata
         header = [
             f"pyvista_zstd.Reader ({hex(id(self))})",
@@ -1840,7 +1834,6 @@ class Reader:
             header.append(f"  Dataset Type:       {ds_md.ds_type}")
             header.append("  Hierarchy:")
             header.append(self._ds_reader._repr_recursive(prefix="    ", is_last=True))  # noqa: SLF001
-            header.extend(_format_field(ds_md.field_data_keys))
         else:
             header.extend(
                 [
@@ -1853,7 +1846,12 @@ class Reader:
             # data arrays
             header.extend(_format_dsa("Point", ds_md.point_data_keys))
             header.extend(_format_dsa("Cell", ds_md.cell_data_keys))
-            header.extend(_format_field(ds_md.field_data_keys))
+            if ds_md.field_data_keys:
+                lines = ["  Field arrays"]
+                for k, info in ds_md.field_data_keys.items():
+                    shape = tuple(info.shape)
+                    lines.append(f"      {k:<24} {info.dtype:<10} {shape}")
+                header.extend(lines)
 
         return "\n".join(header)
 

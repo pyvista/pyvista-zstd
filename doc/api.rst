@@ -47,7 +47,6 @@ one array at a time:
         meta = reader.dataset_metadata  # type, sizes, array shapes and dtypes
         level = reader.file_metadata.compression_level
         stress = reader.read_array("stress", association="cell")
-        sizes = reader.array_sizes(association="cell")  # decompressed and compressed bytes
 
 For a :class:`pyvista.MultiBlock`, index the reader to a block first, as in
 ``reader[0][1].read_array("Normals", association="point")``.
@@ -56,9 +55,8 @@ For a :class:`pyvista.MultiBlock`, index the reader to a block first, as in
 Metadata
 --------
 Returned by :func:`pyvista_zstd.read_metadata`,
-:attr:`pyvista_zstd.Reader.dataset_metadata`,
-:attr:`pyvista_zstd.Reader.file_metadata` and
-:meth:`pyvista_zstd.Reader.array_sizes`.
+:attr:`pyvista_zstd.Reader.dataset_metadata` and
+:attr:`pyvista_zstd.Reader.file_metadata`.
 
 .. autosummary::
    :toctree: _autosummary
@@ -67,5 +65,4 @@ Returned by :func:`pyvista_zstd.read_metadata`,
    pyvista_zstd.DataSetMetadata
    pyvista_zstd.MultiBlockMetadata
    pyvista_zstd.ArrayInfo
-   pyvista_zstd.ArraySize
    pyvista_zstd.ZstdFileMetadata

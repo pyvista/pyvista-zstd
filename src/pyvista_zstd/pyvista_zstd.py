@@ -172,24 +172,6 @@ class ArrayInfo:
 
 
 @dataclass(slots=True, frozen=True)
-class ArraySize:
-    """
-    Size of one stored array, known without decompressing it.
-
-    Attributes
-    ----------
-    nbytes : int
-        Size of the array's data once decompressed.
-    compressed_nbytes : int
-        Size of the array's compressed data, excluding its small header frame.
-
-    """
-
-    nbytes: int
-    compressed_nbytes: int
-
-
-@dataclass(slots=True, frozen=True)
 class ZstdFileMetadata:
     """
     File-level facts of a pyvista-zstd container.
@@ -1301,13 +1283,6 @@ class _DataSetReader:
             raise TypeError(msg)
         return self._parent._read_array(self._meta, name, association)  # noqa: SLF001
 
-    def array_sizes(self, *, association: Association) -> dict[str, ArraySize]:
-        """Return the stored size of each array of this block; see :meth:`Reader.array_sizes`."""
-        if not isinstance(self._meta, DataSetMetadata):
-            msg = "Only dataset blocks have arrays; index a MultiBlock node further."
-            raise TypeError(msg)
-        return self._parent._array_sizes(self._meta, association)  # noqa: SLF001
-
     def read(self, n_threads: int | None = None) -> DataSet | MultiBlock:
         return self._read_shared({}, n_threads)
 
@@ -1472,7 +1447,6 @@ class Reader:
         self._selected_field_arrays: set[str] | None = None
         self._core: CoreReader | None = None
         self._closed = False
-        self._frame_slots: dict[str, int] | None = None
 
         # Only a path carries a suffix to judge; a buffer is judged by its bytes.
         if check_extension and self._filename is not None and self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
@@ -1656,56 +1630,6 @@ class Reader:
             msg = "A MultiBlock file has no root arrays; index the reader to a block first."
             raise TypeError(msg)
         return self._read_array(self._ds_metadata, name, association)
-
-    def array_sizes(self, *, association: Association) -> dict[str, ArraySize]:
-        """
-        Return the stored size of each array, without decompressing any.
-
-        A block of a MultiBlock file is queried the same way after indexing to
-        it, as in ``reader[0].array_sizes(association="cell")``.
-
-        Parameters
-        ----------
-        association : {"point", "cell", "field"}
-            Data the arrays belong to.
-
-        Returns
-        -------
-        dict[str, ArraySize]
-            Decompressed and compressed size of each array, by name.
-
-        Raises
-        ------
-        TypeError
-            The file is a MultiBlock; index it to a block first.
-
-        Examples
-        --------
-        >>> import pyvista as pv
-        >>> import pyvista_zstd
-        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
-        >>> reader = pyvista_zstd.Reader("sphere.pv")
-        >>> reader.array_sizes(association="point")["Normals"].nbytes
-        10104
-
-        """
-        if isinstance(self._ds_metadata, MultiBlockMetadata):
-            msg = "A MultiBlock file has no root arrays; index the reader to a block first."
-            raise TypeError(msg)
-        return self._array_sizes(self._ds_metadata, association)
-
-    def _array_sizes(self, meta: DataSetMetadata, association: str) -> dict[str, ArraySize]:
-        """Return the stored size of each array of the dataset *meta* describes."""
-        if self._frame_slots is None:
-            self._frame_slots = {name: slot for slot, name in enumerate(self._metadata.frame_names)}
-        arrays = _association_arrays(meta, association)
-        suffix = _ASSOCIATION_SUFFIXES[association]
-        sizes = {}
-        for name in arrays:
-            # Each array is a (header, payload) frame pair at twice its slot.
-            payload = 2 * self._frame_slots[f"{meta.uid}{name}{suffix}"] + 1
-            sizes[name] = ArraySize(int(self._frame_decompressed[payload]), int(self._compressed_sizes[payload]))
-        return sizes
 
     def _read_array(self, meta: DataSetMetadata, name: str, association: str) -> NDArray[Any]:
         """Decompress the named array of the dataset *meta* describes."""

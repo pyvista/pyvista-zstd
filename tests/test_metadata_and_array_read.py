@@ -10,7 +10,6 @@ import pyvista as pv
 from pyvista import examples
 
 import pyvista_zstd
-from pyvista_zstd import _capi
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -205,44 +204,6 @@ def test_read_array_errors(tmp_path: Path) -> None:
     assert reader.dataset_metadata.n_points == ds.n_points
     with pytest.raises(ValueError, match="closed Reader"):
         reader.read_array("vectors", association="point")
-
-
-def test_array_sizes(dataset: DataSet, tmp_path: Path) -> None:
-    """Each array's sizes are those of its data frame, without the header frame."""
-    path = tmp_path / "ds.pv"
-    pyvista_zstd.write(dataset, path)
-    with pyvista_zstd.Reader(path) as reader, _capi.CoreReader(path) as core:
-        _, frame_compressed = core.frame_sizes()
-        frame_names = reader.file_metadata.frame_names
-        uid = reader.dataset_metadata.uid
-        for association, data in (
-            ("point", dataset.point_data),
-            ("cell", dataset.cell_data),
-            ("field", dataset.field_data),
-        ):
-            sizes = reader.array_sizes(association=association)
-            assert set(sizes) == set(data.keys())
-            for name, size in sizes.items():
-                assert size.nbytes == data[name].nbytes
-                # Frames come in (header, data) pairs, in frame-name order.
-                data_frame = 2 * frame_names.index(f"{uid}{name}__{association}_data") + 1
-                assert size.compressed_nbytes == frame_compressed[data_frame]
-        assert reader.compressed_nbytes == frame_compressed.sum() < path.stat().st_size
-
-
-def test_array_sizes_multiblock(tmp_path: Path) -> None:
-    """Block arrays are sized after indexing to the block."""
-    sphere = _populated(pv.Sphere())
-    path = tmp_path / "mb.pv"
-    pyvista_zstd.write(pv.MultiBlock({"sphere": sphere, "empty": None}), path)
-    with pyvista_zstd.Reader(path) as reader:
-        assert reader[0].array_sizes(association="cell")["ids"].nbytes == sphere.cell_data["ids"].nbytes
-        with pytest.raises(TypeError, match="index the reader to a block"):
-            reader.array_sizes(association="point")
-        with pytest.raises(TypeError, match="Only dataset blocks"):
-            reader[1].array_sizes(association="point")
-        with pytest.raises(ValueError, match="association must be one of"):
-            reader[0].array_sizes(association="points")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("from_buffer", [False, True])

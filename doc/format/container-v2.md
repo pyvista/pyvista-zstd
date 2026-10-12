@@ -274,8 +274,9 @@ Three JSON documents, each stored as a frame:
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
 normals, for both point and cell data), and the optional grid fields:
 `dimensions` and `offset` (the extent's start) for ImageData, StructuredGrid
-and ExplicitStructuredGrid, and `origin`, `spacing`, `direction_matrix` for
-ImageData only.
+and ExplicitStructuredGrid, `origin`, `spacing`, `direction_matrix` for
+ImageData only, and `faces_connectivity_flags_array_name` for
+ExplicitStructuredGrid only.
 
 The active-attribute names are easy to overlook and are **observable
 behaviour**: dropping them silently changes which array a downstream plot
@@ -371,13 +372,16 @@ note the spelling in the source, `:111-112`), RectilinearGrid (`_x_rgrid` /
 `_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, StructuredGrid,
 ExplicitStructuredGrid, and MultiBlock.
 
-StructuredGrid stores `points`, `dimensions` and `offset`. ExplicitStructuredGrid
-stores `points`, the `cells` connectivity, `dimensions` and `offset`. The reader
-rebuilds it directly from its extent and widens the connectivity to `vtkIdType`,
-the only width `vtkExplicitStructuredGrid` reads cell points from correctly. An
+StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
+and the `cells_connectivity` frame, with `cells_offset` only when its cells are
+not fixed-size. Both record `dimensions` and `offset` in `__ds_metadata`, and the
+reader sets the grid's extent from them; a file with no `offset` reads back with
+an extent starting at 0. The reader converts ExplicitStructuredGrid connectivity
+to storage as wide as `vtkIdType` (fixed-size where VTK supports it), the only
+width `vtkExplicitStructuredGrid` reads cell points from correctly
+([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An
 ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
-its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays. A structured grid file with
-no `offset` reads back with an extent starting at 0.
+its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.
 
 `EMPTY_DS` (`:121`) is a sentinel for an empty dataset and is 16 characters
 to align with the UID width.

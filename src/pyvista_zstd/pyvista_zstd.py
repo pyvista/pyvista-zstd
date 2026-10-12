@@ -79,8 +79,6 @@ POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
 # Cell arrays that rebuild an ExplicitStructuredGrid from a file with no stored dimensions.
 ESGRID_BLOCK_KEYS = ("BLOCK_I", "BLOCK_J", "BLOCK_K")
-# Name VTK gives the face connectivity flags of an ExplicitStructuredGrid.
-ESGRID_FLAGS_KEY = "ConnectivityFlags"
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
 OFFSET_SUFFIX = "_offset"
@@ -243,6 +241,7 @@ class DataSetMetadata:
     spacing: tuple[float, float, float] | None = None
     direction_matrix: list[list[float]] | None = None
     offset: tuple[int, int, int] | None = None
+    faces_connectivity_flags_array_name: str | None = None
 
     @classmethod
     def from_dataset(  # noqa: PLR0913
@@ -309,6 +308,8 @@ class DataSetMetadata:
         elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
             kwargs["dimensions"] = ds.dimensions
             kwargs["offset"] = ds.GetExtent()[::2]
+            if isinstance(ds, ExplicitStructuredGrid):
+                kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
         return cls(**kwargs)
 
@@ -836,10 +837,15 @@ def _segments_to_esgrid(
     esgrid.points = segments[f"{ds_id}{POINTS_KEY}"]
     cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
     if cells is not None:
-        # vtkExplicitStructuredGrid reads cell points correctly only from storage as wide as vtkIdType.
-        cells.ConvertToDefaultStorage()
+        # vtkExplicitStructuredGrid reads cell points correctly only from storage as wide as vtkIdType,
+        # see https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
+        if hasattr(cells, "ConvertToFixedSizeDefaultStorage"):
+            cells.ConvertToFixedSizeDefaultStorage()
+        else:
+            cells.ConvertToDefaultStorage()
         esgrid.SetCells(cells)
-    esgrid.SetFacesConnectivityFlagsArrayName(ESGRID_FLAGS_KEY)
+    if metadata.faces_connectivity_flags_array_name is not None:
+        esgrid.SetFacesConnectivityFlagsArrayName(metadata.faces_connectivity_flags_array_name)
     return esgrid
 
 
@@ -862,7 +868,9 @@ def _segments_to_esgrid_by_blocking(
         if set(missing) <= set(metadata.cell_data_keys):
             reason = "Select them in selected_cell_arrays to read this file."
         else:
-            reason = "The file does not store them; rewrite it from the source grid with this release."
+            from pyvista_zstd import __version__  # noqa: PLC0415
+
+            reason = f"The file does not store them; rewrite it from the source grid with pyvista-zstd {__version__}."
         msg = (
             f"Cannot rebuild an ExplicitStructuredGrid without {missing}, which define its "
             f"i/j/k blocking in a file with no stored dimensions. {reason}"
@@ -874,9 +882,13 @@ def _segments_to_esgrid_by_blocking(
 
 def _grid_extent(metadata: DataSetMetadata) -> tuple[int, ...]:
     """Return a structured grid's extent from its stored dimensions and offset, which defaults to 0."""
+    if metadata.dimensions is None:  # pragma: no cover
+        msg = f"A {metadata.ds_type} needs stored dimensions to be rebuilt; the file stores none."
+        raise ValueError(msg)
     offset = metadata.offset or (0, 0, 0)
-    dimensions = metadata.dimensions or (0, 0, 0)
-    return tuple(bound for start, dim in zip(offset, dimensions, strict=True) for bound in (start, start + dim - 1))
+    return tuple(
+        bound for start, dim in zip(offset, metadata.dimensions, strict=True) for bound in (start, start + dim - 1)
+    )
 
 
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:

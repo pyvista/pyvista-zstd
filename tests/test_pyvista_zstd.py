@@ -33,6 +33,7 @@ LEGACY_ZVTK_FIXTURE = TEST_DATA_DIR / "legacy_sphere.zvtk"
 SPHERE_FILE_VERSION_0_FIXTURE = TEST_DATA_DIR / "sphere_file_version_0.pv"
 ESGRID_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_blocking_0_5_0.pv"
 ESGRID_NO_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_no_blocking_0_5_0.pv"
+SGRID_0_5_0_FIXTURE = TEST_DATA_DIR / "sgrid_0_5_0.pv"
 
 
 def _expected_fixture_sphere() -> PolyData:
@@ -250,6 +251,7 @@ def test_sgrid(sgrid: StructuredGrid, tmp_path: Path) -> None:
     assert sgrid.point_data == sgrid_out.point_data
     assert sgrid.cell_data == sgrid_out.cell_data
     assert sgrid.field_data == sgrid_out.field_data
+    assert sgrid == sgrid_out
 
 
 def test_sgrid_extent_offset(tmp_path: Path) -> None:
@@ -263,6 +265,16 @@ def test_sgrid_extent_offset(tmp_path: Path) -> None:
 
     assert sgrid_out.GetExtent() == sgrid.GetExtent()
     np.testing.assert_array_equal(sgrid_out.points, sgrid.points)
+    assert sgrid == sgrid_out
+
+
+def test_read_sgrid_0_5_0_fixture() -> None:
+    """Read a 4x5x6 StructuredGrid file written by ``pyvista-zstd==0.5.0``, which stores no offset."""
+    sgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid()
+    sgrid.point_data["point_ids"] = np.arange(sgrid.n_points, dtype=np.int32)
+
+    sgrid_out = pyvista_zstd.read(SGRID_0_5_0_FIXTURE)
+    assert sgrid_out.GetExtent() == (0, 3, 0, 4, 0, 5)
     assert sgrid == sgrid_out
 
 
@@ -851,8 +863,6 @@ def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
 
 def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
     """Return an ExplicitStructuredGrid for the round-trip tests."""
-    if kind == "example":
-        return pv.examples.load_explicit_structured()
     esgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid().cast_to_explicit_structured_grid()
     if kind == "user_arrays":
         esgrid.cell_data["cell_ids"] = np.arange(esgrid.n_cells, dtype=np.int64)
@@ -868,6 +878,11 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
         esgrid.compute_connectivity(inplace=True)
     elif kind == "extent_offset":
         esgrid.SetExtent(2, 5, -1, 3, 10, 15)
+    elif kind == "custom_flags_name":
+        esgrid.SetFacesConnectivityFlagsArrayName("Neighbours")
+        esgrid.compute_connectivity(inplace=True)
+    elif kind == "no_flags_name":
+        esgrid.SetFacesConnectivityFlagsArrayName(None)
     elif kind != "cast":
         msg = f"Unknown ExplicitStructuredGrid kind {kind!r}"
         raise ValueError(msg)
@@ -887,10 +902,9 @@ def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> N
     for name, array in esgrid.point_data.items():
         np.testing.assert_array_equal(out.point_data[name], array)
     assert out.GetFacesConnectivityFlagsArrayName() == esgrid.GetFacesConnectivityFlagsArrayName()
-    np.testing.assert_array_equal(
-        out.compute_connectivity().cell_data[impl.ESGRID_FLAGS_KEY],
-        esgrid.compute_connectivity().cell_data[impl.ESGRID_FLAGS_KEY],
-    )
+    expected = esgrid.compute_connectivity()
+    flags_name = expected.GetFacesConnectivityFlagsArrayName()
+    np.testing.assert_array_equal(out.compute_connectivity().cell_data[flags_name], expected.cell_data[flags_name])
 
 
 @pytest.mark.parametrize("force_int32", [True, False])
@@ -905,11 +919,18 @@ def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> N
         "hidden_cells",
         "connectivity_flags",
         "extent_offset",
+        "custom_flags_name",
+        "no_flags_name",
     ],
 )
-def test_esgrid_round_trip(kind: str, force_int32: bool, tmp_path: Path) -> None:  # noqa: FBT001
+def test_esgrid_round_trip(
+    kind: str,
+    force_int32: bool,  # noqa: FBT001
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+) -> None:
     """An ExplicitStructuredGrid reads back with its geometry, blocking and data intact."""
-    esgrid = _make_esgrid(kind)
+    esgrid = request.getfixturevalue("esgrid") if kind == "example" else _make_esgrid(kind)
     filename = tmp_path / "esgrid.pv"
     pyvista_zstd.write(esgrid, filename, force_int32=force_int32)
 
@@ -942,27 +963,29 @@ def test_esgrid_deselected_blocking_arrays(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("id_type_width", [True, False])
 def test_vtk_esgrid_needs_id_type_cell_storage(id_type_width: bool) -> None:  # noqa: FBT001
-    """VTK computes ExplicitStructuredGrid face connectivity only from cell storage as wide as vtkIdType."""
+    """Pin VTK issue 20126, why the reader widens ESG cells; failing here means VTK fixed it."""
     esgrid = _make_esgrid("cast")
     cells = impl.vtkCellArray()
     cells.DeepCopy(esgrid.GetCells())
-    if id_type_width == (np.dtype(pv.ID_TYPE) == np.int64):
-        cells.ConvertTo64BitStorage()
-    else:
+    if id_type_width:
+        cells.ConvertToDefaultStorage()
+    elif np.dtype(pv.ID_TYPE) == np.int64:
         cells.ConvertTo32BitStorage()
+    else:
+        cells.ConvertTo64BitStorage()
     grid = ExplicitStructuredGrid()
     grid.SetDimensions(*esgrid.dimensions)
     grid.points = esgrid.points
     grid.SetCells(cells)
 
     # Every cell of this grid has a neighbour, so correct flags are all nonzero.
-    flags = grid.compute_connectivity().cell_data[impl.ESGRID_FLAGS_KEY]
+    flags = grid.compute_connectivity().cell_data["ConnectivityFlags"]
     assert flags.all() if id_type_width else not flags.any()
 
 
 def test_read_esgrid_0_5_0_fixtures() -> None:
     """Read 4x5x6 ExplicitStructuredGrid files written by ``pyvista-zstd==0.5.0``, with and without blocking."""
-    esgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid().cast_to_explicit_structured_grid()
+    esgrid = _make_esgrid("cast")
 
     out = pyvista_zstd.read(ESGRID_BLOCKING_0_5_0_FIXTURE)
     assert isinstance(out, ExplicitStructuredGrid)

@@ -261,12 +261,7 @@ def _esgrid() -> pv.DataSet:
 
 
 def test_explicit_structured_grid_round_trips(tmp_path) -> None:
-    """
-    An ExplicitStructuredGrid survives the container.
-
-    The cast is driven by the blocking arrays, so they must be attached to the
-    rebuilt unstructured grid before it runs.
-    """
+    """An ExplicitStructuredGrid survives the container, its own blocking arrays included."""
     ds = _esgrid()
     path = tmp_path / "esgrid.pv"
     pz.write(ds, path, progress_bar=False)

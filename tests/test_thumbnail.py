@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import io
+import struct
+import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -22,6 +25,20 @@ VERSION_AT = 12 + 43 + 8 + 8
 # Alpha below which an edge pixel counts as faint, and full opacity.
 FAINT_ALPHA = 64
 OPAQUE = 255
+# Largest mean colour difference between faint edge pixels and the opaque interior.
+FRINGE_TOLERANCE = 20
+# Offset of the record's PNG-length field.
+PNG_LEN_AT = 12 + 43 + 8 + 24
+
+
+def _can_render() -> bool:
+    """Whether VTK renders off-screen here, probed in a child process since a failed render can crash."""
+    probe = "import pyvista as pv; pl = pv.Plotter(off_screen=True); pl.add_mesh(pv.Sphere()); pl.screenshot()"
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, check=False, timeout=300)  # noqa: S603
+    return result.returncode == 0
+
+
+requires_render = pytest.mark.skipif(not _can_render(), reason="needs a working VTK render window")
 
 
 def _png(width: int = 24, height: int = 16) -> bytes:
@@ -128,10 +145,23 @@ def test_read_thumbnail_on_other_files(tmp_path: Path, content: bytes) -> None:
     assert pz.read_thumbnail(path) is None
 
 
-def test_rejects_non_png(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "png",
+    [
+        b"GIF89a" + bytes(40),
+        _png()[:16],
+        _png()[:16] + struct.pack(">II", 0, 16) + _png()[24:],
+    ],
+    ids=["not-png", "truncated", "zero-width"],
+)
+def test_rejects_invalid_png(tmp_path: Path, png: bytes) -> None:
+    """Bytes the core would refuse are refused with a ValueError first."""
+    with pytest.raises(ValueError, match="bytes of a PNG file"):
+        pz.write(pv.Sphere(), tmp_path / "t.pv", thumbnail=png)
+
+
+def test_rejects_non_png_types(tmp_path: Path) -> None:
     """Only PNG bytes or True are accepted."""
-    with pytest.raises(ValueError, match="bytes of a PNG"):
-        pz.write(pv.Sphere(), tmp_path / "t.pv", thumbnail=b"GIF89a" + bytes(40))
     with pytest.raises(TypeError, match="PNG bytes or True"):
         pz.write(pv.Sphere(), tmp_path / "t.pv", thumbnail="thumb.png")
 
@@ -153,7 +183,23 @@ def test_core_validates_png() -> None:
         writer.set_thumbnail(_png())
 
 
-@pytest.mark.skipif(not pv.system_supports_plotting(), reason="needs a render window")
+def test_core_reserves_the_thumbnail_name() -> None:
+    """An ordinary array may not take the thumbnail pair's name."""
+    with _capi.CoreWriter() as writer, pytest.raises(_capi.PvzstdError):
+        writer.add_array("__thumbnail", np.arange(4, dtype=np.uint8))
+
+
+def test_read_thumbnail_checks_the_record_lengths(tmp_path: Path) -> None:
+    """A PNG length that disagrees with the record is not read."""
+    path = tmp_path / "t.pv"
+    pz.write(pv.Sphere(), path, thumbnail=_png())
+    raw = bytearray(path.read_bytes())
+    struct.pack_into("<I", raw, PNG_LEN_AT, len(_png()) - 1)
+    path.write_bytes(bytes(raw))
+    assert pz.read_thumbnail(path) is None
+
+
+@requires_render
 def test_render(tmp_path: Path) -> None:
     """``thumbnail=True`` renders a non-blank image."""
     path = tmp_path / "t.pv"
@@ -163,10 +209,12 @@ def test_render(tmp_path: Path) -> None:
     assert image[0, 0, 3] == 0  # transparent background
     rows, cols = np.nonzero(image[..., 3])
     assert max(rows.max() - rows.min(), cols.max() - cols.min()) > 0.85 * THUMBNAIL_SIZE[0]  # cropped to content
+    assert min(rows.min(), cols.min()) > 0  # with a margin
+    assert max(rows.max(), cols.max()) < THUMBNAIL_SIZE[0] - 1
     assert pz.Reader(path).thumbnail_info.width == THUMBNAIL_SIZE[0]
 
 
-@pytest.mark.skipif(not pv.system_supports_plotting(), reason="needs a render window")
+@requires_render
 def test_render_has_no_light_fringe(tmp_path: Path) -> None:
     """Edge pixels of a dark mesh are not lightened by the render background."""
     path = tmp_path / "t.pv"
@@ -179,13 +227,13 @@ def test_render_has_no_light_fringe(tmp_path: Path) -> None:
     alpha = image[..., 3]
     faint = image[(alpha > 0) & (alpha < FAINT_ALPHA)][:, :3].mean()
     opaque = image[alpha == OPAQUE][:, :3].mean()
-    assert faint < opaque + 20
+    assert abs(faint - opaque) < FRINGE_TOLERANCE  # neither a light nor a dark fringe
 
 
-@pytest.mark.skipif(not pv.system_supports_plotting(), reason="needs a render window")
+@requires_render
 def test_render_empty_dataset(tmp_path: Path) -> None:
     """Rendering a dataset with nothing to draw is reported."""
-    with pytest.raises(RuntimeError, match="Could not render a thumbnail"):
+    with pytest.raises(RuntimeError, match="Could not render a thumbnail of this dataset"):
         pz.write(pv.PolyData(), tmp_path / "t.pv", thumbnail=True)
 
 

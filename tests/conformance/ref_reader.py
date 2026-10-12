@@ -35,8 +35,10 @@ UID_N_CHAR = 16
 """Width of the dataset-UID name prefix, and of the dtype field."""
 
 INDEX_ENTRY_SIZE = 16
-SKIPPABLE_MAGIC = 0x184D2A50
 """Bytes per trailer index entry: two little-endian u64 fields."""
+
+SKIPPABLE_MAGIC = 0x184D2A50
+"""zstd skippable-frame magic; the low nibble ranges over 0-F."""
 
 FILTER_NONE = 0
 FILTER_SHUFFLE = 1

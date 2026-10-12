@@ -602,8 +602,9 @@ def write(  # noqa: PLR0913
     thumbnail : bytes | bool, optional
         Embed a PNG preview image that viewers can show without reading the
         dataset. Pass the PNG bytes, or ``True`` to render a 512 x 512 image
-        off-screen, cropped to the dataset on a transparent background, which
-        needs a working VTK render window.
+        off-screen, cropped to the dataset on a transparent background. Rendering
+        needs a working VTK render window; on a machine without a display VTK
+        may crash the interpreter, so pass PNG bytes there instead.
         Files with a thumbnail remain readable by earlier releases, which
         ignore it.
 

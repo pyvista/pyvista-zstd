@@ -26,6 +26,7 @@ _RENDER_MARGIN = 0.05
 
 _DESCRIPTOR_BYTES = 32
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_PNG_MIN_BYTES = 33  # signature and IHDR chunk
 _DTYPE_FIELD = b"|u1".ljust(16)
 _HEADER_BYTES = 4 + len(THUMBNAIL_NAME) + 4 + 8 + len(_DTYPE_FIELD)
 # Every container with a thumbnail starts with these bytes: the raw-block header frame, then the skippable magic.
@@ -96,8 +97,9 @@ def read_thumbnail(path: Path | str) -> bytes | None:
 def _validated_png(png: bytes) -> bytes:
     """Return *png* as bytes after checking it is an embeddable PNG."""
     png = bytes(png)
-    if not png.startswith(_PNG_SIGNATURE) or png[12:16] != b"IHDR":
-        msg = "`thumbnail` must be the bytes of a PNG file"
+    valid = len(png) >= _PNG_MIN_BYTES and png.startswith(_PNG_SIGNATURE) and png[12:16] == b"IHDR"
+    if not valid or 0 in struct.unpack_from(">II", png, 16):
+        msg = "`thumbnail` must be the bytes of a PNG file with a non-zero width and height"
         raise ValueError(msg)
     if len(png) > THUMBNAIL_MAX_BYTES:
         msg = f"`thumbnail` PNG is {len(png)} bytes; at most {THUMBNAIL_MAX_BYTES} can be embedded"
@@ -146,7 +148,7 @@ def _thumbnail_png(ds: DataSet | MultiBlock, *, thumbnail: bytes | bool | None) 
         try:
             png = _render_png(ds)
         except Exception as err:
-            msg = "Could not render a thumbnail off-screen; pass PNG bytes as `thumbnail` instead"
+            msg = "Could not render a thumbnail of this dataset; pass PNG bytes as `thumbnail` instead"
             raise RuntimeError(msg) from err
         return _validated_png(png)
     if isinstance(thumbnail, (bytes, bytearray, memoryview)):

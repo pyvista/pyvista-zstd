@@ -1,9 +1,14 @@
 // Append half of the .pv container. See doc/format/container-v2.md.
 //
-// Existing frames are copied verbatim by offset and only the two that grow are
+// Existing frames are kept verbatim by offset and only the two that grow are
 // regenerated. Two details carry byte-identity: the reference append compresses
 // with threads=0 (unlike pvzstd_writer_write, which sizes a pool from the payload
 // total), and the dataset-metadata JSON is spliced rather than re-emitted.
+//
+// The result is committed by rename, so the kept frames have to be in the
+// staging file. When they are the container's prefix -- every container this
+// writer or a previous append produced -- the staging file is a clone of the
+// container where the filesystem can make one, and only the tail is written.
 
 #include <zstd.h>
 
@@ -278,6 +283,12 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
 
   // 3. Stage the new frames. Kept frames are recorded as offset ranges; only
   //    the new and regenerated ones are built in memory.
+  //
+  //    When the two regenerated arrays are the last two, every kept frame lies
+  //    before them and the kept bytes are the container's prefix -- the layout
+  //    this writer and every earlier append produce.
+  const bool kept_is_prefix = root_idx + 2 == n_arrays;
+  const uint64_t kept_end = kept_is_prefix ? FrameStart(frames, root_idx * 2) : 0;
   std::vector<StagedFrame> staged;
   std::vector<std::string> final_names;
   for (size_t ai = 0; ai < n_arrays; ++ai) {
@@ -385,15 +396,20 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
   //    two appends running at once both write into it and the file the rename
   //    commits is a mixture of the two.
   std::string tmp_path;
-  ScopedFile out(OpenUniqueTemp(path, src.get(), &tmp_path));
+  uint64_t already_staged = 0;
+  ScopedFile out(OpenStagedPrefix(path, src.get(), kept_end, &tmp_path, &already_staged));
   if (out.get() == nullptr) return PVZSTD_E_IO;
 
   std::vector<uint8_t> chunk;
   std::vector<uint8_t> trailer;
   uint64_t offset = 0;
-  bool ok = true;
+  bool ok = SeekTo(out.get(), static_cast<int64_t>(already_staged), SEEK_SET) == 0;
   for (const StagedFrame &frame : staged) {
-    if (frame.copy) {
+    if (!ok) break;
+    if (frame.copy && frame.src_end <= already_staged) {
+      // Already in the staging file, at the same offset it had in the source.
+      offset += frame.src_end - frame.src_start;
+    } else if (frame.copy) {
       uint64_t remaining = frame.src_end - frame.src_start;
       if (SeekTo(src.get(), static_cast<int64_t>(frame.src_start), SEEK_SET) != 0) {
         ok = false;
@@ -424,7 +440,8 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     StoreU64(&trailer, staged.size());
     ok = std::fwrite(trailer.data(), 1, trailer.size(), out.get()) == trailer.size();
   }
-  if (ok) ok = std::fflush(out.get()) == 0;
+  // A cloned staging file still carries the source's old tail past this point.
+  if (ok) ok = TruncateHere(out.get());
   out.reset(nullptr);
   if (!ok) {
     std::remove(tmp_path.c_str());

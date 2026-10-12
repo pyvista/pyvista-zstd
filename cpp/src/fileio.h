@@ -22,6 +22,18 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
+#if defined(__APPLE__) && __has_include(<sys/clonefile.h>)
+#include <fcntl.h>
+#include <sys/clonefile.h>
+#define PVZSTD_HAS_CLONEFILE 1
+#endif
+#if defined(__linux__)
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
+#if __has_include(<linux/fs.h>)
+#include <linux/fs.h>
+#endif
+#endif
 
 namespace pvzstd::detail {
 
@@ -39,6 +51,18 @@ inline int64_t TellAt(std::FILE *fp) {
   return _ftelli64(fp);
 #else
   return static_cast<int64_t>(::ftello(fp));
+#endif
+}
+
+// Cut the file off at the current position, flushing what is buffered first.
+inline bool TruncateHere(std::FILE *fp) {
+  if (std::fflush(fp) != 0) return false;
+  const int64_t pos = TellAt(fp);
+  if (pos < 0) return false;
+#if defined(_WIN32)
+  return _chsize_s(_fileno(fp), pos) == 0;
+#else
+  return ::ftruncate(::fileno(fp), static_cast<off_t>(pos)) == 0;
 #endif
 }
 
@@ -257,6 +281,73 @@ inline std::FILE *OpenUniqueTemp(const std::string &path, std::FILE *model, std:
 }
 
 #endif
+
+// Open a staging file beside `path` holding the first `prefix_len` bytes of
+// `src`, with as little copying as the filesystem allows.
+//
+// `*staged` reports how many of those bytes are already in the file on return:
+// `prefix_len` when the kernel cloned or copied them, 0 when the caller has to
+// write them itself. A clone shares the container's blocks until one side
+// writes, so staging a multi-gigabyte container costs a directory entry, and
+// the tail written after the prefix touches only its own blocks. Everything is
+// done through the open `src`, never through `path`, so a file renamed onto the
+// path meanwhile cannot be the one cloned. On a clone the staging file carries
+// the whole container; the caller truncates it after writing the tail.
+inline std::FILE *OpenStagedPrefix(const std::string &path, std::FILE *src, uint64_t prefix_len,
+                                   std::string *tmp_path, uint64_t *staged) {
+  *staged = 0;
+  std::FILE *fp = OpenUniqueTemp(path, src, tmp_path);
+  if (fp == nullptr || prefix_len == 0) return fp;
+#if defined(PVZSTD_HAS_CLONEFILE)
+  // clonefile makes the destination itself, so the name mkstemp reserved is
+  // given up for it. Losing the name to another caller in between only makes
+  // the clone fail, and the copy below then takes a fresh one.
+  std::fclose(fp);
+  std::remove(tmp_path->c_str());
+  if (::fclonefileat(::fileno(src), AT_FDCWD, tmp_path->c_str(), 0) == 0) {
+    fp = std::fopen(tmp_path->c_str(), "r+b");
+    if (fp != nullptr) {
+      *staged = prefix_len;
+      return fp;
+    }
+    std::remove(tmp_path->c_str());
+  }
+  return OpenUniqueTemp(path, src, tmp_path);
+#elif defined(__linux__)
+  bool done = false;
+#if defined(FICLONE)
+  done = ::ioctl(::fileno(fp), FICLONE, ::fileno(src)) == 0;
+#endif
+#if defined(SYS_copy_file_range)
+  if (!done) {
+    // In-kernel copy where the filesystem cannot share blocks; a reflink-capable
+    // one may still share them through this call.
+    int64_t in = 0;
+    int64_t out = 0;
+    uint64_t remaining = prefix_len;
+    while (remaining > 0) {
+      const uint64_t want = remaining < (1ull << 30) ? remaining : (1ull << 30);
+      const long n = ::syscall(SYS_copy_file_range, ::fileno(src), &in, ::fileno(fp), &out,
+                               static_cast<size_t>(want), 0u);
+      if (n <= 0) break;
+      remaining -= static_cast<uint64_t>(n);
+    }
+    done = remaining == 0;
+    // Partial progress is discarded rather than resumed: the caller writes the
+    // prefix itself from byte 0.
+    if (!done && ::ftruncate(::fileno(fp), 0) != 0) {
+      std::fclose(fp);
+      std::remove(tmp_path->c_str());
+      return nullptr;
+    }
+  }
+#endif
+  if (done) *staged = prefix_len;
+  return fp;
+#else
+  return fp;
+#endif
+}
 
 }  // namespace pvzstd::detail
 

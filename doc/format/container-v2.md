@@ -110,11 +110,14 @@ ImageData file with no attached arrays contains only the two metadata pairs.
   one `wb` handle, frames written in order, trailer appended, close.
   _Editing_ an existing container is where seeking becomes unavoidable, and
   the two edit paths make opposite trades: `pvzstd_append_arrays` stages a
-  whole new file and commits it by rename, while `pvzstd_stream_append` holds
+  new file and commits it by rename, while `pvzstd_stream_append` holds
   the original open `r+b`, overwrites the tail in place and truncates -- which
   is why an interrupted stream commit can leave a trailer describing frames
   that were not fully written, and an interrupted `pvzstd_append_arrays`
-  cannot.
+  cannot. The staging file is a clone of the container where the filesystem
+  can make one (APFS, and reflink-capable Linux filesystems through
+  `FICLONE`), with only the tail past the kept frames written into it; where
+  it cannot, the kept frames are copied.
 - **A reader must have the tail before it can read anything.** There is no
   forward-parseable stream: the index is mandatory and it lives at the end.
   A reader over a non-seekable source must buffer the whole file, which is

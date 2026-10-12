@@ -8,6 +8,7 @@ from pathlib import Path
 import struct
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pyvista as pv
 
 if TYPE_CHECKING:
@@ -20,6 +21,8 @@ THUMBNAIL_NAME = "__thumbnail"
 THUMBNAIL_MAGIC = b"PVZTHUMB"
 THUMBNAIL_VERSION = 1
 THUMBNAIL_SIZE = (512, 512)
+_RENDER_SCALE = 2
+_RENDER_MARGIN = 0.05
 
 _DESCRIPTOR_BYTES = 32
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -103,18 +106,31 @@ def _validated_png(png: bytes) -> bytes:
 
 
 def _render_png(ds: DataSet | MultiBlock) -> bytes:
-    """Render *ds* off-screen and return the image as PNG bytes."""
+    """Render *ds* off-screen on a transparent background, cropped to the content, as PNG bytes."""
     from PIL import Image  # noqa: PLC0415
 
-    pl = pv.Plotter(off_screen=True, window_size=THUMBNAIL_SIZE)
+    pl = pv.Plotter(off_screen=True, window_size=[_RENDER_SCALE * s for s in THUMBNAIL_SIZE])
     try:
         pl.add_mesh(ds, show_scalar_bar=False)
         pl.render()
-        img = pl.screenshot(return_img=True)
+        img = pl.screenshot(transparent_background=True, return_img=True)
     finally:
         pl.close()
+
+    rows, cols = np.nonzero(img[..., 3])
+    if rows.size == 0:
+        msg = "the rendered image is empty"
+        raise ValueError(msg)
+    content = img[rows.min() : rows.max() + 1, cols.min() : cols.max() + 1]
+    height, width = content.shape[:2]
+    side = max(height, width)
+    side += 2 * int(np.ceil(_RENDER_MARGIN * side))
+    square = np.zeros((side, side, 4), dtype=np.uint8)
+    top, left = (side - height) // 2, (side - width) // 2
+    square[top : top + height, left : left + width] = content
+
     buf = io.BytesIO()
-    Image.fromarray(img).save(buf, format="PNG", optimize=True)
+    Image.fromarray(square).resize(THUMBNAIL_SIZE, Image.Resampling.LANCZOS).save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 

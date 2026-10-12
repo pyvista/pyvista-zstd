@@ -156,9 +156,18 @@ def test_render(tmp_path: Path) -> None:
     path = tmp_path / "t.pv"
     pz.write(pv.Sphere(), path, thumbnail=True)
     image = np.asarray(Image.open(io.BytesIO(pz.read_thumbnail(path))))
-    assert image.shape[:2] == THUMBNAIL_SIZE[::-1]
-    assert image.std() > 0
+    assert image.shape == (*THUMBNAIL_SIZE[::-1], 4)
+    assert image[0, 0, 3] == 0  # transparent background
+    rows, cols = np.nonzero(image[..., 3])
+    assert max(rows.max() - rows.min(), cols.max() - cols.min()) > 0.85 * THUMBNAIL_SIZE[0]  # cropped to content
     assert pz.Reader(path).thumbnail_info.width == THUMBNAIL_SIZE[0]
+
+
+@pytest.mark.skipif(not pv.system_supports_plotting(), reason="needs a render window")
+def test_render_empty_dataset(tmp_path: Path) -> None:
+    """Rendering a dataset with nothing to draw is reported."""
+    with pytest.raises(RuntimeError, match="Could not render a thumbnail"):
+        pz.write(pv.PolyData(), tmp_path / "t.pv", thumbnail=True)
 
 
 def test_render_failure_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

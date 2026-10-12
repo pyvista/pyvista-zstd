@@ -148,7 +148,11 @@ def _append_while_replaced(workdir: Path) -> tuple[str | None, bytes, Path]:
     try:
         _wait_for(ready.exists, "the child to finish importing")
         go.touch()
-        _wait_for(lambda: _staging_files(container), "the child's append to open its staging file")
+        # Also ends on the child's exit: an append that committed before this saw it stages nothing.
+        _wait_for(
+            lambda: _staging_files(container) or child.poll() is not None,
+            "the child's append to open its staging file",
+        )
         theirs.replace(container)
         verdict = child.communicate(timeout=RACE_TIMEOUT_S)[0].strip()
     finally:

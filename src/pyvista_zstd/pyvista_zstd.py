@@ -719,7 +719,7 @@ class Writer:
         """Stage the field arrays of a dataset or MultiBlock and return their metadata."""
         field_info: dict[str, ArrayInfo] = {}
         for key, value in ds.field_data.items():
-            # pyvista < 0.50 returns a one-value string array as ``str``; store the array VTK holds.
+            # pyvista < 0.50 returns a string array set from a scalar, such as the user_dict, as ``str``.
             array = np.atleast_1d(value)
             self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
             field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))

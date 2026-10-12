@@ -743,7 +743,12 @@ USER_DICT = {"int": 1, "text": "x", "nested": {"list": [1.5, None, True]}}
 
 @pytest.fixture(params=["scalar", "array"])
 def one_value_strings(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
-    """Return one-value string field arrays as ``str``, as pyvista < 0.50 does, or as one-element arrays."""
+    """
+    Return one-value string field arrays as ``str`` or as one-element arrays.
+
+    pyvista < 0.50 returns a string array set from a scalar, such as the user_dict,
+    as ``str``; the ``"scalar"`` mode applies that to every one-value string array.
+    """
     items = DataSetAttributes.items
 
     def patched(self: DataSetAttributes) -> list[tuple[str, Any]]:
@@ -795,6 +800,8 @@ def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
     out = pyvista_zstd.read(tmp_filename)
 
     assert out.user_dict == multi_block.user_dict == USER_DICT
+    info = pyvista_zstd.Reader(tmp_filename)._ds_metadata.field_data_keys["_PYVISTA_USER_DICT"]  # noqa: SLF001
+    assert tuple(info.shape) == (1,)
     for i, (ds, ds_out) in enumerate(zip(multi_block, out, strict=True)):
         assert ds_out.user_dict == ds.user_dict == {**USER_DICT, "index": i}
 

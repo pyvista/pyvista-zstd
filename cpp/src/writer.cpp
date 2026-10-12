@@ -17,6 +17,7 @@
 
 #include "detail.h"
 #include "pvzstd/pvzstd.h"
+#include "thumbnail.h"
 
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
 
@@ -46,6 +47,9 @@ struct pvzstd_writer {
   pvzstd_shuffle_mode shuffle = PVZSTD_SHUFFLE_NEVER;
   bool fixed_width_cells = false;
   std::vector<PendingArray> arrays;
+  std::vector<uint8_t> thumbnail_png;
+  uint32_t thumbnail_width = 0;
+  uint32_t thumbnail_height = 0;
 };
 
 namespace {
@@ -135,6 +139,30 @@ pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int ena
   return PVZSTD_E_NOMEM;
 }
 
+pvzstd_status pvzstd_writer_set_thumbnail(pvzstd_writer *writer, const void *png,
+                                          uint64_t nbytes) try {
+  if (writer == nullptr) return PVZSTD_E_INVALID;
+  if (png == nullptr && nbytes == 0) {
+    writer->thumbnail_png.clear();
+    return PVZSTD_OK;
+  }
+  if (nbytes > kThumbnailMaxPngBytes) return PVZSTD_E_RANGE;
+  const uint8_t *src = static_cast<const uint8_t *>(png);
+  uint32_t width = 0;
+  uint32_t height = 0;
+  if (!PngSize(src, nbytes, &width, &height)) return PVZSTD_E_INVALID;
+  try {
+    writer->thumbnail_png.assign(src, src + nbytes);
+  } catch (const std::exception &) {
+    return PVZSTD_E_NOMEM;
+  }
+  writer->thumbnail_width = width;
+  writer->thumbnail_height = height;
+  return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
+}
+
 pvzstd_status pvzstd_writer_add_array(pvzstd_writer *writer, const char *name, const char *dtype,
                                       const uint64_t *shape, uint32_t ndim, const void *data,
                                       uint64_t nbytes) try {
@@ -209,7 +237,12 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   }
 
   // 3. Trailing file-metadata frame, in the reference dataclass's field order.
+  const bool has_thumbnail = !writer->thumbnail_png.empty();
   std::string meta = "{\"frame_names\":[";
+  if (has_thumbnail) {
+    AppendJsonString(&meta, kThumbnailName);
+    meta.push_back(',');  // arrays is never empty here
+  }
   for (size_t i = 0; i < writer->arrays.size(); ++i) {
     if (i != 0) meta.push_back(',');
     AppendJsonString(&meta, writer->arrays[i].name);
@@ -257,6 +290,31 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   std::vector<uint8_t> header;
   std::vector<uint8_t> payload;
   std::vector<uint8_t> frame;
+
+  // The thumbnail pair goes first, as raw blocks; its CRC is patched in after the trailer.
+  uint64_t thumbnail_crc_at = 0;
+  if (has_thumbnail) {
+    std::vector<uint8_t> record(kThumbnailMagic, kThumbnailMagic + 8);
+    StoreU32(&record, kThumbnailVersion);
+    StoreU32(&record, static_cast<uint32_t>(kThumbnailDescriptorBytes));
+    StoreU32(&record, writer->thumbnail_width);
+    StoreU32(&record, writer->thumbnail_height);
+    StoreU32(&record, static_cast<uint32_t>(writer->thumbnail_png.size()));
+    StoreU32(&record, 0);
+    record.insert(record.end(), writer->thumbnail_png.begin(), writer->thumbnail_png.end());
+
+    header = PackArrayMetadata(kThumbnailName, "|u1", {record.size()}, PVZSTD_FILTER_NONE);
+    frame.clear();
+    AppendRawFrame(&frame, header.data(), header.size());
+    ends.push_back(frame.size());
+    sizes.push_back(header.size());
+    thumbnail_crc_at = frame.size() + kRawFramePrefixBytes + kThumbnailCrcOffset;
+    AppendRawFrame(&frame, record.data(), record.size());
+    ends.push_back(frame.size());
+    sizes.push_back(record.size());
+    if (std::fwrite(frame.data(), 1, frame.size(), fp) != frame.size()) st = PVZSTD_E_IO;
+    offset = frame.size();
+  }
 
   for (size_t i = 0; i < emit.size() && st == PVZSTD_OK; ++i) {
     const PendingArray &a = *emit[i];
@@ -307,6 +365,16 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
     }
     StoreU64(&trailer, static_cast<uint64_t>(ends.size()));
     if (std::fwrite(trailer.data(), 1, trailer.size(), fp) != trailer.size()) st = PVZSTD_E_IO;
+
+    // 7. Staleness CRC: the index entries of every frame after the thumbnail pair.
+    if (st == PVZSTD_OK && has_thumbnail) {
+      std::vector<uint8_t> crc;
+      StoreU32(&crc, Crc32(trailer.data() + 2 * 16, (ends.size() - 2) * 16));
+      if (std::fseek(fp, static_cast<long>(thumbnail_crc_at), SEEK_SET) != 0 ||
+          std::fwrite(crc.data(), 1, crc.size(), fp) != crc.size()) {
+        st = PVZSTD_E_IO;
+      }
+    }
   }
 
   if (std::fclose(fp) != 0 && st == PVZSTD_OK) st = PVZSTD_E_IO;

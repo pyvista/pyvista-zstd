@@ -44,7 +44,8 @@ second, and the frame count occupies the final eight bytes:
 All integers are **little-endian** (`struct.pack("<Q", ...)`, `:819-820`).
 
 **There is no magic number and no file header.** Byte 0 is the first byte of
-the first zstd frame. A file is identified as a container only by successfully
+the first zstd frame, which for a container with a thumbnail is the fixed
+prefix described in §11. A file is identified as a container only by successfully
 parsing its trailer.
 
 **The first index field is the frame's END offset, not its start.** The writer
@@ -107,7 +108,8 @@ ImageData file with no attached arrays contains only the two metadata pairs.
   but it does not have to seek: the index goes last and its offsets are
   cumulative ends, so a writer that accumulates them as it goes can stream the
   body and then append the trailer. `pvzstd_writer_write` does exactly that --
-  one `wb` handle, frames written in order, trailer appended, close.
+  one `wb` handle, frames written in order, trailer appended, close. With a
+  thumbnail it then seeks back once to fill in the staleness CRC (§11).
   _Editing_ an existing container is where seeking becomes unavoidable, and
   the two edit paths make opposite trades: `pvzstd_append_arrays` stages a
   whole new file and commits it by rename, while `pvzstd_stream_append` holds
@@ -450,3 +452,67 @@ rules, the status enum, the promise that no exception crosses the boundary and
 what a WebAssembly build must be compiled with for that to hold, and
 `PVZSTD_ABI_VERSION`, which versions the _interface_ and is unrelated to the
 container `file_version` versioned in §2.
+
+## 11. The optional thumbnail pair
+
+A container may embed one PNG preview image. It is written only on request and
+does not change `file_version`: to a reader that does not know about it, it is
+an ordinary `|u1` array that no dataset references, so every reader of the
+versions in §2 reads the dataset unchanged and skips it.
+
+**Position.** The thumbnail is always frame pair 0, named `__thumbnail`, and
+`frame_names[0]` is that name. The name has no dataset-UID prefix. A reader
+recognises the thumbnail only at pair 0; it is not reported as an array.
+
+**Encoding.** Both frames of the pair are zstd frames holding their content as a
+single raw (uncompressed) block, with a fixed 12-byte prefix:
+
+| Bytes | Value                                                  |
+| ----- | ------------------------------------------------------ |
+| 0-3   | `28 B5 2F FD`, the zstd frame magic                    |
+| 4     | `A0`: 4-byte content size, single segment, no checksum |
+| 5-8   | `u32` content size `n`                                 |
+| 9-11  | `u24` block header `1 \| (n << 3)`: last block, raw    |
+
+So the content of each frame starts 12 bytes after the frame does, and every
+offset in the pair is fixed. A raw block holds at most 131,072 bytes, which caps
+the record at that size and the PNG at 131,040 bytes.
+
+**Layout from byte 0:**
+
+| Offset | Length | Content                                                                                |
+| ------ | ------ | -------------------------------------------------------------------------------------- |
+| 0      | 12     | frame prefix, `n = 43`                                                                 |
+| 12     | 43     | §3 header: `u32 11`, `"__thumbnail"`, `u32 1`, `u64 record_len`, `"\|u1"` padded to 16 |
+| 55     | 12     | frame prefix, `n = record_len`                                                         |
+| 67     | 32     | thumbnail descriptor                                                                   |
+| 99     | n      | PNG                                                                                    |
+
+**Descriptor** (little-endian):
+
+| Offset | Field          | Value                                                             |
+| ------ | -------------- | ----------------------------------------------------------------- |
+| 0      | `u8[8]` magic  | `PVZTHUMB`                                                        |
+| 8      | `u32` version  | 1                                                                 |
+| 12     | `u32` header   | descriptor length; the PNG starts this many bytes into the record |
+| 16     | `u32` width    | PNG width in pixels                                               |
+| 20     | `u32` height   | PNG height in pixels                                              |
+| 24     | `u32` png_len  | PNG length; `header + png_len == record_len`                      |
+| 28     | `u32` data_crc | staleness check, below                                            |
+
+A reader locates the PNG at `67 + header`, not at a hard-coded 99, so a later
+version-1 writer may lengthen the descriptor. A reader that finds any other
+version treats the container as having no thumbnail.
+
+**Staleness.** `data_crc` is the CRC-32 (zlib polynomial) of the trailer index
+entries of every frame after the thumbnail pair: the bytes from
+`index_offset + 32` up to the final 8-byte frame count. Appends and streamed
+commits copy the pair verbatim and rewrite the index, so the check fails after
+any change to the data; the thumbnail is then stale. Whether a stale image is
+still worth showing is the viewer's decision.
+
+**Reading without zstd.** Read the first 99 bytes and check the two frame
+prefixes, the header bytes at 12 and the descriptor magic and version at 67;
+any mismatch means no thumbnail. The PNG is the `png_len` bytes at
+`67 + header`. The staleness check needs only the last 8 bytes, for the frame
+count, and the index.

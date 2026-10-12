@@ -163,7 +163,7 @@ The ABI version
 
 .. code:: c
 
-   #define PVZSTD_ABI_VERSION 11u
+   #define PVZSTD_ABI_VERSION 12u
    PVZSTD_API uint32_t pvzstd_abi_version(void);
 
 The macro is the version the caller compiled against; the function is the
@@ -281,7 +281,7 @@ Describing arrays
 
 Arrays are addressed by index in frame order, or by name. Frame order is
 significant: it is how the container maps names to frames. ``pvzstd_array_count``
-excludes the two JSON metadata frames. ``pvzstd_find_array`` returns ``-1`` when
+excludes the two JSON metadata frames and the thumbnail. ``pvzstd_find_array`` returns ``-1`` when
 there is no such name; note that stored names carry a 16-character dataset-UID
 prefix, so a caller matching a logical name usually compares suffixes rather than
 whole strings.
@@ -344,6 +344,27 @@ the UID prefix or the ``__field_data`` suffix the frame carries.
 numbers -- two frames per array, ``(header, payload)``, in file order, metadata
 frames included -- so a caller can answer "how big is this file decompressed"
 without parsing the trailer itself.
+
+Thumbnail
+~~~~~~~~~
+
+.. code:: c
+
+   typedef struct pvzstd_thumbnail_info {
+     const void *png; /* NULL when the container has none */
+     uint64_t nbytes;
+     uint32_t width;
+     uint32_t height;
+     int stale; /* nonzero when the data changed after the thumbnail was written */
+   } pvzstd_thumbnail_info;
+
+   pvzstd_status pvzstd_thumbnail(const pvzstd_reader *reader,
+                                  pvzstd_thumbnail_info *out);
+
+Describes the container's optional PNG thumbnail (format section 11). ``png`` is
+owned by the reader until ``pvzstd_close``. A container without one, or with a
+thumbnail record of a version this build does not read, reports ``png == NULL``.
+A reader with no zstd at all can take the same PNG from fixed byte offsets.
 
 
 Errors
@@ -432,7 +453,9 @@ carries three write-side surfaces, documented in place:
   has already produced and emits the file; turning a dataset into arrays stays
   with the caller. Reproducing the reference writer byte for byte needs the same
   compression level *and* worker count, because zstd's threaded mode emits
-  different, equally valid bytes.
+  different, equally valid bytes. ``pvzstd_writer_set_thumbnail`` embeds a PNG
+  of at most ``PVZSTD_THUMBNAIL_MAX_BYTES`` as the container's first frame
+  pair, stored uncompressed.
 * ``pvzstd_append_arrays`` -- add field arrays without rewriting the
   container. Existing frames are copied by offset and never decompressed, so the
   cost is what is added rather than the file size. Each call commits by rename,

@@ -141,6 +141,21 @@ explicit offsets.
    pyvista_zstd.write(vtk_ds, "sphere.pv")
    ds_in = pyvista_zstd.read("sphere.pv")
 
+**Thumbnails**
+
+A file can carry a small PNG preview that file browsers and Quick Look style
+viewers show without reading the dataset. Pass PNG bytes, or ``True`` to render
+one off-screen:
+
+.. code:: py
+
+   pyvista_zstd.write(ds, "mesh.pv", thumbnail=True)
+   png = pyvista_zstd.read_thumbnail("mesh.pv")  # None when absent
+
+The PNG is stored uncompressed at a fixed position, so non-Python readers can
+extract it without zstd; see section 11 of ``doc/format/container-v2.md``.
+Earlier releases read these files and ignore the thumbnail.
+
 
 PyVista Integration
 ~~~~~~~~~~~~~~~~~~~

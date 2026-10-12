@@ -18,6 +18,7 @@
 #include "json_read.h"
 #include "pvzstd/pvzstd.h"
 #include "threads.h"
+#include "thumbnail.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -270,6 +271,10 @@ struct pvzstd_reader {
   // Root dataset's field-data blocks, in metadata order. Empty for MultiBlock.
   std::vector<std::string> field_names;
   std::vector<int64_t> field_indices;  // into `arrays`; -1 if the frame is gone
+  // The thumbnail record, decompressed; empty when the container has none.
+  std::vector<uint8_t> thumbnail_record;
+  pvzstd::detail::ThumbnailRecord thumbnail;
+  bool thumbnail_stale = false;
   // Filled in by pvzstd_array_info_at so the caller sees stable pointers.
   mutable std::vector<uint64_t> scratch_shape;
 };
@@ -375,6 +380,27 @@ pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
   return PVZSTD_OK;
 }
 
+// Take in the thumbnail pair; a record of a version this build does not read is left out.
+pvzstd_status ReadThumbnail(pvzstd_reader *reader, const ArrayEntry &entry, uint64_t index_off,
+                            uint64_t n_frames) {
+  const ContainerBytes &raw = reader->map;
+  std::vector<uint8_t> record;
+  const pvzstd_status st =
+      DecompressFrame(raw.data() + entry.payload_start, entry.payload_end - entry.payload_start,
+                      entry.nbytes, &record);
+  if (st != PVZSTD_OK) return st;
+  pvzstd::detail::ThumbnailRecord parsed;
+  if (!pvzstd::detail::ParseThumbnailRecord(record.data(), record.size(), &parsed)) {
+    return PVZSTD_OK;
+  }
+  const uint32_t crc = pvzstd::detail::Crc32(raw.data() + index_off + 2 * kIndexEntryBytes,
+                                             (n_frames - 2) * kIndexEntryBytes);
+  reader->thumbnail_record = std::move(record);
+  reader->thumbnail = parsed;
+  reader->thumbnail_stale = crc != parsed.data_crc;
+  return PVZSTD_OK;
+}
+
 // Parse a container out of the bytes the reader already points at, however it
 // came by them. Every entry point that produces a reader meets here, because a
 // second copy of this walk would be a second set of bounds checks to keep in
@@ -461,6 +487,12 @@ pvzstd_status ParseContainer(pvzstd_reader *reader, uint32_t *file_version) {
     entry.payload_end = pay_end;
     if (!DeclaredSizeAgrees(entry.shape, entry.dtype, entry.nbytes)) {
       return PVZSTD_E_FORMAT;
+    }
+
+    if (i == 0 && entry.name == pvzstd::detail::kThumbnailName) {
+      st = ReadThumbnail(reader, entry, index_off, n_frames);
+      if (st != PVZSTD_OK) return st;
+      continue;
     }
 
     const bool is_ds = EndsWith(entry.name, kDsMetadataSuffix);
@@ -888,5 +920,19 @@ const char *pvzstd_status_message(pvzstd_status status) {
 }
 
 uint32_t pvzstd_abi_version(void) { return PVZSTD_ABI_VERSION; }
+
+pvzstd_status pvzstd_thumbnail(const pvzstd_reader *reader, pvzstd_thumbnail_info *out) try {
+  if (reader == nullptr || out == nullptr) return PVZSTD_E_INVALID;
+  *out = pvzstd_thumbnail_info{};
+  if (reader->thumbnail_record.empty()) return PVZSTD_OK;
+  out->png = reader->thumbnail_record.data() + reader->thumbnail.png_offset;
+  out->nbytes = reader->thumbnail.png_nbytes;
+  out->width = reader->thumbnail.width;
+  out->height = reader->thumbnail.height;
+  out->stale = reader->thumbnail_stale ? 1 : 0;
+  return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
+}
 
 }  // extern "C"

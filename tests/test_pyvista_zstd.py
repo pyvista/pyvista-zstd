@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -934,8 +935,22 @@ def test_esgrid_round_trip(
     filename = tmp_path / "esgrid.pv"
     pyvista_zstd.write(esgrid, filename, force_int32=force_int32)
 
-    assert pyvista_zstd.Reader(filename).available_cell_arrays == set(esgrid.cell_data)
+    reader = pyvista_zstd.Reader(filename)
+    assert reader.available_cell_arrays == set(esgrid.cell_data)
+    assert not [name for name in reader._metadata.frame_names if name.endswith(impl.CELL_TYPES_KEY)]  # noqa: SLF001
     _assert_esgrid_round_trip(pv.read(filename), esgrid)
+
+
+def test_empty_esgrid_round_trip(tmp_path: Path) -> None:
+    """An empty ExplicitStructuredGrid reads back empty."""
+    esgrid = ExplicitStructuredGrid()
+    filename = tmp_path / "esgrid.pv"
+    pyvista_zstd.write(esgrid, filename)
+
+    out = pv.read(filename)
+    assert isinstance(out, ExplicitStructuredGrid)
+    assert out.GetExtent() == esgrid.GetExtent()
+    assert out.n_points == 0
 
 
 def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:
@@ -983,6 +998,42 @@ def test_vtk_esgrid_needs_id_type_cell_storage(id_type_width: bool) -> None:  # 
     assert flags.all() if id_type_width else not flags.any()
 
 
+# DataSetMetadata fields pyvista-zstd 0.5.0 accepts; it rejects any other key.
+DS_METADATA_FIELDS_0_5_0 = {
+    "ds_type",
+    "uid",
+    "n_points",
+    "points_dtype",
+    "n_cells",
+    "celltypes_dtype",
+    "point_data_keys",
+    "cell_data_keys",
+    "field_data_keys",
+    "fixed_cell_sizes",
+    "point_data_active_scalars_name",
+    "point_data_active_vectors_name",
+    "point_data_active_texture_coordinates_name",
+    "point_data_active_normals_name",
+    "cell_data_active_scalars_name",
+    "cell_data_active_vectors_name",
+    "cell_data_active_texture_coordinates_name",
+    "cell_data_active_normals_name",
+    "dimensions",
+    "origin",
+    "spacing",
+    "direction_matrix",
+    "offset",
+}
+
+
+@pytest.mark.parametrize("fixture", ["polydata", "ugrid", "imagedata", "sgrid", "rgrid", "pointset"])
+def test_ds_metadata_keys_readable_by_0_5_0(fixture: str, request: pytest.FixtureRequest) -> None:
+    """Metadata for datasets other than ExplicitStructuredGrid only uses keys pyvista-zstd 0.5.0 accepts."""
+    ds = request.getfixturevalue(fixture)
+    metadata = impl.DataSetMetadata.from_dataset(ds, {}, {}, {}, {}, uid="0" * impl.UID_N_CHAR)
+    assert set(json.loads(metadata.to_json())) <= DS_METADATA_FIELDS_0_5_0
+
+
 def test_read_esgrid_0_5_0_fixtures() -> None:
     """Read 4x5x6 ExplicitStructuredGrid files written by ``pyvista-zstd==0.5.0``, with and without blocking."""
     esgrid = _make_esgrid("cast")
@@ -997,10 +1048,10 @@ def test_read_esgrid_0_5_0_fixtures() -> None:
 
     reader = pyvista_zstd.Reader(ESGRID_BLOCKING_0_5_0_FIXTURE)
     reader.selected_cell_arrays = {"cell_ids"}
-    with pytest.raises(ValueError, match="Select them in selected_cell_arrays"):
+    with pytest.raises(ValueError, match=r"Select \['BLOCK_I', 'BLOCK_J', 'BLOCK_K'\] in selected_cell_arrays"):
         reader.read()
 
-    with pytest.raises(ValueError, match="does not store them; rewrite it"):
+    with pytest.raises(ValueError, match=r"does not store \['BLOCK_I', 'BLOCK_J', 'BLOCK_K'\]; rewrite it"):
         pyvista_zstd.read(ESGRID_NO_BLOCKING_0_5_0_FIXTURE)
 
 

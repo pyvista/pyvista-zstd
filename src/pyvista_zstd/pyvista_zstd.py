@@ -314,8 +314,12 @@ class DataSetMetadata:
         return cls(**kwargs)
 
     def to_json(self) -> str:
-        """Convert to JSON."""
-        return json.dumps(asdict(self), separators=(",", ":"))
+        """Convert to JSON, leaving out an unset ExplicitStructuredGrid flags array name."""
+        fields = asdict(self)
+        # pyvista-zstd 0.5.0 rejects metadata keys it does not know.
+        if fields["faces_connectivity_flags_array_name"] is None:
+            del fields["faces_connectivity_flags_array_name"]
+        return json.dumps(fields, separators=(",", ":"))
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> DataSetMetadata:
@@ -865,15 +869,18 @@ def _segments_to_esgrid_by_blocking(
         else:
             missing.append(name)
     if missing:
-        if set(missing) <= set(metadata.cell_data_keys):
-            reason = "Select them in selected_cell_arrays to read this file."
-        else:
-            from pyvista_zstd import __version__  # noqa: PLC0415
-
-            reason = f"The file does not store them; rewrite it from the source grid with pyvista-zstd {__version__}."
+        deselected = [name for name in missing if name in metadata.cell_data_keys]
+        absent = [name for name in missing if name not in metadata.cell_data_keys]
+        reasons = []
+        if deselected:
+            reasons.append(f"Select {deselected} in selected_cell_arrays to read this file.")
+        if absent:
+            reasons.append(
+                f"The file does not store {absent}; rewrite it from the source grid with a current pyvista-zstd."
+            )
         msg = (
             f"Cannot rebuild an ExplicitStructuredGrid without {missing}, which define its "
-            f"i/j/k blocking in a file with no stored dimensions. {reason}"
+            f"i/j/k blocking in a file with no stored dimensions. {' '.join(reasons)}"
         )
         raise ValueError(msg)
 

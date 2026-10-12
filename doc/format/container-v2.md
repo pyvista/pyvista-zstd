@@ -373,10 +373,11 @@ note the spelling in the source, `:111-112`), RectilinearGrid (`_x_rgrid` /
 ExplicitStructuredGrid, and MultiBlock.
 
 StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
-and the `cells_connectivity` frame, with `cells_offset` only when its cells are
-not fixed-size. Both record `dimensions` and `offset` in `__ds_metadata`, and the
-reader sets the grid's extent from them; a file with no `offset` reads back with
-an extent starting at 0. The reader converts ExplicitStructuredGrid connectivity
+and the `cells_connectivity` frame with a fixed cell size of 8, and records
+`faces_connectivity_flags_array_name` when the grid has one. Both record
+`dimensions` and `offset` in `__ds_metadata`, and the reader sets the grid's
+extent from them; a file with no `offset` reads back with an extent starting
+at 0. The reader converts ExplicitStructuredGrid connectivity
 to storage as wide as `vtkIdType` (fixed-size where VTK supports it), the only
 width `vtkExplicitStructuredGrid` reads cell points from correctly
 ([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An

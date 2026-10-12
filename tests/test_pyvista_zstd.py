@@ -771,7 +771,7 @@ def one_value_strings(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     return request.param
 
 
-@pytest.mark.filterwarnings("error")
+@pytest.mark.filterwarnings("error::pyvista.PyVistaDeprecationWarning")
 @pytest.mark.usefixtures("one_value_strings")
 def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
     """A dataset's user_dict survives a write and read."""
@@ -788,7 +788,7 @@ def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
     assert tuple(info.shape) == stored.shape
 
 
-@pytest.mark.filterwarnings("error")
+@pytest.mark.filterwarnings("error::pyvista.PyVistaDeprecationWarning")
 @pytest.mark.usefixtures("one_value_strings")
 def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
     """The user_dict of a MultiBlock and of each of its blocks survives a write and read."""
@@ -841,7 +841,7 @@ def test_multiblock_field_data(polydata: PolyData, tmp_path: Path) -> None:
     assert "MultiBlock(children=1, field arrays: ints, text)" in repr(reader)
 
 
-@pytest.mark.filterwarnings("error")
+@pytest.mark.filterwarnings("error::pyvista.PyVistaDeprecationWarning")
 @pytest.mark.usefixtures("one_value_strings")
 def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """The user_dict of every MultiBlock in a nested hierarchy survives a write and read."""

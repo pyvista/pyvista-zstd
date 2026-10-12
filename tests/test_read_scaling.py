@@ -158,7 +158,7 @@ def test_segments_release_empties_vtk_wrappers() -> None:
     view = segments.allocate("0000000000000000points", (4, 3), np.dtype(np.float64))
     view[:] = 1.0
     (vtk_array,) = segments.vtk.values()
-    np.asarray(vtk_array)  # populates the wrapper's cache, as a read does
+    vtk_array.cached = "state"  # what pyvista's mixins leave on a wrapper
     assert vtk_array.__dict__
 
     segments.release()

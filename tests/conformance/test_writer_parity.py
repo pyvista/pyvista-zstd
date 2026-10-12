@@ -160,7 +160,9 @@ def test_empty_arrays_still_record_their_filter(tmp_path) -> None:
     Shuffling nothing is a no-op, so only the one header byte reveals this.
     """
     src = tmp_path / "polydata.pv"
-    pz.write(_sphere(), src, shuffle=True, progress_bar=False)
+    ds = _sphere()
+    ds.field_data["empty_f64"] = np.empty(0)
+    pz.write(ds, src, shuffle=True, progress_bar=False)
     container = ref_reader.read(src)
 
     empty_multibyte = [

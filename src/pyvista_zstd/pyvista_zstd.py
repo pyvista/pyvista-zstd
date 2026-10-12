@@ -836,9 +836,18 @@ def _segments_to_esgrid(
     if metadata.dimensions is None:
         return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
+    points = segments[f"{ds_id}{POINTS_KEY}"]
+    # SetDimensions allocates a cell for every i/j/k position, so check the size first.
+    if np.prod(metadata.dimensions) != len(points):
+        msg = (
+            f"ExplicitStructuredGrid dimensions {tuple(metadata.dimensions)} do not match its "
+            f"{len(points)} points; the file is corrupt."
+        )
+        raise ValueError(msg)
+
     esgrid = ExplicitStructuredGrid()
     esgrid.SetDimensions(*metadata.dimensions)
-    esgrid.points = segments[f"{ds_id}{POINTS_KEY}"]
+    esgrid.points = points
     cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
     if cells is not None:
         # VTK misreads ESG cells narrower than vtkIdType: https://gitlab.kitware.com/vtk/vtk/-/work_items/20126

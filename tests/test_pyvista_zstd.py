@@ -928,6 +928,18 @@ def test_empty_esgrid_round_trip(tmp_path: Path) -> None:
     assert out.n_cells == 0
 
 
+def test_esgrid_dimensions_must_match_points(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reading an ExplicitStructuredGrid whose stored dimensions disagree with its points raises."""
+    esgrid = _make_esgrid("cast")
+    filename = tmp_path / "esgrid.pv"
+    with monkeypatch.context() as patch:
+        patch.setattr(ExplicitStructuredGrid, "dimensions", property(lambda _: (1000, 1000, 1000)))
+        pyvista_zstd.write(esgrid, filename)
+
+    with pytest.raises(ValueError, match=r"dimensions \(1000, 1000, 1000\) do not match its 120 points"):
+        pyvista_zstd.read(filename)
+
+
 def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:
     """An ExplicitStructuredGrid nested in a MultiBlock reads back intact."""
     esgrid = _make_esgrid("user_arrays")

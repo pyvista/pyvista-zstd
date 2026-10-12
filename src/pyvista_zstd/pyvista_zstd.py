@@ -135,6 +135,13 @@ _FILTER_SHUFFLE = 1
 
 ShuffleSpec = Literal["auto", True, False]
 
+Association = Literal["point", "cell", "field"]
+_ASSOCIATION_SUFFIXES: dict[str, str] = {
+    "point": POINT_DATA_SUFFIX,
+    "cell": CELL_DATA_SUFFIX,
+    "field": FIELD_DATA_SUFFIX,
+}
+
 
 def _shuffle_mode(shuffle: ShuffleSpec) -> int:
     """Translate the API spelling to the core's policy enum."""
@@ -147,7 +154,17 @@ def _shuffle_mode(shuffle: ShuffleSpec) -> int:
 
 @dataclass(slots=True, frozen=True)
 class ArrayInfo:
-    """Array metadata."""
+    """
+    Shape and dtype of one stored array, known without decompressing it.
+
+    Attributes
+    ----------
+    shape : tuple[int, ...]
+        Array shape.
+    dtype : str
+        NumPy dtype name, such as ``"float32"``.
+
+    """
 
     shape: tuple[int, ...]
     dtype: str
@@ -155,7 +172,23 @@ class ArrayInfo:
 
 @dataclass(slots=True, frozen=True)
 class ZstdFileMetadata:
-    """pyvista-zstd file metadata."""
+    """
+    File-level facts of a pyvista-zstd container.
+
+    Returned by :attr:`pyvista_zstd.Reader.file_metadata`.
+
+    Attributes
+    ----------
+    frame_names : list[str]
+        Stored name of every array frame, in file order.
+    compression_level : int
+        Zstandard level the file was written with.
+    compression : str
+        Compression algorithm, ``"zstandard"``.
+    file_version : int
+        On-disk format version.
+
+    """
 
     frame_names: list[str]
     compression_level: int
@@ -181,7 +214,25 @@ class ZstdFileMetadata:
 
 @dataclass
 class MultiBlockMetadata:
-    """MultiBlock metadata."""
+    """
+    Metadata of a stored :class:`pyvista.MultiBlock`.
+
+    Returned by :attr:`pyvista_zstd.Reader.dataset_metadata` for a MultiBlock
+    file, with :attr:`children_ds` filled in down the whole tree.
+
+    Attributes
+    ----------
+    uid : str
+        Identifier of this block within the file.
+    children : list[str]
+        Identifier of each child, in block order.
+    children_keys : list[str]
+        Name of each child, in block order.
+    children_ds : dict[str, MultiBlockMetadata | DataSetMetadata | None] | None
+        Metadata of each child keyed by identifier. ``None`` values are empty
+        blocks.
+
+    """
 
     uid: str
     children: list[str]
@@ -214,7 +265,43 @@ class MultiBlockMetadata:
 
 @dataclass(slots=True, frozen=True)
 class DataSetMetadata:
-    """DataSet metadata."""
+    """
+    Metadata of one stored dataset, known without decompressing its arrays.
+
+    Returned by :attr:`pyvista_zstd.Reader.dataset_metadata`.
+
+    Attributes
+    ----------
+    ds_type : str
+        Dataset class name, such as ``"UnstructuredGrid"``.
+    uid : str
+        Identifier of this dataset within the file.
+    n_points, n_cells : int
+        Number of points and cells.
+    points_dtype, celltypes_dtype : str | None
+        Dtype of the points and cell types, when the dataset stores them.
+    point_data_keys, cell_data_keys, field_data_keys : dict[str, ArrayInfo]
+        Shape and dtype of each point, cell and field array, by name.
+    fixed_cell_sizes : dict[str, int]
+        Common cell width of each fixed-width cell array.
+    point_data_active_scalars_name, point_data_active_vectors_name : str | None
+        Active point scalars and vectors.
+    point_data_active_texture_coordinates_name, point_data_active_normals_name : str | None
+        Active point texture coordinates and normals.
+    cell_data_active_scalars_name, cell_data_active_vectors_name : str | None
+        Active cell scalars and vectors.
+    cell_data_active_texture_coordinates_name, cell_data_active_normals_name : str | None
+        Active cell texture coordinates and normals.
+    dimensions : tuple[int, int, int] | None
+        Dimensions of an :class:`pyvista.ImageData` or :class:`pyvista.StructuredGrid`.
+    origin, spacing : tuple[float, float, float] | None
+        Origin and spacing of an :class:`pyvista.ImageData`.
+    direction_matrix : list[list[float]] | None
+        Direction matrix of an :class:`pyvista.ImageData`.
+    offset : tuple[int, int, int] | None
+        Index offset of an :class:`pyvista.ImageData`.
+
+    """
 
     ds_type: str
     uid: str
@@ -240,7 +327,7 @@ class DataSetMetadata:
     origin: tuple[float, float, float] | None = None
     spacing: tuple[float, float, float] | None = None
     direction_matrix: list[list[float]] | None = None
-    offset: int | None = None
+    offset: tuple[int, int, int] | None = None
 
     @classmethod
     def from_dataset(  # noqa: PLR0913
@@ -325,7 +412,7 @@ class DataSetMetadata:
         raw = json.loads(s)
 
         def decode_mapping(m: dict[str, Any]) -> dict[str, ArrayInfo]:
-            return {k: ArrayInfo(**v) for k, v in m.items()}
+            return {k: ArrayInfo(shape=tuple(v["shape"]), dtype=v["dtype"]) for k, v in m.items()}
 
         raw["point_data_keys"] = decode_mapping(raw.get("point_data_keys", {}))
         raw["cell_data_keys"] = decode_mapping(raw.get("cell_data_keys", {}))
@@ -1102,6 +1189,18 @@ class _DataSetReader:
             return EMPTY_DS
         return self._meta.uid
 
+    @property
+    def dataset_metadata(self) -> DataSetMetadata | MultiBlockMetadata | None:
+        """Return this block's metadata, or ``None`` for an empty block."""
+        return self._meta
+
+    def read_array(self, name: str, association: Association = "point") -> NDArray[Any]:
+        """Decompress one named array of this block; see :meth:`Reader.read_array`."""
+        if not isinstance(self._meta, DataSetMetadata):
+            msg = "Only dataset blocks have arrays; index a MultiBlock node further."
+            raise TypeError(msg)
+        return self._parent._read_array(self._meta, name, association)  # noqa: SLF001
+
     def read(self, n_threads: int | None = None) -> DataSet | MultiBlock:
         return self._read_shared({}, n_threads)
 
@@ -1362,6 +1461,108 @@ class Reader:
     def nbytes(self) -> int:
         """Return the size of the decompressed dataset."""
         return int(self.decompressed_sizes.sum())
+
+    @property
+    def file_metadata(self) -> ZstdFileMetadata:
+        """
+        Return the file-level facts: format version, compression and level.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv", level=5)
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
+        >>> reader.file_metadata.compression_level
+        5
+
+        """
+        return self._metadata
+
+    @property
+    def dataset_metadata(self) -> DataSetMetadata | MultiBlockMetadata:
+        """
+        Return the dataset's metadata without decompressing any array.
+
+        A MultiBlock file returns a :class:`MultiBlockMetadata` whose
+        ``children_ds`` holds the metadata of every block, nested.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
+        >>> meta = pyvista_zstd.Reader("sphere.pv").dataset_metadata
+        >>> meta.ds_type, meta.n_points, meta.n_cells
+        ('PolyData', 842, 1680)
+        >>> meta.point_data_keys["Normals"]
+        ArrayInfo(shape=(842, 3), dtype='float32')
+
+        """
+        if isinstance(self._ds_metadata, MultiBlockMetadata):
+            root = self._ds_reader.dataset_metadata
+            if root is None:  # pragma: no cover - the root of a tree is never empty
+                msg = "Top-level multiblock metadata not found."
+                raise RuntimeError(msg)
+            return root
+        return self._ds_metadata
+
+    def read_array(self, name: str, association: Association = "point") -> NDArray[Any]:
+        """
+        Decompress one named array, leaving the rest of the file untouched.
+
+        A block of a MultiBlock file is read the same way after indexing to it,
+        as in ``reader[0].read_array(name)``.
+
+        Parameters
+        ----------
+        name : str
+            Array name.
+        association : {"point", "cell", "field"}, default: "point"
+            Data the array belongs to.
+
+        Returns
+        -------
+        numpy.ndarray
+            The stored array.
+
+        Raises
+        ------
+        KeyError
+            The dataset has no such array.
+        TypeError
+            The file is a MultiBlock; index it to a block first.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
+        >>> reader.read_array("Normals").shape
+        (842, 3)
+
+        """
+        if isinstance(self._ds_metadata, MultiBlockMetadata):
+            msg = "A MultiBlock file has no root arrays; index the reader to a block first."
+            raise TypeError(msg)
+        return self._read_array(self._ds_metadata, name, association)
+
+    def _read_array(self, meta: DataSetMetadata, name: str, association: str) -> NDArray[Any]:
+        """Decompress the named array of the dataset *meta* describes."""
+        arrays = {"point": meta.point_data_keys, "cell": meta.cell_data_keys, "field": meta.field_data_keys}
+        if association not in arrays:
+            msg = f"association must be one of {tuple(arrays)}, not {association!r}"
+            raise ValueError(msg)
+        if name not in arrays[association]:
+            msg = f"{association} array {name!r} not found; available: {sorted(arrays[association])}"
+            raise KeyError(msg)
+        core = self._core_reader()
+        index = core.find(f"{meta.uid}{name}{_ASSOCIATION_SUFFIXES[association]}")
+        if index is None:  # pragma: no cover - metadata and index disagree
+            msg = f"{association} array {name!r} is listed in the metadata but not stored"
+            raise RuntimeError(msg)
+        return core.read_at(index)
 
     def _file_metadata_from_core(self) -> ZstdFileMetadata:
         """

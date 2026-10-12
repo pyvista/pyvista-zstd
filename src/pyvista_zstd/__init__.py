@@ -14,8 +14,13 @@ from pyvista_zstd.append import AppendReader
 from pyvista_zstd.append import append_arrays
 from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import FILE_VERSION
+from pyvista_zstd.pyvista_zstd import ArrayInfo
+from pyvista_zstd.pyvista_zstd import Association
+from pyvista_zstd.pyvista_zstd import DataSetMetadata
+from pyvista_zstd.pyvista_zstd import MultiBlockMetadata
 from pyvista_zstd.pyvista_zstd import Reader
 from pyvista_zstd.pyvista_zstd import Writer
+from pyvista_zstd.pyvista_zstd import ZstdFileMetadata
 from pyvista_zstd.pyvista_zstd import read
 from pyvista_zstd.pyvista_zstd import read_buffer
 from pyvista_zstd.pyvista_zstd import write
@@ -23,8 +28,13 @@ from pyvista_zstd.pyvista_zstd import write
 __all__ = [
     "FILE_VERSION",
     "AppendReader",
+    "ArrayInfo",
+    "Association",
+    "DataSetMetadata",
+    "MultiBlockMetadata",
     "Reader",
     "Writer",
+    "ZstdFileMetadata",
     "append_arrays",
     "read",
     "read_array",

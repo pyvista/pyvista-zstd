@@ -39,7 +39,8 @@ struct PendingArray {
   uint64_t size() const { return borrowed != nullptr ? borrowed_size : owned.size(); }
 };
 
-// Whether `json` is a single JSON object and nothing else.
+// Whether `json` is one brace-balanced object with nothing after it. Members are
+// not validated; a reader's JSON parser still rejects a malformed one.
 bool IsJsonObject(const std::string &json) {
   size_t i = 0;
   if (!pvzstd::json::SkipWs(json, &i) || json[i] != '{') return false;
@@ -49,7 +50,7 @@ bool IsJsonObject(const std::string &json) {
 
 // Sets *uses to whether a staged metadata document records MultiBlock field
 // arrays or an ExplicitStructuredGrid, both of which readers with a ceiling of 2
-// cannot decode. PVZSTD_E_INVALID when a metadata document is not a JSON object.
+// cannot decode. PVZSTD_E_INVALID when a metadata document fails IsJsonObject.
 pvzstd_status ScanVersion3Features(const std::vector<PendingArray> &arrays, bool *uses) {
   *uses = false;
   for (const PendingArray &a : arrays) {
@@ -211,6 +212,11 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   if (writer == nullptr || path == nullptr) return PVZSTD_E_INVALID;
   if (writer->arrays.empty()) return PVZSTD_E_INVALID;
 
+  // Before any compression, so a malformed metadata document fails fast.
+  bool uses_version_3 = false;
+  const pvzstd_status scanned = ScanVersion3Features(writer->arrays, &uses_version_3);
+  if (scanned != PVZSTD_OK) return scanned;
+
   // 1. Resolve each array's filter, exactly as the reference writer does.
   std::vector<uint8_t> filters(writer->arrays.size(), PVZSTD_FILTER_NONE);
   bool any_filtered = false;
@@ -234,9 +240,6 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   }
 
   // 2. File version is the highest optional feature used, not a generation.
-  bool uses_version_3 = false;
-  const pvzstd_status scanned = ScanVersion3Features(writer->arrays, &uses_version_3);
-  if (scanned != PVZSTD_OK) return scanned;
   int file_version = 0;
   if (uses_version_3) {
     file_version = 3;

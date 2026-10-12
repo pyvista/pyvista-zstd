@@ -910,8 +910,8 @@ def test_multiblock_field_data_member_presence_sets_file_version(tmp_path: Path,
 
 
 @pytest.mark.parametrize("suffix", [impl.DS_METADATA_KEY, impl.MULTIBLOCK_METADATA_KEY])
-@pytest.mark.parametrize("doc", ['{"ds_type":', "[]", '{"uid":"x"} trailing'])
-def test_unparsable_staged_metadata_is_refused(tmp_path: Path, suffix: str, doc: str) -> None:
+@pytest.mark.parametrize("doc", ["", " \n\t", '{"ds_type":', "[]", '{"uid":"x"} trailing'])
+def test_non_object_staged_metadata_is_refused(tmp_path: Path, suffix: str, doc: str) -> None:
     """A staged metadata document that is not a JSON object is refused, and nothing is written."""
     filename = tmp_path / "tmp.pv"
     with _capi.CoreWriter() as writer:

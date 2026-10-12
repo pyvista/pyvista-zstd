@@ -322,7 +322,7 @@ PVZSTD_API pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, co
  * "*__ds_metadata" document has ds_type "ExplicitStructuredGrid" or a
  * "*__multiblock__ds_metadata" document has a field_data_keys member, and the
  * call returns PVZSTD_E_INVALID, writing nothing, when such a document is not a
- * JSON object. */
+ * single brace-balanced JSON object. */
 PVZSTD_API pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path);
 
 /* ------------------------------------------------------------------ *

@@ -379,7 +379,7 @@ a static, human-readable string and is never ``NULL``.
      - A per-array filter id this build cannot reverse.
    * - ``PVZSTD_E_INVALID``
      - ``NULL`` argument or misuse, including a staged metadata document that is
-       not a JSON object.
+       not a single brace-balanced JSON object.
    * - ``PVZSTD_E_UNSUPPORTED``
      - The container is a shape this operation cannot serve.
    * - ``PVZSTD_E_EXISTS``

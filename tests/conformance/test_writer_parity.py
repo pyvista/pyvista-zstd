@@ -101,7 +101,15 @@ def _bulk() -> pv.DataSet:
     return ds
 
 
+def _esgrid() -> pv.DataSet:
+    """Return an ExplicitStructuredGrid with a non-ASCII array name, a version 3 file."""
+    ds = pv.ImageData(dimensions=(5, 6, 7)).cast_to_structured_grid().cast_to_explicit_structured_grid()
+    ds.point_data["témp😀"] = np.linspace(0.0, 1.0, ds.n_points)
+    return ds
+
+
 DATASETS = {
+    "esgrid": _esgrid,
     "polydata": _sphere,
     "unstructured": _unstructured,
     "image": _image,

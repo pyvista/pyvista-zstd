@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -12,8 +13,6 @@ from pyvista import examples
 import pyvista_zstd
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from pyvista.core.dataset import DataSet
 
 
@@ -98,8 +97,9 @@ def test_dataset_metadata_and_read_array(dataset: DataSet, tmp_path: Path) -> No
         _assert_metadata_matches(meta, full)
         _assert_arrays_match_full_read(reader, full)
 
-    if isinstance(dataset, pv.ImageData):
+    if isinstance(dataset, (pv.ImageData, pv.StructuredGrid)):
         assert meta.dimensions == dataset.dimensions
+    if isinstance(dataset, pv.ImageData):
         assert meta.spacing == dataset.spacing
         assert meta.origin == dataset.origin
         assert meta.offset == dataset.offset
@@ -149,7 +149,7 @@ def test_multiblock_metadata_and_read_array(tmp_path: Path) -> None:
             _assert_arrays_match_full_read(reader[1][index], full[1][index])
 
         assert reader[2].dataset_metadata is None
-        with pytest.raises(TypeError, match="index the reader to a block"):
+        with pytest.raises(TypeError, match="arrays with reader"):
             reader.read_array("float32", association="point")
         with pytest.raises(TypeError, match="Only dataset blocks"):
             reader[1].read_array("float32", association="point")
@@ -219,3 +219,40 @@ def test_read_array_function_association(tmp_path: Path) -> None:
     _assert_same_array(pyvista_zstd.read_array(path, "ids", association="cell"), ds.cell_data["ids"])
     with pytest.raises(KeyError, match="cell array 'vectors' not found"):
         pyvista_zstd.read_array(path, "vectors", association="cell")
+
+
+def test_read_array_same_name_point_and_cell(tmp_path: Path) -> None:
+    """A name shared by point and cell data reads the array of the association asked for."""
+    ds = pv.Sphere()
+    ds.point_data["x"] = np.arange(ds.n_points, dtype=float)
+    ds.cell_data["x"] = -np.arange(ds.n_cells, dtype=float)
+    path = tmp_path / "sphere.pv"
+    pyvista_zstd.write(ds, path)
+    with pyvista_zstd.Reader(path) as reader:
+        _assert_same_array(reader.read_array("x", association="point"), ds.point_data["x"])
+        _assert_same_array(reader.read_array("x", association="cell"), ds.cell_data["x"])
+
+
+@pytest.mark.parametrize(
+    ("ds", "points_dtype"), [(pv.Sphere(), "float32"), (pv.Sphere().points_to_double(), "float64")]
+)
+def test_points_dtype_is_a_dtype_name(tmp_path: Path, ds: DataSet, points_dtype: str) -> None:
+    """The points dtype reads back as a NumPy dtype name."""
+    path = tmp_path / "sphere.pv"
+    pyvista_zstd.write(ds, path)
+    assert pyvista_zstd.Reader(path).dataset_metadata.points_dtype == points_dtype
+
+
+def test_points_dtype_of_older_files() -> None:
+    """Files that stored the repr of the NumPy type report a dtype name too."""
+    path = Path(__file__).parent / "test_data" / "sphere_file_version_0.pv"
+    assert pyvista_zstd.Reader(path).dataset_metadata.points_dtype == "float32"
+
+
+@pytest.mark.parametrize(("association", "error"), [("field", KeyError), ("point", TypeError), ("cell", TypeError)])
+def test_read_array_function_multiblock(tmp_path: Path, association: str, error: type[Exception]) -> None:
+    """The module-level read_array says a MultiBlock file has no root arrays."""
+    path = tmp_path / "mb.pv"
+    pyvista_zstd.write(pv.MultiBlock({"sphere": _populated(pv.Sphere())}), path)
+    with pytest.raises(error, match="is a MultiBlock file"):
+        pyvista_zstd.read_array(path, "time", association=association)

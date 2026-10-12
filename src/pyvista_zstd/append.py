@@ -51,6 +51,7 @@ import numpy as np
 from pyvista_zstd import _capi
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import ArrayInfo
+from pyvista_zstd.pyvista_zstd import MultiBlockMetadata
 from pyvista_zstd.pyvista_zstd import Reader
 from pyvista_zstd.pyvista_zstd import _shuffle_mode
 from pyvista_zstd.pyvista_zstd import _warn_backend_deprecated
@@ -176,16 +177,26 @@ def read_array(
     Raises
     ------
     KeyError
-        The file has no such array.
+        The file has no such array, including a field array of a MultiBlock
+        file, which has no root arrays.
     TypeError
-        The file is a MultiBlock and *association* is not ``"field"``.
+        The file is a MultiBlock and *association* is ``"point"`` or ``"cell"``.
 
     """
     _warn_backend_deprecated(backend)
     if association == "field":
-        with AppendReader(filename) as reader:
-            return reader.read_array(name)
+        with AppendReader(filename) as append_reader:
+            if name in append_reader:
+                return append_reader.read_array(name)
     with Reader(_checked_path(filename)) as reader:
+        if isinstance(reader.dataset_metadata, MultiBlockMetadata):
+            msg = (
+                f"'{filename}' is a MultiBlock file, which has no root arrays; "
+                "read a block's arrays with Reader(path)[i].read_array(...)."
+            )
+            if association == "field":
+                raise KeyError(msg)
+            raise TypeError(msg)
         return reader.read_array(name, association=association)
 
 

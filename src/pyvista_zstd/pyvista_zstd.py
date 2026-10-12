@@ -181,7 +181,8 @@ class ZstdFileMetadata:
     Attributes
     ----------
     frame_names : list[str]
-        Stored name of every array frame, in file order.
+        Stored name of every frame, metadata frames included, in file order.
+        Each name starts with the 16-character identifier of its dataset.
     compression_level : int
         Zstandard level the file was written with.
     compression : str
@@ -262,6 +263,10 @@ class MultiBlockMetadata:
         """Output as a numpy uint8 array."""
         meta_bytes = self.to_json().encode("utf-8")
         return np.frombuffer(meta_bytes, dtype=np.uint8)
+
+
+# Files written before 0.6 store the points dtype as the repr of its NumPy type.
+_LEGACY_POINTS_DTYPES = {"<class 'numpy.float32'>": "float32", "<class 'numpy.float64'>": "float64"}
 
 
 @dataclass(slots=True, frozen=True)
@@ -367,7 +372,7 @@ class DataSetMetadata:
             "ds_type": type(ds).__name__,
             "uid": uid,
             "n_points": ds.n_points,
-            "points_dtype": str(points_dtype) if points_dtype is not None else None,
+            "points_dtype": np.dtype(points_dtype).name if points_dtype is not None else None,
             "n_cells": ds.n_cells,
             "celltypes_dtype": str(ds.celltypes.dtype) if hasattr(ds, "celltypes") else None,
             "point_data_keys": point_info,
@@ -419,6 +424,7 @@ class DataSetMetadata:
         raw["cell_data_keys"] = decode_mapping(raw.get("cell_data_keys", {}))
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
         raw["fixed_cell_sizes"] = raw.get("fixed_cell_sizes", {})
+        raw["points_dtype"] = _LEGACY_POINTS_DTYPES.get(raw.get("points_dtype"), raw.get("points_dtype"))
         for key in ("dimensions", "origin", "spacing", "offset"):
             if raw.get(key) is not None:
                 raw[key] = tuple(raw[key])
@@ -1157,11 +1163,10 @@ def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: 
 
 def _association_arrays(meta: DataSetMetadata, association: str) -> dict[str, ArrayInfo]:
     """Return the arrays of *meta* that belong to *association*."""
-    arrays = {"point": meta.point_data_keys, "cell": meta.cell_data_keys, "field": meta.field_data_keys}
-    if association not in arrays:
-        msg = f"association must be one of {tuple(arrays)}, not {association!r}"
+    if association not in _ASSOCIATION_SUFFIXES:
+        msg = f"association must be one of {tuple(_ASSOCIATION_SUFFIXES)}, not {association!r}"
         raise ValueError(msg)
-    return arrays[association]
+    return getattr(meta, f"{association}_data_keys")
 
 
 class _DataSetReader:
@@ -1324,7 +1329,7 @@ class Reader:
       Compression:        zstandard
       Compression Level:  3
       Dataset Type:       PolyData
-      N Points:           842 (<class 'numpy.float32'>)
+      N Points:           842 (float32)
       N Cells:            1680
       Point arrays:
           Normals                  float32    (842, 3)
@@ -1546,6 +1551,8 @@ class Reader:
             The dataset has no such array.
         TypeError
             The file is a MultiBlock; index it to a block first.
+        ValueError
+            *association* is not one of the three above.
 
         Examples
         --------
@@ -1558,7 +1565,7 @@ class Reader:
 
         """
         if isinstance(self._ds_metadata, MultiBlockMetadata):
-            msg = "A MultiBlock file has no root arrays; index the reader to a block first."
+            msg = "A MultiBlock file has no root arrays; read a block's arrays with reader[i].read_array(...)."
             raise TypeError(msg)
         return self._read_array(self._ds_metadata, name, association)
 

@@ -10,7 +10,9 @@ datasets using `Zstandard <https://github.com/facebook/zstd>`_
 
 :func:`pyvista_zstd.read` and :func:`pyvista_zstd.write` work on files.
 A container that is already in memory, rather than on disk, is read with
-:func:`pyvista_zstd.read_buffer`.
+:func:`pyvista_zstd.read_buffer`. :func:`pyvista_zstd.read_metadata` describes a
+container without decompressing its arrays, and :func:`pyvista_zstd.read_array`
+reads a single array.
 
 
 .. autosummary::
@@ -18,6 +20,8 @@ A container that is already in memory, rather than on disk, is read with
 
    pyvista_zstd.read
    pyvista_zstd.read_buffer
+   pyvista_zstd.read_metadata
+   pyvista_zstd.read_array
    pyvista_zstd.write
 
 
@@ -43,19 +47,24 @@ one array at a time:
         meta = reader.dataset_metadata  # type, sizes, array shapes and dtypes
         level = reader.file_metadata.compression_level
         stress = reader.read_array("stress", association="cell")
+        sizes = reader.array_sizes("cell")  # decompressed and compressed bytes
         # For a MultiBlock, index to the block first
         # normals = reader[0][1].read_array("Normals")
 
 
 Metadata
 --------
-Returned by :attr:`pyvista_zstd.Reader.dataset_metadata` and
-:attr:`pyvista_zstd.Reader.file_metadata`.
+Returned by :func:`pyvista_zstd.read_metadata`,
+:attr:`pyvista_zstd.Reader.dataset_metadata`,
+:attr:`pyvista_zstd.Reader.file_metadata` and
+:meth:`pyvista_zstd.Reader.array_sizes`.
 
 .. autosummary::
    :toctree: _autosummary
 
+   pyvista_zstd.ContainerMetadata
    pyvista_zstd.DataSetMetadata
    pyvista_zstd.MultiBlockMetadata
    pyvista_zstd.ArrayInfo
+   pyvista_zstd.ArraySize
    pyvista_zstd.ZstdFileMetadata

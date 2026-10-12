@@ -51,6 +51,7 @@ import numpy as np
 from pyvista_zstd import _capi
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import ArrayInfo
+from pyvista_zstd.pyvista_zstd import Reader
 from pyvista_zstd.pyvista_zstd import _shuffle_mode
 from pyvista_zstd.pyvista_zstd import _warn_backend_deprecated
 
@@ -60,6 +61,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from numpy.typing import NDArray
 
     from pyvista_zstd._capi import CoreReader
+    from pyvista_zstd.pyvista_zstd import Association
     from pyvista_zstd.pyvista_zstd import ShuffleSpec
 
 __all__ = [
@@ -143,14 +145,16 @@ def read_array(
     filename: Path | str,
     name: str,
     *,
+    association: Association = "field",
     backend: str | None = None,
 ) -> NDArray:
     """
-    Read a single appended (field) array back without full decompression.
+    Read a single array back without full decompression.
 
     Decompresses exactly the two frames of the named block - the rest of
     the file is never decompressed, so this stays cheap even on a
-    multi-gigabyte container.
+    multi-gigabyte container. Arrays of a MultiBlock's blocks are read with
+    :meth:`pyvista_zstd.Reader.read_array` after indexing to the block.
 
     Parameters
     ----------
@@ -159,6 +163,8 @@ def read_array(
     name : str
         Field-array name (the key passed to :func:`append_arrays`, or any
         field-data key present in the file).
+    association : {"field", "point", "cell"}, default: "field"
+        Data the array belongs to.
     backend : str, optional
         Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
@@ -169,7 +175,10 @@ def read_array(
 
     """
     _warn_backend_deprecated(backend)
-    return AppendReader(filename).read_array(name)
+    if association == "field":
+        return AppendReader(filename).read_array(name)
+    with Reader(_checked_path(filename)) as reader:
+        return reader.read_array(name, association)
 
 
 class AppendReader:

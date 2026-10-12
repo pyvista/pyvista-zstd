@@ -203,3 +203,67 @@ def test_read_array_errors(tmp_path: Path) -> None:
     assert reader.dataset_metadata.n_points == ds.n_points
     with pytest.raises(ValueError, match="closed Reader"):
         reader.read_array("vectors")
+
+
+def test_array_sizes(dataset: DataSet, tmp_path: Path) -> None:
+    """Each array's decompressed size matches its data, and the sizes sum to the file's."""
+    path = tmp_path / "ds.pv"
+    pyvista_zstd.write(dataset, path)
+    with pyvista_zstd.Reader(path) as reader:
+        compressed = 0
+        for association, data in (
+            ("point", dataset.point_data),
+            ("cell", dataset.cell_data),
+            ("field", dataset.field_data),
+        ):
+            sizes = reader.array_sizes(association)
+            assert set(sizes) == set(data.keys())
+            for name, size in sizes.items():
+                assert size.nbytes == data[name].nbytes
+                assert size.compressed_nbytes > 0
+                compressed += size.compressed_nbytes
+        assert compressed < reader.compressed_nbytes < path.stat().st_size
+
+
+def test_array_sizes_multiblock(tmp_path: Path) -> None:
+    """Block arrays are sized after indexing to the block."""
+    sphere = _populated(pv.Sphere())
+    path = tmp_path / "mb.pv"
+    pyvista_zstd.write(pv.MultiBlock({"sphere": sphere, "empty": None}), path)
+    with pyvista_zstd.Reader(path) as reader:
+        assert reader[0].array_sizes("cell")["ids"].nbytes == sphere.cell_data["ids"].nbytes
+        with pytest.raises(TypeError, match="index the reader to a block"):
+            reader.array_sizes()
+        with pytest.raises(TypeError, match="Only dataset blocks"):
+            reader[1].array_sizes()
+        with pytest.raises(ValueError, match="association must be one of"):
+            reader[0].array_sizes("points")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("from_buffer", [False, True])
+def test_read_metadata(tmp_path: Path, from_buffer: bool) -> None:  # noqa: FBT001
+    """read_metadata reports what a reader does, from a path or from bytes."""
+    path = tmp_path / "mb.pv"
+    level = 5
+    pyvista_zstd.write(pv.MultiBlock({"sphere": _populated(pv.Sphere())}), path, level=level)
+    meta = pyvista_zstd.read_metadata(path.read_bytes() if from_buffer else str(path))
+    assert isinstance(meta, pyvista_zstd.ContainerMetadata)
+    with pyvista_zstd.Reader(path) as reader:
+        assert meta.file == reader.file_metadata
+        assert meta.dataset == reader.dataset_metadata
+        assert meta.nbytes == reader.nbytes
+        assert meta.compressed_nbytes == reader.compressed_nbytes
+    assert meta.file.compression_level == level
+    assert isinstance(meta.dataset, pyvista_zstd.MultiBlockMetadata)
+
+
+def test_read_array_function_association(tmp_path: Path) -> None:
+    """The module-level read_array reads point and cell arrays as well as field arrays."""
+    ds = _populated(pv.Sphere())
+    path = tmp_path / "sphere.pv"
+    pyvista_zstd.write(ds, path)
+    _assert_same_array(pyvista_zstd.read_array(path, "time"), ds.field_data["time"])
+    _assert_same_array(pyvista_zstd.read_array(path, "vectors", association="point"), ds.point_data["vectors"])
+    _assert_same_array(pyvista_zstd.read_array(path, "ids", association="cell"), ds.cell_data["ids"])
+    with pytest.raises(KeyError, match="cell array 'vectors' not found"):
+        pyvista_zstd.read_array(path, "vectors", association="cell")

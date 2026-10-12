@@ -171,6 +171,24 @@ class ArrayInfo:
 
 
 @dataclass(slots=True, frozen=True)
+class ArraySize:
+    """
+    Size of one stored array, known without decompressing it.
+
+    Attributes
+    ----------
+    nbytes : int
+        Size of the array once decompressed.
+    compressed_nbytes : int
+        Bytes the array occupies in the file.
+
+    """
+
+    nbytes: int
+    compressed_nbytes: int
+
+
+@dataclass(slots=True, frozen=True)
 class ZstdFileMetadata:
     """
     File-level facts of a pyvista-zstd container.
@@ -1151,6 +1169,84 @@ def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: 
         return reader.read(n_threads=n_threads)
 
 
+def _association_arrays(meta: DataSetMetadata, association: str) -> dict[str, ArrayInfo]:
+    """Return the arrays of *meta* that belong to *association*."""
+    arrays = {"point": meta.point_data_keys, "cell": meta.cell_data_keys, "field": meta.field_data_keys}
+    if association not in arrays:
+        msg = f"association must be one of {tuple(arrays)}, not {association!r}"
+        raise ValueError(msg)
+    return arrays[association]
+
+
+@dataclass(slots=True, frozen=True)
+class ContainerMetadata:
+    """
+    Everything known about a pyvista-zstd container without decompressing arrays.
+
+    Returned by :func:`pyvista_zstd.read_metadata`.
+
+    Attributes
+    ----------
+    file : ZstdFileMetadata
+        Format version, compression and level.
+    dataset : DataSetMetadata | MultiBlockMetadata
+        Metadata of the stored dataset, or of every block of a MultiBlock.
+    nbytes : int
+        Size of the container once decompressed.
+    compressed_nbytes : int
+        Size of the compressed frames.
+
+    """
+
+    file: ZstdFileMetadata
+    dataset: DataSetMetadata | MultiBlockMetadata
+    nbytes: int
+    compressed_nbytes: int
+
+
+def read_metadata(
+    source: Path | str | bytes | bytearray | memoryview | NDArray[Any],
+    *,
+    check_extension: bool = True,
+) -> ContainerMetadata:
+    """
+    Read a container's metadata without decompressing any array.
+
+    Parameters
+    ----------
+    source : pathlib.Path | str | bytes | bytearray | memoryview | numpy.ndarray
+        Path to the file, or a whole container held in memory.
+    check_extension : bool, default: True
+        Set False for an application-specific filename extension.
+
+    Returns
+    -------
+    ContainerMetadata
+        File and dataset metadata, and the container's sizes.
+
+    Examples
+    --------
+    >>> import pyvista as pv
+    >>> import pyvista_zstd
+    >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
+    >>> meta = pyvista_zstd.read_metadata("sphere.pv")
+    >>> meta.dataset.ds_type, meta.file.compression_level
+    ('PolyData', 3)
+
+    """
+    if isinstance(source, (Path, str)):
+        reader = Reader(source, check_extension=check_extension)
+    else:
+        reader = Reader(buffer=source)
+    with reader:
+        return ContainerMetadata(
+            file=reader.file_metadata,
+            dataset=reader.dataset_metadata,
+            nbytes=reader.nbytes,
+            compressed_nbytes=reader.compressed_nbytes,
+        )
+
+
 class _DataSetReader:
     def __init__(
         self,
@@ -1200,6 +1296,13 @@ class _DataSetReader:
             msg = "Only dataset blocks have arrays; index a MultiBlock node further."
             raise TypeError(msg)
         return self._parent._read_array(self._meta, name, association)  # noqa: SLF001
+
+    def array_sizes(self, association: Association = "point") -> dict[str, ArraySize]:
+        """Return the stored size of each array of this block; see :meth:`Reader.array_sizes`."""
+        if not isinstance(self._meta, DataSetMetadata):
+            msg = "Only dataset blocks have arrays; index a MultiBlock node further."
+            raise TypeError(msg)
+        return self._parent._array_sizes(self._meta, association)  # noqa: SLF001
 
     def read(self, n_threads: int | None = None) -> DataSet | MultiBlock:
         return self._read_shared({}, n_threads)
@@ -1365,6 +1468,7 @@ class Reader:
         self._selected_field_arrays: set[str] | None = None
         self._core: CoreReader | None = None
         self._closed = False
+        self._frame_slots: dict[str, int] | None = None
 
         # Only a path carries a suffix to judge; a buffer is judged by its bytes.
         if check_extension and self._filename is not None and self._filename.suffix not in SUPPORTED_READ_SUFFIXES:
@@ -1463,6 +1567,11 @@ class Reader:
         return int(self.decompressed_sizes.sum())
 
     @property
+    def compressed_nbytes(self) -> int:
+        """Return the size of the compressed frames."""
+        return int(self._compressed_sizes.sum())
+
+    @property
     def file_metadata(self) -> ZstdFileMetadata:
         """
         Return the file-level facts: format version, compression and level.
@@ -1548,14 +1657,62 @@ class Reader:
             raise TypeError(msg)
         return self._read_array(self._ds_metadata, name, association)
 
+    def array_sizes(self, association: Association = "point") -> dict[str, ArraySize]:
+        """
+        Return the stored size of each array, without decompressing any.
+
+        A block of a MultiBlock file is queried the same way after indexing to
+        it, as in ``reader[0].array_sizes("cell")``.
+
+        Parameters
+        ----------
+        association : {"point", "cell", "field"}, default: "point"
+            Data the arrays belong to.
+
+        Returns
+        -------
+        dict[str, ArraySize]
+            Decompressed and compressed size of each array, by name.
+
+        Raises
+        ------
+        TypeError
+            The file is a MultiBlock; index it to a block first.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
+        >>> reader.array_sizes()["Normals"].nbytes
+        10104
+
+        """
+        if isinstance(self._ds_metadata, MultiBlockMetadata):
+            msg = "A MultiBlock file has no root arrays; index the reader to a block first."
+            raise TypeError(msg)
+        return self._array_sizes(self._ds_metadata, association)
+
+    def _array_sizes(self, meta: DataSetMetadata, association: str) -> dict[str, ArraySize]:
+        """Return the stored size of each array of the dataset *meta* describes."""
+        if self._frame_slots is None:
+            self._frame_slots = {name: slot for slot, name in enumerate(self._metadata.frame_names)}
+        arrays = _association_arrays(meta, association)
+        suffix = _ASSOCIATION_SUFFIXES[association]
+        sizes = {}
+        for name in arrays:
+            # Each array is a (header, payload) frame pair at twice its slot.
+            slot = self._frame_slots[f"{meta.uid}{name}{suffix}"]
+            compressed = self._compressed_sizes[2 * slot : 2 * slot + 2].sum()
+            sizes[name] = ArraySize(int(self._frame_decompressed[2 * slot + 1]), int(compressed))
+        return sizes
+
     def _read_array(self, meta: DataSetMetadata, name: str, association: str) -> NDArray[Any]:
         """Decompress the named array of the dataset *meta* describes."""
-        arrays = {"point": meta.point_data_keys, "cell": meta.cell_data_keys, "field": meta.field_data_keys}
-        if association not in arrays:
-            msg = f"association must be one of {tuple(arrays)}, not {association!r}"
-            raise ValueError(msg)
-        if name not in arrays[association]:
-            msg = f"{association} array {name!r} not found; available: {sorted(arrays[association])}"
+        arrays = _association_arrays(meta, association)
+        if name not in arrays:
+            msg = f"{association} array {name!r} not found; available: {sorted(arrays)}"
             raise KeyError(msg)
         core = self._core_reader()
         index = core.find(f"{meta.uid}{name}{_ASSOCIATION_SUFFIXES[association]}")

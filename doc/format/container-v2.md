@@ -372,11 +372,9 @@ note the spelling in the source, `:111-112`), RectilinearGrid (`_x_rgrid` /
 ExplicitStructuredGrid, and MultiBlock.
 
 StructuredGrid stores `points`, `dimensions` and `offset`. ExplicitStructuredGrid
-stores `points`, the `cells` connectivity, `dimensions`, `offset`, and a
-`celltypes` frame of hexahedra that only lets older readers decode the file.
-The reader rebuilds it directly from its extent and widens the connectivity to
-`vtkIdType`, the only width `vtkExplicitStructuredGrid` reads cell points from
-correctly. An
+stores `points`, the `cells` connectivity, `dimensions` and `offset`. The reader
+rebuilds it directly from its extent and widens the connectivity to `vtkIdType`,
+the only width `vtkExplicitStructuredGrid` reads cell points from correctly. An
 ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
 its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays. A structured grid file with
 no `offset` reads back with an extent starting at 0.

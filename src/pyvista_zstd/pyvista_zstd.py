@@ -531,8 +531,6 @@ def _add_arrays_esgrid(
     force_int32: bool = True,
 ) -> None:
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
-    # Unused on read, but lets older releases read the file as an unstructured grid.
-    arrays[f"{ds_id}{CELL_TYPES_KEY}"] = np.full(ds.n_cells, pv.CellType.HEXAHEDRON, dtype=np.uint8)
     _add_cell_array(
         ds_id,
         arrays,

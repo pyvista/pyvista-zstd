@@ -310,11 +310,12 @@ class DataSetMetadata:
                 spacing=ds.spacing,
                 direction_matrix=ds.direction_matrix.tolist(),
             )
-        elif isinstance(ds, ExplicitStructuredGrid):
-            kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
+        elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
             if not ds.n_points:
-                # vtkExplicitStructuredGrid() leaves its extent uninitialised; store it empty without points.
-                kwargs.update(dimensions=(0, 0, 0), offset=(0, 0, 0))
+                # Store a grid without points as empty; vtkExplicitStructuredGrid() leaves its extent uninitialised.
+                kwargs.update(dimensions=(0, 0, 0), offset=(0, 0, 0), n_cells=0)
+            if isinstance(ds, ExplicitStructuredGrid):
+                kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
         return cls(**kwargs)
 
@@ -545,7 +546,8 @@ def _add_arrays_esgrid(
         ds_id,
         arrays,
         CELLS,
-        ds.GetCells(),
+        # A grid without points is stored empty, so drop the cells its extent allocated.
+        ds.GetCells() if ds.n_points else vtkCellArray(),
         fixed_cell_sizes,
         force_int32=force_int32,
         max_entry=ds.n_points - 1,

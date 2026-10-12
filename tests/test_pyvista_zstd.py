@@ -976,18 +976,34 @@ def test_esgrid_round_trip(
     _assert_esgrid_round_trip(pv.read(filename), esgrid)
 
 
-def test_empty_esgrid_round_trip(tmp_path: Path) -> None:
-    """An empty ExplicitStructuredGrid reads back empty."""
-    esgrid = ExplicitStructuredGrid()
-    filename = tmp_path / "esgrid.pv"
-    pyvista_zstd.write(esgrid, filename)
+@pytest.mark.parametrize(
+    ("grid_type", "dimensions"),
+    [(ExplicitStructuredGrid, None), (ExplicitStructuredGrid, (3, 3, 3)), (pv.StructuredGrid, (2, 2, 2))],
+)
+def test_empty_structured_grid_round_trip(
+    tmp_path: Path, grid_type: type[pv.DataSet], dimensions: tuple[int, int, int] | None
+) -> None:
+    """A structured grid without points is stored and read back empty."""
+    grid = grid_type()
+    if dimensions is not None:
+        grid.SetDimensions(*dimensions)
+    filename = tmp_path / "grid.pv"
+    pyvista_zstd.write(grid, filename)
+
+    with _capi.CoreReader(filename) as reader:
+        documents = reader.metadata_documents()
+    (document,) = (json.loads(doc) for name, doc in documents if name.endswith(impl.DS_METADATA_KEY))
+    assert document["dimensions"] == [0, 0, 0]
+    assert document["n_cells"] == 0
 
     out = pv.read(filename)
-    assert isinstance(out, ExplicitStructuredGrid)
+    assert isinstance(out, grid_type)
     assert out.GetExtent() == (0, -1, 0, -1, 0, -1)
     assert out.n_points == 0
     # VTK before 9.4 counts one cell for an empty extent.
     assert out.n_cells == (0 if pv.vtk_version_info >= (9, 4) else 1)
+    if isinstance(out, ExplicitStructuredGrid):
+        assert out.GetCells().GetNumberOfCells() == 0
 
 
 def test_esgrid_dimensions_must_match_points(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 # Offset of the thumbnail record's version field.
 VERSION_AT = 12 + 43 + 8 + 8
+# Alpha below which an edge pixel counts as faint, and full opacity.
+FAINT_ALPHA = 64
+OPAQUE = 255
 
 
 def _png(width: int = 24, height: int = 16) -> bytes:
@@ -174,8 +177,8 @@ def test_render_has_no_light_fringe(tmp_path: Path) -> None:
         pv.global_theme.restore_defaults()
     image = np.asarray(Image.open(io.BytesIO(pz.read_thumbnail(path)))).astype(float)
     alpha = image[..., 3]
-    faint = image[(alpha > 0) & (alpha < 64)][:, :3].mean()
-    opaque = image[alpha == 255][:, :3].mean()
+    faint = image[(alpha > 0) & (alpha < FAINT_ALPHA)][:, :3].mean()
+    opaque = image[alpha == OPAQUE][:, :3].mean()
     assert faint < opaque + 20
 
 

@@ -47,9 +47,10 @@ one array at a time:
         meta = reader.dataset_metadata  # type, sizes, array shapes and dtypes
         level = reader.file_metadata.compression_level
         stress = reader.read_array("stress", association="cell")
-        sizes = reader.array_sizes("cell")  # decompressed and compressed bytes
-        # For a MultiBlock, index to the block first
-        # normals = reader[0][1].read_array("Normals")
+        sizes = reader.array_sizes(association="cell")  # decompressed and compressed bytes
+
+For a :class:`pyvista.MultiBlock`, index the reader to a block first, as in
+``reader[0][1].read_array("Normals", association="point")``.
 
 
 Metadata

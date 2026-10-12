@@ -161,8 +161,8 @@ def read_array(
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
     name : str
-        Field-array name (the key passed to :func:`append_arrays`, or any
-        field-data key present in the file).
+        Array name. For field data this is the key passed to
+        :func:`append_arrays` or any field-data key in the file.
     association : {"field", "point", "cell"}, default: "field"
         Data the array belongs to.
     backend : str, optional
@@ -173,12 +173,20 @@ def read_array(
     numpy.ndarray
         The stored array, bit-exact.
 
+    Raises
+    ------
+    KeyError
+        The file has no such array.
+    TypeError
+        The file is a MultiBlock and *association* is not ``"field"``.
+
     """
     _warn_backend_deprecated(backend)
     if association == "field":
-        return AppendReader(filename).read_array(name)
+        with AppendReader(filename) as reader:
+            return reader.read_array(name)
     with Reader(_checked_path(filename)) as reader:
-        return reader.read_array(name, association)
+        return reader.read_array(name, association=association)
 
 
 class AppendReader:

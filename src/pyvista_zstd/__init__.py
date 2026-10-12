@@ -16,7 +16,6 @@ from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import FILE_VERSION
 from pyvista_zstd.pyvista_zstd import ArrayInfo
 from pyvista_zstd.pyvista_zstd import ArraySize
-from pyvista_zstd.pyvista_zstd import Association
 from pyvista_zstd.pyvista_zstd import ContainerMetadata
 from pyvista_zstd.pyvista_zstd import DataSetMetadata
 from pyvista_zstd.pyvista_zstd import MultiBlockMetadata
@@ -33,7 +32,6 @@ __all__ = [
     "AppendReader",
     "ArrayInfo",
     "ArraySize",
-    "Association",
     "ContainerMetadata",
     "DataSetMetadata",
     "MultiBlockMetadata",

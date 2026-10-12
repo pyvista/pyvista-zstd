@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
+from typing import cast
 import warnings
 
 import numpy as np
@@ -178,9 +179,9 @@ class ArraySize:
     Attributes
     ----------
     nbytes : int
-        Size of the array once decompressed.
+        Size of the array's data once decompressed.
     compressed_nbytes : int
-        Bytes the array occupies in the file.
+        Size of the array's compressed data, excluding its small header frame.
 
     """
 
@@ -436,6 +437,9 @@ class DataSetMetadata:
         raw["cell_data_keys"] = decode_mapping(raw.get("cell_data_keys", {}))
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
         raw["fixed_cell_sizes"] = raw.get("fixed_cell_sizes", {})
+        for key in ("dimensions", "origin", "spacing", "offset"):
+            if raw.get(key) is not None:
+                raw[key] = tuple(raw[key])
         return cls(**raw)
 
     def to_array(self) -> NDArray[np.uint8]:
@@ -1205,8 +1209,9 @@ class ContainerMetadata:
 
 
 def read_metadata(
-    source: Path | str | bytes | bytearray | memoryview | NDArray[Any],
+    filename: Path | str | None = None,
     *,
+    buffer: bytes | bytearray | memoryview | NDArray[Any] | None = None,
     check_extension: bool = True,
 ) -> ContainerMetadata:
     """
@@ -1214,8 +1219,11 @@ def read_metadata(
 
     Parameters
     ----------
-    source : pathlib.Path | str | bytes | bytearray | memoryview | numpy.ndarray
-        Path to the file, or a whole container held in memory.
+    filename : pathlib.Path | str, optional
+        Path to the file.
+    buffer : bytes | bytearray | memoryview | numpy.ndarray, optional
+        A whole container held in memory. Exactly one of *filename* and
+        *buffer* is given, as for :class:`Reader`.
     check_extension : bool, default: True
         Set False for an application-specific filename extension.
 
@@ -1234,11 +1242,7 @@ def read_metadata(
     ('PolyData', 3)
 
     """
-    if isinstance(source, (Path, str)):
-        reader = Reader(source, check_extension=check_extension)
-    else:
-        reader = Reader(buffer=source)
-    with reader:
+    with Reader(filename, buffer=buffer, check_extension=check_extension) as reader:
         return ContainerMetadata(
             file=reader.file_metadata,
             dataset=reader.dataset_metadata,
@@ -1290,14 +1294,14 @@ class _DataSetReader:
         """Return this block's metadata, or ``None`` for an empty block."""
         return self._meta
 
-    def read_array(self, name: str, association: Association = "point") -> NDArray[Any]:
+    def read_array(self, name: str, *, association: Association) -> NDArray[Any]:
         """Decompress one named array of this block; see :meth:`Reader.read_array`."""
         if not isinstance(self._meta, DataSetMetadata):
             msg = "Only dataset blocks have arrays; index a MultiBlock node further."
             raise TypeError(msg)
         return self._parent._read_array(self._meta, name, association)  # noqa: SLF001
 
-    def array_sizes(self, association: Association = "point") -> dict[str, ArraySize]:
+    def array_sizes(self, *, association: Association) -> dict[str, ArraySize]:
         """Return the stored size of each array of this block; see :meth:`Reader.array_sizes`."""
         if not isinstance(self._meta, DataSetMetadata):
             msg = "Only dataset blocks have arrays; index a MultiBlock node further."
@@ -1609,25 +1613,21 @@ class Reader:
 
         """
         if isinstance(self._ds_metadata, MultiBlockMetadata):
-            root = self._ds_reader.dataset_metadata
-            if root is None:  # pragma: no cover - the root of a tree is never empty
-                msg = "Top-level multiblock metadata not found."
-                raise RuntimeError(msg)
-            return root
+            return cast("MultiBlockMetadata", self._ds_reader.dataset_metadata)
         return self._ds_metadata
 
-    def read_array(self, name: str, association: Association = "point") -> NDArray[Any]:
+    def read_array(self, name: str, *, association: Association) -> NDArray[Any]:
         """
         Decompress one named array, leaving the rest of the file untouched.
 
         A block of a MultiBlock file is read the same way after indexing to it,
-        as in ``reader[0].read_array(name)``.
+        as in ``reader[0].read_array(name, association="point")``.
 
         Parameters
         ----------
         name : str
             Array name.
-        association : {"point", "cell", "field"}, default: "point"
+        association : {"point", "cell", "field"}
             Data the array belongs to.
 
         Returns
@@ -1648,7 +1648,7 @@ class Reader:
         >>> import pyvista_zstd
         >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
         >>> reader = pyvista_zstd.Reader("sphere.pv")
-        >>> reader.read_array("Normals").shape
+        >>> reader.read_array("Normals", association="point").shape
         (842, 3)
 
         """
@@ -1657,16 +1657,16 @@ class Reader:
             raise TypeError(msg)
         return self._read_array(self._ds_metadata, name, association)
 
-    def array_sizes(self, association: Association = "point") -> dict[str, ArraySize]:
+    def array_sizes(self, *, association: Association) -> dict[str, ArraySize]:
         """
         Return the stored size of each array, without decompressing any.
 
         A block of a MultiBlock file is queried the same way after indexing to
-        it, as in ``reader[0].array_sizes("cell")``.
+        it, as in ``reader[0].array_sizes(association="cell")``.
 
         Parameters
         ----------
-        association : {"point", "cell", "field"}, default: "point"
+        association : {"point", "cell", "field"}
             Data the arrays belong to.
 
         Returns
@@ -1685,7 +1685,7 @@ class Reader:
         >>> import pyvista_zstd
         >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
         >>> reader = pyvista_zstd.Reader("sphere.pv")
-        >>> reader.array_sizes()["Normals"].nbytes
+        >>> reader.array_sizes(association="point")["Normals"].nbytes
         10104
 
         """
@@ -1703,9 +1703,8 @@ class Reader:
         sizes = {}
         for name in arrays:
             # Each array is a (header, payload) frame pair at twice its slot.
-            slot = self._frame_slots[f"{meta.uid}{name}{suffix}"]
-            compressed = self._compressed_sizes[2 * slot : 2 * slot + 2].sum()
-            sizes[name] = ArraySize(int(self._frame_decompressed[2 * slot + 1]), int(compressed))
+            payload = 2 * self._frame_slots[f"{meta.uid}{name}{suffix}"] + 1
+            sizes[name] = ArraySize(int(self._frame_decompressed[payload]), int(self._compressed_sizes[payload]))
         return sizes
 
     def _read_array(self, meta: DataSetMetadata, name: str, association: str) -> NDArray[Any]:

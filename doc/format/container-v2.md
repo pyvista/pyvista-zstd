@@ -374,9 +374,9 @@ ExplicitStructuredGrid, and MultiBlock.
 StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
 and the `cells_connectivity` frame with a fixed cell size of 8, and records
 `faces_connectivity_flags_array_name` when the grid has one. Both record
-`dimensions` in `__ds_metadata`. The reader converts ExplicitStructuredGrid connectivity to storage as wide as
-`vtkIdType` (fixed-size where VTK supports it), the only width
-`vtkExplicitStructuredGrid` reads cell points from correctly
+`dimensions` in `__ds_metadata`. The reader converts ExplicitStructuredGrid
+connectivity to storage as wide as `vtkIdType` (fixed-size where VTK supports
+it), the only width `vtkExplicitStructuredGrid` reads cell points from correctly
 ([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An
 ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
 its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.

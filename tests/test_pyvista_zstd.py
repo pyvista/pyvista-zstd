@@ -925,7 +925,8 @@ def test_empty_esgrid_round_trip(tmp_path: Path) -> None:
     assert isinstance(out, ExplicitStructuredGrid)
     assert out.GetExtent() == (0, -1, 0, -1, 0, -1)
     assert out.n_points == 0
-    assert out.n_cells == 0
+    # VTK before 9.4 counts one cell for an empty extent.
+    assert out.n_cells == (0 if pv.vtk_version_info >= (9, 4) else 1)
 
 
 def test_esgrid_dimensions_must_match_points(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -933,10 +934,10 @@ def test_esgrid_dimensions_must_match_points(tmp_path: Path, monkeypatch: pytest
     esgrid = _make_esgrid("cast")
     filename = tmp_path / "esgrid.pv"
     with monkeypatch.context() as patch:
-        patch.setattr(ExplicitStructuredGrid, "dimensions", property(lambda _: (1000, 1000, 1000)))
+        patch.setattr(ExplicitStructuredGrid, "dimensions", property(lambda _: (10, 10, 10)))
         pyvista_zstd.write(esgrid, filename)
 
-    with pytest.raises(ValueError, match=r"dimensions \(1000, 1000, 1000\) do not match its 120 points"):
+    with pytest.raises(ValueError, match=r"dimensions \(10, 10, 10\) do not match its 120 points"):
         pyvista_zstd.read(filename)
 
 

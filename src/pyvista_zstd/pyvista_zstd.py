@@ -12,6 +12,7 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
 import json
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -306,7 +307,7 @@ class DataSetMetadata:
                 offset=ds.offset,
             )
         elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
-            # vtkExplicitStructuredGrid() leaves its extent uninitialised, so a grid without points stores none.
+            # vtkExplicitStructuredGrid() leaves its extent uninitialised; a grid without points stores (0, 0, 0).
             kwargs["dimensions"] = ds.dimensions if ds.n_points else (0, 0, 0)
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
@@ -838,10 +839,10 @@ def _segments_to_esgrid(
 
     points = segments[f"{ds_id}{POINTS_KEY}"]
     # SetDimensions allocates a cell for every i/j/k position, so check the size first.
-    if np.prod(metadata.dimensions) != len(points):
+    if math.prod(metadata.dimensions) != len(points):
         msg = (
             f"ExplicitStructuredGrid dimensions {tuple(metadata.dimensions)} do not match its "
-            f"{len(points)} points; the file is corrupt."
+            f"{len(points)} points; the file is corrupt or was written from an inconsistent grid."
         )
         raise ValueError(msg)
 

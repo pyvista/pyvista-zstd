@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import TYPE_CHECKING
@@ -926,6 +927,7 @@ def test_empty_structured_grid_round_trip(
     grid = grid_type()
     if dimensions is not None:
         grid.SetDimensions(*dimensions)
+        grid.cell_data["c"] = np.arange(grid.n_cells)
     filename = tmp_path / "grid.pv"
     pyvista_zstd.write(grid, filename)
 
@@ -939,6 +941,7 @@ def test_empty_structured_grid_round_trip(
     assert isinstance(out, grid_type)
     assert out.GetExtent() == (0, -1, 0, -1, 0, -1)
     assert out.n_points == 0
+    assert not out.cell_data
     if isinstance(out, ExplicitStructuredGrid):
         # VTK before 9.4 counts one cell for an empty ExplicitStructuredGrid extent.
         assert out.n_cells == (0 if pv.vtk_version_info >= (9, 4) else 1)
@@ -947,15 +950,18 @@ def test_empty_structured_grid_round_trip(
         assert out.n_cells == 0
 
 
-def test_esgrid_dimensions_must_match_points(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("dimensions", [(10, 10, 10), (2, 2, 2)])
+def test_esgrid_dimensions_must_match_points(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dimensions: tuple[int, int, int]
+) -> None:
     """Reading an ExplicitStructuredGrid whose stored dimensions disagree with its points raises."""
     esgrid = _make_esgrid("cast")
     filename = tmp_path / "esgrid.pv"
     with monkeypatch.context() as patch:
-        patch.setattr(ExplicitStructuredGrid, "dimensions", property(lambda _: (10, 10, 10)))
+        patch.setattr(ExplicitStructuredGrid, "dimensions", property(lambda _: dimensions))
         pyvista_zstd.write(esgrid, filename)
 
-    with pytest.raises(ValueError, match=r"dimensions \(10, 10, 10\) do not match its 120 points"):
+    with pytest.raises(ValueError, match=rf"dimensions {re.escape(str(dimensions))} do not match its 120 points"):
         pyvista_zstd.read(filename)
 
 

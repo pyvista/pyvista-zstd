@@ -155,7 +155,7 @@ jobs:
         run: uv pip install --system .[tests] $(uv run .github/scripts/runtime_floors.py)
 
       - name: Show the installed runtime dependencies
-        run: uv pip list --system | grep -iE '^(pyvista|tqdm|vtk) '
+        run: uv pip list --system | grep -iE '^(pyvista|vtk) '
 
       - name: Unit Testing
         run: pytest -vv

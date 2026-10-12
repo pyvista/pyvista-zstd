@@ -312,7 +312,7 @@ class DataSetMetadata:
             )
         elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
             if not ds.n_points:
-                # Store a grid without points as empty; vtkExplicitStructuredGrid() leaves its extent uninitialised.
+                # Store either grid without points as empty; a default ExplicitStructuredGrid's extent is uninitialised.
                 kwargs.update(dimensions=(0, 0, 0), offset=(0, 0, 0), n_cells=0)
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
@@ -719,7 +719,9 @@ class Writer:
             point_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
         cell_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.cell_data.items():
+        # A structured grid without points is stored with no cells, so it keeps no cell data either.
+        stored_empty = isinstance(ds, (StructuredGrid, ExplicitStructuredGrid)) and not ds.n_points
+        for key, array in [] if stored_empty else ds.cell_data.items():
             self._arrays[f"{ds_id}{key}{CELL_DATA_SUFFIX}"] = array
             cell_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
@@ -859,7 +861,7 @@ def _segments_to_esgrid(
     cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
     if cells is not None:
         # VTK misreads ESG cells narrower than vtkIdType: https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
-        if hasattr(cells, "ConvertToFixedSizeDefaultStorage"):
+        if cells.IsHomogeneous() > 0 and hasattr(cells, "ConvertToFixedSizeDefaultStorage"):
             cells.ConvertToFixedSizeDefaultStorage()
         else:
             cells.ConvertToDefaultStorage()

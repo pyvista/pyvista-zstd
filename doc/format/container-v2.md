@@ -273,8 +273,9 @@ Three JSON documents, each stored as a frame:
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
 normals, for both point and cell data), and the optional grid fields:
-`dimensions` for ImageData, StructuredGrid and ExplicitStructuredGrid,
-`origin`, `spacing`, `direction_matrix`, `offset` for ImageData only, and
+`dimensions` and `offset` (the extent's start) for every structured dataset
+(ImageData, RectilinearGrid, StructuredGrid and ExplicitStructuredGrid),
+`origin`, `spacing`, `direction_matrix` for ImageData only, and
 `faces_connectivity_flags_array_name` for ExplicitStructuredGrid only.
 
 The active-attribute names are easy to overlook and are **observable
@@ -373,8 +374,9 @@ ExplicitStructuredGrid, and MultiBlock.
 
 StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
 and the `cells_connectivity` frame with a fixed cell size of 8, and records
-`faces_connectivity_flags_array_name` when the grid has one. Both record
-`dimensions` in `__ds_metadata` and read back with an extent starting at 0.
+`faces_connectivity_flags_array_name` when the grid has one. The reader sets
+the extent of every structured dataset from `dimensions` and `offset`; a file
+with no `offset` reads back with an extent starting at 0.
 The reader converts ExplicitStructuredGrid connectivity to storage as wide as
 `vtkIdType` (fixed-size where VTK supports it), the only width
 `vtkExplicitStructuredGrid` reads cell points from correctly

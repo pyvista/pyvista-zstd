@@ -36,6 +36,7 @@ SPHERE_FILE_VERSION_0_FIXTURE = TEST_DATA_DIR / "sphere_file_version_0.pv"
 ESGRID_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_blocking_0_5_0.pv"
 ESGRID_NO_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_no_blocking_0_5_0.pv"
 ESGRID_LONE_BLOCK_I_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_lone_block_i_0_5_0.pv"
+SGRID_0_5_0_FIXTURE = TEST_DATA_DIR / "sgrid_0_5_0.pv"
 
 
 def _expected_fixture_sphere() -> PolyData:
@@ -253,6 +254,55 @@ def test_sgrid(sgrid: StructuredGrid, tmp_path: Path) -> None:
     assert sgrid.point_data == sgrid_out.point_data
     assert sgrid.cell_data == sgrid_out.cell_data
     assert sgrid.field_data == sgrid_out.field_data
+    assert sgrid == sgrid_out
+
+
+def _make_offset_grid(ds_type: str) -> DataSet:
+    """Return a 4x5x6 structured dataset of ``ds_type`` whose extent starts at (2, -1, 10)."""
+    image = pv.ImageData(dimensions=(4, 5, 6))
+    grids = {
+        "ImageData": image,
+        "RectilinearGrid": image.cast_to_rectilinear_grid(),
+        "StructuredGrid": image.cast_to_structured_grid(),
+        "ExplicitStructuredGrid": image.cast_to_structured_grid().cast_to_explicit_structured_grid(),
+    }
+    grid = grids[ds_type]
+    grid.SetExtent(2, 5, -1, 3, 10, 15)
+    return grid
+
+
+@pytest.mark.parametrize("has_offset_property", [True, False])
+@pytest.mark.parametrize("ds_type", ["ImageData", "RectilinearGrid", "StructuredGrid", "ExplicitStructuredGrid"])
+def test_structured_offset_round_trip(
+    ds_type: str,
+    has_offset_property: bool,  # noqa: FBT001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A structured dataset keeps an extent not starting at 0, whether or not pyvista gives it an offset."""
+    grid = _make_offset_grid(ds_type)
+    filename = tmp_path / "grid.pv"
+    with monkeypatch.context() as patch:
+        if has_offset_property:
+            patch.setattr(type(grid), "offset", property(lambda self: self.GetExtent()[::2]), raising=False)
+        else:
+            patch.delattr(type(grid), "offset", raising=False)
+        pyvista_zstd.write(grid, filename)
+
+    out = pyvista_zstd.read(filename)
+    assert type(out) is type(grid)
+    assert out.GetExtent() == grid.GetExtent()
+    np.testing.assert_array_equal(out.points, grid.points)
+    np.testing.assert_array_equal(out.cell_centers().points, grid.cell_centers().points)
+
+
+def test_read_sgrid_0_5_0_fixture() -> None:
+    """Read a 4x5x6 StructuredGrid file written by ``pyvista-zstd==0.5.0``, which stores no offset."""
+    sgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid()
+    sgrid.point_data["point_ids"] = np.arange(sgrid.n_points, dtype=np.int32)
+
+    sgrid_out = pyvista_zstd.read(SGRID_0_5_0_FIXTURE)
+    assert sgrid_out.GetExtent() == (0, 3, 0, 4, 0, 5)
     assert sgrid == sgrid_out
 
 
@@ -859,6 +909,8 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
         esgrid.compute_connectivity(inplace=True)
     elif kind == "no_flags_name":
         esgrid.SetFacesConnectivityFlagsArrayName(None)
+    elif kind == "extent_offset":
+        esgrid.SetExtent(2, 5, -1, 3, 10, 15)
     elif kind != "cast":
         msg = f"Unknown ExplicitStructuredGrid kind {kind!r}"
         raise ValueError(msg)
@@ -896,6 +948,7 @@ def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> N
         "connectivity_flags",
         "custom_flags_name",
         "no_flags_name",
+        "extent_offset",
     ],
 )
 def test_esgrid_round_trip(

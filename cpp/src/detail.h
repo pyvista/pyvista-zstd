@@ -22,6 +22,18 @@
 
 namespace pvzstd::detail {
 
+// Frame-name suffixes that identify the metadata and field-data frames.
+constexpr char kDsMetadataSuffix[] = "__ds_metadata";
+constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
+constexpr char kFileMetadataSuffix[] = "__pyvista_zstd_metadata";
+constexpr char kFieldDataSuffix[] = "__field_data";
+
+// Whether `s` ends with `suffix`.
+inline bool EndsWith(const std::string &s, const char *suffix) {
+  const size_t n = std::strlen(suffix);
+  return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
+}
+
 constexpr int kDefaultLevel = 3;
 constexpr uint64_t kShuffleProbeBytes = 1u << 20;  // 1 MiB
 constexpr int kMaxManualThreads = 8;

@@ -32,21 +32,22 @@ namespace {
 
 constexpr uint64_t kTrailerCountBytes = 8;
 constexpr uint64_t kIndexEntryBytes = 16;
-constexpr char kDsMetadataSuffix[] = "__ds_metadata";
-constexpr char kFileMetadataSuffix[] = "__pyvista_zstd_metadata";
 // The .zvtk-era spelling of the same frame. Accepted so a legacy container
 // reaches the reader at all; which one a file used is reported by name through
 // pvzstd_metadata_name_at, because the caller may want to say so.
 constexpr char kLegacyFileMetadataSuffix[] = "__zvtk_metadata";
-constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
-constexpr char kFieldDataSuffix[] = "__field_data";
 constexpr size_t kUidNChar = 16;
 
 // Lives in detail.h now: the write, append and stream paths narrow file- and
 // caller-supplied lengths into allocations of their own, and one definition is
 // what keeps the four answers the same. Named here so the uses below read as
 // they did.
+using pvzstd::detail::EndsWith;
 using pvzstd::detail::ExceedsSizeT;
+using pvzstd::detail::kDsMetadataSuffix;
+using pvzstd::detail::kFieldDataSuffix;
+using pvzstd::detail::kFileMetadataSuffix;
+using pvzstd::detail::kMultiblockSuffix;
 
 // The most a zstd frame can expand, per compressed byte. A zstd block covers at
 // most 128 KiB, and the cheapest way to spell one is an RLE block: a 3-byte
@@ -69,11 +70,6 @@ uint32_t LoadU32(const uint8_t *p) {
   uint32_t v = 0;
   for (int i = 3; i >= 0; --i) v = (v << 8) | p[static_cast<size_t>(i)];
   return v;
-}
-
-bool EndsWith(const std::string &s, const char *suffix) {
-  const size_t n = std::strlen(suffix);
-  return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
 }
 
 struct ArrayEntry {

@@ -39,14 +39,6 @@ struct PendingArray {
   uint64_t size() const { return borrowed != nullptr ? borrowed_size : owned.size(); }
 };
 
-constexpr char kDsMetadataSuffix[] = "__ds_metadata";
-constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
-
-bool EndsWith(const std::string &s, const char *suffix) {
-  const size_t n = std::strlen(suffix);
-  return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
-}
-
 // Whether a staged metadata document records MultiBlock field arrays or an
 // ExplicitStructuredGrid, both of which version 2 readers cannot decode.
 bool UsesVersion3Feature(const std::vector<PendingArray> &arrays) {
@@ -191,7 +183,7 @@ pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, const char *u
   if (writer == nullptr || uid == nullptr || json == nullptr) return PVZSTD_E_INVALID;
   const uint64_t n = std::strlen(json);
   PendingArray entry;
-  entry.name = std::string(uid) + "__ds_metadata";
+  entry.name = std::string(uid) + kDsMetadataSuffix;
   entry.dtype = "|u1";
   entry.shape.push_back(n);
   entry.is_metadata_json = true;
@@ -261,7 +253,7 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   for (const PendingArray &a : writer->arrays) total_bytes += a.size();
 
   PendingArray meta_entry;
-  meta_entry.name = "__pyvista_zstd_metadata";
+  meta_entry.name = kFileMetadataSuffix;
   meta_entry.dtype = "|u1";
   meta_entry.shape.push_back(meta.size());
   meta_entry.is_metadata_json = true;

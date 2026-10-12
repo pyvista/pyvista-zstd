@@ -735,6 +735,44 @@ def test_multiblock_two_empty_blocks(ugrid: UnstructuredGrid, tmp_path: Path) ->
     assert out["b"] is None
 
 
+USER_DICT = {"int": 1, "text": "x", "nested": {"list": [1.5, None, True]}}
+
+
+@pytest.mark.parametrize("value", ["x", "", ["x"], ["x", "y"]])
+def test_string_field_data(polydata: PolyData, tmp_path: Path, value: str | list[str]) -> None:
+    """Scalar and list string field arrays read back as written."""
+    polydata.field_data["s"] = value
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(polydata, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    expected = polydata.field_data["s"]
+    assert type(out.field_data["s"]) is type(expected)
+    assert np.array_equal(out.field_data["s"], expected)
+
+
+def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
+    """A dataset's user_dict survives a write and read."""
+    polydata.user_dict.update(USER_DICT)
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(polydata, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    assert out.user_dict == polydata.user_dict == USER_DICT
+
+
+def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
+    """Each block's user_dict survives a write and read."""
+    for i, ds in enumerate(multi_block):
+        ds.user_dict.update(USER_DICT, index=i)
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(multi_block, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    for i, (ds, ds_out) in enumerate(zip(multi_block, out, strict=True)):
+        assert ds_out.user_dict == ds.user_dict == {**USER_DICT, "index": i}
+
+
 def _reproducible_polydata() -> PolyData:
     mesh = pv.Sphere(theta_resolution=6, phi_resolution=6)
     mesh.point_data["temperature"] = np.arange(mesh.n_points, dtype=np.float32)

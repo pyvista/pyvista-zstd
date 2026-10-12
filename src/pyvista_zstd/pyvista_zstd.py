@@ -701,7 +701,9 @@ class Writer:
             cell_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
         field_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.field_data.items():
+        for key, value in ds.field_data.items():
+            # A scalar string field array comes back as ``str``; store it 0-d.
+            array = np.asarray(value)
             self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
             field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
@@ -757,7 +759,7 @@ class Writer:
         self._ids = {}
 
 
-def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
+def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any], metadata: DataSetMetadata) -> None:
     # add point and cell data
     point_data = ds.point_data
     cell_data = ds.cell_data
@@ -772,7 +774,11 @@ def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
         if key.endswith(CELL_DATA_SUFFIX):
             cell_data.set_array(array, key[UID_N_CHAR : -len(CELL_DATA_SUFFIX)])
         if key.endswith(FIELD_DATA_SUFFIX):
-            field_data.set_array(array, key[UID_N_CHAR : -len(FIELD_DATA_SUFFIX)])
+            name = key[UID_N_CHAR : -len(FIELD_DATA_SUFFIX)]
+            info = metadata.field_data_keys.get(name)
+            # the core stores a 0-d array as one element; restore the scalar
+            is_scalar = info is not None and tuple(info.shape) == () and array.size == 1
+            field_data.set_array(array.reshape(()) if is_scalar else array, name)
 
 
 def _segments_to_ugrid(
@@ -1593,7 +1599,7 @@ class Reader:
             msg = f"pyvista-zstd does not support DataSet type `{ds_type}` for decompression"
             raise RuntimeError(msg)
 
-        _add_data(ds_id, ds, segments)
+        _add_data(ds_id, ds, segments, ds_metadata)
         _apply_metadata(ds, ds_metadata)
         return ds
 

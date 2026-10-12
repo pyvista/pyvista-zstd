@@ -231,6 +231,21 @@ def test_unsupported_file_version_is_rejected(tmp_path: Path) -> None:
         pz.read(path)
 
 
+def test_unknown_file_metadata_member_is_ignored(tmp_path: Path) -> None:
+    """A file metadata member this release does not know reads back unchanged."""
+    grid = _float_grid()
+    path = tmp_path / "future_member.pv"
+    pz.write(grid, path)
+
+    bodies = _frames(path.read_bytes())
+    meta = json.loads(bodies[-1].decode("utf-8"))
+    meta["unknown_future_key"] = 1
+    blob = json.dumps(meta).encode("utf-8")
+    _rewrite_frames(path, {-1: blob, -2: _resized(bodies[-2], len(blob))})
+
+    assert pz.read(path) == grid
+
+
 def test_read_buffer_refuses_an_unreadable_file_version(tmp_path: Path) -> None:
     """
     Reading the same bytes from memory refuses on the same terms.

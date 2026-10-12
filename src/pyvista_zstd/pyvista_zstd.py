@@ -35,16 +35,22 @@ from pyvista_zstd import _capi
 # on a stock install and correct on the others.  That module was added in
 # pyvista 0.48; before then the same names lived in ``pyvista.core._vtk_core``.
 try:  # pyvista >= 0.48
+    from pyvista._vtk import get_vtk_array_type
     from pyvista._vtk import numpy_to_vtk
     from pyvista._vtk import vtk_to_numpy
     from pyvista._vtk import vtkCellArray
+    from pyvista._vtk import vtkDataArray
+    from pyvista._vtk import vtkPoints
     from pyvista._vtk import vtkPointSet
     from pyvista._vtk import vtkTypeInt32Array
     from pyvista._vtk import vtkTypeInt64Array
 except ModuleNotFoundError:  # pyvista < 0.48
+    from pyvista.core._vtk_core import get_vtk_array_type
     from pyvista.core._vtk_core import numpy_to_vtk
     from pyvista.core._vtk_core import vtk_to_numpy
     from pyvista.core._vtk_core import vtkCellArray
+    from pyvista.core._vtk_core import vtkDataArray
+    from pyvista.core._vtk_core import vtkPoints
     from pyvista.core._vtk_core import vtkPointSet
     from pyvista.core._vtk_core import vtkTypeInt32Array
     from pyvista.core._vtk_core import vtkTypeInt64Array
@@ -420,12 +426,37 @@ def _extract_cell_array(
         return None
 
     offset_key = f"{ds_id}{name}{OFFSET_SUFFIX}"
+    connectivity = _owned(segments, conn_key)
     if name in fixed_cell_sizes:
+        if connectivity is not None:
+            return _vtk_cells(None, connectivity, segments[conn_key].size, cell_size=fixed_cell_sizes[name])
         return _numpy_to_vtk_cells(None, segments[conn_key], cell_size=fixed_cell_sizes[name])
     if offset_key not in segments:
         msg = f"Cell array '{name}' has neither offsets nor a fixed cell size."
         raise ValueError(msg)
+    offset = _owned(segments, offset_key)
+    if connectivity is not None and offset is not None and offset.GetDataType() == connectivity.GetDataType():
+        return _vtk_cells(offset, connectivity, segments[conn_key].size)
     return _numpy_to_vtk_cells(segments[offset_key], segments[conn_key])
+
+
+def _vtk_cells(
+    offset: vtkDataArray | None,
+    connectivity: vtkDataArray,
+    n_connectivity: int,
+    *,
+    cell_size: int | None = None,
+) -> vtkCellArray:
+    """Build a cell array around VTK-owned offsets and connectivity without copying."""
+    carr = vtkCellArray()
+    if cell_size is not None:
+        if cell_size <= 0 or n_connectivity % cell_size:
+            msg = f"Invalid fixed cell size {cell_size} for connectivity length {n_connectivity}."
+            raise ValueError(msg)
+        carr.SetData(cell_size, connectivity)
+    else:
+        carr.SetData(offset, connectivity)
+    return carr
 
 
 def _add_arrays_pointset(ds_id: str, ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
@@ -757,22 +788,99 @@ class Writer:
         self._ids = {}
 
 
+class _Segments(dict[str, Any]):
+    """Decompressed frames by name, plus the VTK arrays that own the ones decompressed in place."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.vtk: dict[str, vtkDataArray] = {}
+
+    def allocate(self, name: str, shape: tuple[int, ...], dtype: np.dtype[Any]) -> NDArray[Any]:
+        """Return the destination for frame *name*, VTK-owned where possible."""
+        vtk_type = _vtk_type_for(name, shape, dtype)
+        if vtk_type is None:
+            return np.empty(shape, dtype=dtype)
+        vtk_array = vtkDataArray.CreateDataArray(vtk_type)
+        vtk_array.SetNumberOfComponents(shape[1] if len(shape) == 2 else 1)  # noqa: PLR2004
+        vtk_array.SetNumberOfTuples(shape[0])
+        self.vtk[name] = vtk_array
+        if not vtk_array.GetNumberOfValues():
+            return np.empty(shape, dtype=dtype)
+        return vtk_to_numpy(vtk_array).reshape(shape)
+
+
+def _vtk_type_for(name: str, shape: tuple[int, ...], dtype: np.dtype[Any]) -> int | None:
+    """Return the VTK type to decompress frame *name* into, or None to keep it in NumPy."""
+    if dtype.kind not in "iuf" or not dtype.isnative or len(shape) not in (1, 2) or 0 in shape[1:]:
+        return None
+    if name.endswith((CONNECTIVITY_SUFFIX, OFFSET_SUFFIX)):
+        # vtkCellArray stores only these two types without converting.
+        if dtype == np.int32:
+            return _VTK_INT32
+        if dtype == np.int64:
+            return _VTK_INT64
+        return None
+    try:
+        return int(get_vtk_array_type(dtype))
+    except TypeError:
+        return None
+
+
+_VTK_INT32 = vtkTypeInt32Array().GetDataType()
+_VTK_INT64 = vtkTypeInt64Array().GetDataType()
+
+
+def _owned(segments: dict[str, Any], key: str, vtk_type: int | None = None) -> vtkDataArray | None:
+    """Return the VTK array that owns frame *key*, when it has one of *vtk_type*."""
+    if not isinstance(segments, _Segments):
+        return None
+    vtk_array = segments.vtk.get(key)
+    if vtk_array is None or (vtk_type is not None and vtk_array.GetDataType() != vtk_type):
+        return None
+    return vtk_array
+
+
+def _set_points(ds: DataSet, ds_id: str, segments: dict[str, Any]) -> None:
+    """Give *ds* its points, without a copy when VTK owns them."""
+    key = f"{ds_id}{POINTS_KEY}"
+    vtk_array = _owned(segments, key)
+    points = segments[key]
+    if vtk_array is None or points.ndim != 2 or points.shape[1] != 3:  # noqa: PLR2004
+        ds.points = points
+        return
+    vtk_points = vtkPoints()
+    vtk_points.SetData(vtk_array)
+    ds.SetPoints(vtk_points)
+
+
+_DATA_SUFFIXES = (
+    (POINT_DATA_SUFFIX, "point_data", "GetPointData"),
+    (CELL_DATA_SUFFIX, "cell_data", "GetCellData"),
+    (FIELD_DATA_SUFFIX, "field_data", "GetFieldData"),
+)
+
+
 def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
-    # add point and cell data
-    point_data = ds.point_data
-    cell_data = ds.cell_data
-    field_data = ds.field_data
+    """Attach the point, cell and field arrays of *ds_id* to *ds*."""
+    # Fetched once per dataset: on VTK 9.7 every dropped wrapper costs a scan
+    # of all live ones, so repeated lookups are not free.
+    attributes: dict[str, Any] = {}
     for key, array in segment_dict.items():
         if not key.startswith(ds_id):
             continue
-
-        # uid size is 16
-        if key.endswith(POINT_DATA_SUFFIX):
-            point_data.set_array(array, key[UID_N_CHAR : -len(POINT_DATA_SUFFIX)])
-        if key.endswith(CELL_DATA_SUFFIX):
-            cell_data.set_array(array, key[UID_N_CHAR : -len(CELL_DATA_SUFFIX)])
-        if key.endswith(FIELD_DATA_SUFFIX):
-            field_data.set_array(array, key[UID_N_CHAR : -len(FIELD_DATA_SUFFIX)])
+        for suffix, pyvista_name, vtk_getter in _DATA_SUFFIXES:
+            if not key.endswith(suffix):
+                continue
+            name = key[UID_N_CHAR : -len(suffix)]
+            vtk_array = _owned(segment_dict, key)
+            if vtk_array is None:
+                getattr(ds, pyvista_name).set_array(array, name)
+            else:
+                target = attributes.get(vtk_getter)
+                if target is None:
+                    target = attributes[vtk_getter] = getattr(ds, vtk_getter)()
+                vtk_array.SetName(name)
+                target.AddArray(vtk_array)
 
 
 def _segments_to_ugrid(
@@ -782,11 +890,13 @@ def _segments_to_ugrid(
 ) -> UnstructuredGrid:
     cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
 
-    celltypes = segments[f"{ds_id}{CELL_TYPES_KEY}"]
-    celltypes_vtk = numpy_to_vtk(celltypes, deep=False, array_type=VTK_UNSIGNED_CHAR)
+    celltypes_key = f"{ds_id}{CELL_TYPES_KEY}"
+    celltypes_vtk = _owned(segments, celltypes_key, VTK_UNSIGNED_CHAR)
+    if celltypes_vtk is None:
+        celltypes_vtk = numpy_to_vtk(segments[celltypes_key], deep=False, array_type=VTK_UNSIGNED_CHAR)
 
     ugrid = UnstructuredGrid()
-    ugrid.points = segments[f"{ds_id}{POINTS_KEY}"]
+    _set_points(ugrid, ds_id, segments)
 
     poly = _extract_cell_array(ds_id, POLYHEDRON, segments, metadata.fixed_cell_sizes)
     poly_loc = _extract_cell_array(ds_id, POLYHEDRON_LOCATION, segments, metadata.fixed_cell_sizes)
@@ -897,7 +1007,7 @@ def _segments_to_polydata(
     metadata: DataSetMetadata,
 ) -> PolyData:
     pdata = PolyData()
-    pdata.points = segments[f"{ds_id}{POINTS_KEY}"]
+    _set_points(pdata, ds_id, segments)
 
     pdata.SetPolys(_extract_cell_array(ds_id, POLYS, segments, metadata.fixed_cell_sizes))
     pdata.SetLines(_extract_cell_array(ds_id, LINES, segments, metadata.fixed_cell_sizes))
@@ -936,25 +1046,34 @@ def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
 
 def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
     """Apply metadata to a dataset."""
-    pd = ds.point_data
-    if metadata.point_data_active_scalars_name in pd:
-        pd.active_scalars_name = metadata.point_data_active_scalars_name
-    if metadata.point_data_active_vectors_name in pd:
-        pd.active_vectors_name = metadata.point_data_active_vectors_name
-    if metadata.point_data_active_texture_coordinates_name in pd:
-        pd.active_texture_coordinates_name = metadata.point_data_active_texture_coordinates_name
-    if metadata.point_data_active_normals_name in pd:
-        pd.active_normals_name = metadata.point_data_active_normals_name
-
-    cd = ds.cell_data
-    if metadata.cell_data_active_scalars_name in cd:
-        cd.active_scalars_name = metadata.cell_data_active_scalars_name
-    if metadata.cell_data_active_vectors_name in cd:
-        cd.active_vectors_name = metadata.cell_data_active_vectors_name
-    if metadata.cell_data_active_texture_coordinates_name in cd:
-        cd.active_texture_coordinates_name = metadata.cell_data_active_texture_coordinates_name
-    if metadata.cell_data_active_normals_name in cd:
-        cd.active_normals_name = metadata.cell_data_active_normals_name
+    for getter, scalars, vectors, tcoords, normals in (
+        (
+            "GetPointData",
+            metadata.point_data_active_scalars_name,
+            metadata.point_data_active_vectors_name,
+            metadata.point_data_active_texture_coordinates_name,
+            metadata.point_data_active_normals_name,
+        ),
+        (
+            "GetCellData",
+            metadata.cell_data_active_scalars_name,
+            metadata.cell_data_active_vectors_name,
+            metadata.cell_data_active_texture_coordinates_name,
+            metadata.cell_data_active_normals_name,
+        ),
+    ):
+        if scalars is None and vectors is None and tcoords is None and normals is None:
+            continue
+        attributes = getattr(ds, getter)()
+        # Only a vtkDataArray can be active scalars; a string array is left as is.
+        if scalars is not None and isinstance(attributes.GetAbstractArray(scalars), vtkDataArray):
+            attributes.SetActiveScalars(scalars)
+        if vectors is not None and attributes.HasArray(vectors):
+            attributes.SetActiveVectors(vectors)
+        if tcoords is not None and attributes.HasArray(tcoords):
+            attributes.SetActiveTCoords(tcoords)
+        if normals is not None and attributes.HasArray(normals):
+            attributes.SetActiveNormals(normals)
 
 
 try:
@@ -1120,8 +1239,18 @@ class _DataSetReader:
             return built[uid]
         if isinstance(self._meta, MultiBlockMetadata):
             mb = MultiBlock()
+            # ``mb[key] = ...`` searches every existing name, so track them here.
+            # A repeated name replaces its first block, as ``mb[key]`` would.
+            index_of: dict[str, int] = {}
             for key, child in zip(self._meta.children_keys, self._children, strict=True):
-                mb[key] = child._read_shared(built, n_threads)  # noqa: SLF001
+                block = child._read_shared(built, n_threads)  # noqa: SLF001
+                index = index_of.get(key)
+                if index is None:
+                    index_of[key] = mb.n_blocks
+                    mb.append(block, key)
+                else:
+                    mb[index] = block
+                    mb.set_block_name(index, key)
             return mb
 
         if self._meta is None:
@@ -1285,6 +1414,7 @@ class Reader:
         self._ds_metadata = self._root_ds_meta_from_core()
 
         self.__ds_reader: _DataSetReader | None = None
+        self._frames_by_ds: dict[str, list[str]] | None = None
 
     # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
     def __enter__(self) -> Reader:  # noqa: PYI034
@@ -1423,7 +1553,8 @@ class Reader:
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
         reader = self._core_reader()
         threads = _capi.THREADS_AUTO if n_threads is None else n_threads
-        segments = reader.read_arrays(keep=keep - {meta_key}, n_threads=threads)
+        segments = _Segments()
+        segments.update(reader.read_arrays(keep=keep - {meta_key}, n_threads=threads, allocate=segments.allocate))
         segments[meta_key] = np.frombuffer(self._metadata_documents[meta_key].encode("utf-8"), dtype=np.uint8)
         return segments
 
@@ -1468,8 +1599,16 @@ class Reader:
         for name in self.available_field_arrays - self.selected_field_arrays:
             excluded.add(f"{ds_id}{name}{FIELD_DATA_SUFFIX}")
 
-        names = set(self._metadata.frame_names) - excluded
-        return {f for f in names if f.startswith(ds_id)}
+        return {f for f in self._frame_names_by_ds().get(ds_id, ()) if f not in excluded}
+
+    def _frame_names_by_ds(self) -> dict[str, list[str]]:
+        """Return the file's frame names grouped by their dataset UID prefix."""
+        if self._frames_by_ds is None:
+            groups: dict[str, list[str]] = {}
+            for name in self._metadata.frame_names or ():
+                groups.setdefault(name[:UID_N_CHAR], []).append(name)
+            self._frames_by_ds = groups
+        return self._frames_by_ds
 
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:

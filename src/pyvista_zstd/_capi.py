@@ -32,6 +32,8 @@ from typing import Any
 import numpy as np
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from collections.abc import Iterable
     from collections.abc import Iterator
 
     from numpy.typing import NDArray
@@ -559,6 +561,8 @@ class CoreReader:
         # Only a memory-backed reader holds one. The core borrows the bytes
         # rather than owning them, so something on this side has to outlive it.
         self._buffer: NDArray[np.uint8] | None = None
+        # Decoded array headers and a name-to-index map, built on first use.
+        self._catalog: tuple[list[tuple[str, np.dtype[Any], tuple[int, ...]]], dict[str, int]] | None = None
 
         if (path is None) == (buffer is None):
             msg = "CoreReader takes exactly one of `path` and `buffer`"
@@ -643,7 +647,7 @@ class CoreReader:
             Names as stored, including the 16-character UID prefix.
 
         """
-        return [self._info(i).name.decode("utf-8") for i in range(len(self))]
+        return [name for name, _, _ in self._array_catalog()[0]]
 
     def read_at(self, index: int) -> NDArray[Any]:
         """
@@ -736,7 +740,36 @@ class CoreReader:
         found = int(self._lib.pvzstd_find_field_array(self._live, name.encode("utf-8")))
         return None if found < 0 else found
 
-    def read_arrays(self, keep: set[str] | None = None, n_threads: int = THREADS_AUTO) -> dict[str, NDArray[Any]]:
+    def _array_catalog(self) -> tuple[list[tuple[str, np.dtype[Any], tuple[int, ...]]], dict[str, int]]:
+        """Return every array's ``(name, dtype, shape)`` in frame order, and each name's index."""
+        if self._catalog is not None:
+            return self._catalog
+        handle = self._live
+        # Every header in one crossing.
+        n_arrays = int(self._lib.pvzstd_array_count(handle))
+        infos = (_ArrayInfo * n_arrays)()
+        if n_arrays:
+            _check(self._lib.pvzstd_array_info_range(handle, 0, n_arrays, infos))
+
+        dtypes: dict[bytes, np.dtype[Any]] = {}
+        entries: list[tuple[str, np.dtype[Any], tuple[int, ...]]] = []
+        for info in infos:
+            raw_dtype = info.dtype
+            dtype = dtypes.get(raw_dtype)
+            if dtype is None:
+                dtype = np.dtype(raw_dtype.decode("utf-8"))
+                dtypes[raw_dtype] = dtype
+            # Slicing converts the dimensions in one C-level step.
+            entries.append((info.name.decode("utf-8"), dtype, tuple(info.shape[: info.ndim])))
+        self._catalog = (entries, {name: i for i, (name, _, _) in enumerate(entries)})
+        return self._catalog
+
+    def read_arrays(
+        self,
+        keep: set[str] | None = None,
+        n_threads: int = THREADS_AUTO,
+        allocate: Callable[[str, tuple[int, ...], np.dtype[Any]], NDArray[Any]] | None = None,
+    ) -> dict[str, NDArray[Any]]:
         """
         Decompress arrays into a name-keyed mapping.
 
@@ -752,6 +785,10 @@ class CoreReader:
             Workers to spread the frames over. The default picks from the
             total size; 0 or 1 decompresses inline and negative uses every
             core, matching :meth:`CoreWriter.set_threads`.
+        allocate : callable, optional
+            Called as ``allocate(name, shape, dtype)`` for each kept array and
+            returns the C-contiguous, writable destination it is decompressed
+            into. Defaults to :func:`numpy.empty`.
 
         Returns
         -------
@@ -759,29 +796,26 @@ class CoreReader:
 
         """
         handle = self._live
-        dtypes: dict[bytes, np.dtype[Any]] = {}
-        empty = np.empty
-
-        # Every header in one crossing.
-        n_arrays = int(self._lib.pvzstd_array_count(handle))
-        infos = (_ArrayInfo * n_arrays)()
-        if n_arrays:
-            _check(self._lib.pvzstd_array_info_range(handle, 0, n_arrays, infos))
+        entries, index_of = self._array_catalog()
+        if keep is None:
+            order: Iterable[int] = range(len(entries))
+        else:
+            order = sorted(index_of[name] for name in keep if name in index_of)
 
         wanted: list[tuple[int, str, NDArray[Any]]] = []
-        for index in range(n_arrays):
-            info = infos[index]
-            name = info.name.decode("utf-8")
-            if keep is not None and name not in keep:
-                continue
-            raw_dtype = info.dtype
-            dtype = dtypes.get(raw_dtype)
-            if dtype is None:
-                dtype = np.dtype(raw_dtype.decode("utf-8"))
-                dtypes[raw_dtype] = dtype
-            # Slicing converts the dimensions in one C-level step.
-            shape = tuple(info.shape[: info.ndim])
-            wanted.append((index, name, empty(shape, dtype=dtype)))
+        if allocate is None:
+            empty = np.empty
+            for index in order:
+                name, dtype, shape = entries[index]
+                wanted.append((index, name, empty(shape, dtype=dtype)))
+        else:
+            for index in order:
+                name, dtype, shape = entries[index]
+                out = allocate(name, shape, dtype)
+                if out.shape != shape or out.dtype != dtype or not out.flags.c_contiguous or not out.flags.writeable:
+                    msg = f"allocate returned an unusable destination for '{name}'"
+                    raise ValueError(msg)
+                wanted.append((index, name, out))
 
         payloads = [(i, n, a) for i, n, a in wanted if a.nbytes]
         if payloads:

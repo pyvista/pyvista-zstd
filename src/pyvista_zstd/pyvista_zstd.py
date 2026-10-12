@@ -304,7 +304,7 @@ class DataSetMetadata:
                 direction_matrix=ds.direction_matrix.tolist(),
                 offset=ds.offset,
             )
-        elif isinstance(ds, pv.StructuredGrid):
+        elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
             kwargs["dimensions"] = ds.dimensions
 
         return cls(**kwargs)
@@ -527,11 +527,16 @@ def _add_arrays_esgrid(
     *,
     force_int32: bool = True,
 ) -> None:
-    ugrid = ds.cast_to_unstructured_grid()
-    _add_arrays_ugrid(ds_id, ugrid, arrays, fixed_cell_sizes, force_int32=force_int32)
-    # The reader needs the i/j/k blocking the cast adds; the grid's own cell data lacks it.
-    for name in ESGRID_BLOCK_KEYS:
-        arrays[f"{ds_id}{name}{CELL_DATA_SUFFIX}"] = ugrid.cell_data[name]
+    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    _add_cell_array(
+        ds_id,
+        arrays,
+        CELLS,
+        ds.GetCells(),
+        fixed_cell_sizes,
+        force_int32=force_int32,
+        max_entry=ds.n_points - 1,
+    )
 
 
 def _add_arrays_sgrid(ds_id: str, ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -819,15 +824,23 @@ def _segments_to_esgrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> ExplicitStructuredGrid:
-    """
-    Rebuild an explicit structured grid from its frames.
+    """Rebuild an explicit structured grid from its dimensions, points and cells."""
+    if metadata.dimensions is None:
+        return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
-    The cast is driven by the ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` cell arrays,
-    so they have to be on the grid before it happens. The caller attaches cell
-    data only after this returns, which is why they are pulled from the
-    segments here rather than left to the general path -- without this the
-    cast sees a grid with no cell data at all and refuses every file.
-    """
+    esgrid = ExplicitStructuredGrid()
+    esgrid.SetDimensions(*metadata.dimensions)
+    esgrid.points = segments[f"{ds_id}{POINTS_KEY}"]
+    esgrid.SetCells(_extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes))
+    return esgrid
+
+
+def _segments_to_esgrid_by_blocking(
+    ds_id: str,
+    segments: dict[str, Any],
+    metadata: DataSetMetadata,
+) -> ExplicitStructuredGrid:
+    """Rebuild an explicit structured grid with no stored dimensions from its blocking cell arrays."""
     ugrid = _segments_to_ugrid(ds_id, segments, metadata)
 
     missing = []
@@ -840,9 +853,9 @@ def _segments_to_esgrid(
     if missing:
         msg = (
             f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
-            "These cell arrays define the i/j/k blocking: either they were excluded "
-            "via selected_cell_arrays, or the file was written by a pyvista-zstd "
-            "release that did not store them and must be rewritten from the source grid."
+            "This file stores no grid dimensions, so these cell arrays define the "
+            "i/j/k blocking: either they were excluded via selected_cell_arrays, or "
+            "the file must be rewritten from the source grid with a newer pyvista-zstd."
         )
         raise ValueError(msg)
 
@@ -936,15 +949,6 @@ def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
         rgrid = RectilinearGrid()
 
     return rgrid
-
-
-def _drop_internal_esgrid_blocking(ds: DataSet, metadata: DataSetMetadata) -> None:
-    """Remove blocking arrays an ExplicitStructuredGrid did not carry as its own cell data."""
-    if not isinstance(ds, ExplicitStructuredGrid):
-        return
-    for name in ESGRID_BLOCK_KEYS:
-        if name not in metadata.cell_data_keys and name in ds.cell_data:
-            ds.cell_data.remove(name)
 
 
 def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
@@ -1607,7 +1611,6 @@ class Reader:
             raise RuntimeError(msg)
 
         _add_data(ds_id, ds, segments)
-        _drop_internal_esgrid_blocking(ds, ds_metadata)
         _apply_metadata(ds, ds_metadata)
         return ds
 

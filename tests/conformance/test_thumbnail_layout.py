@@ -20,8 +20,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+SKIPPABLE_MAGIC = b"\x50\x2a\x4d\x18"
 RAW_FRAME_DESCRIPTOR = 0xA0  # 4-byte content size, single segment, no checksum
-PNG_OFFSET = 99
+PNG_OFFSET = 95
 
 
 def _png(width: int = 24, height: int = 16) -> bytes:
@@ -46,7 +47,11 @@ def _extract(raw: bytes) -> tuple[bytes, int, int, int, bool]:
     header_at, header_size = _raw_frame(raw, 0)
     (name_len,) = struct.unpack_from("<I", raw, header_at)
     assert raw[header_at + 4 : header_at + 4 + name_len] == b"__thumbnail"
-    record_at, record_size = _raw_frame(raw, header_at + header_size)
+    assert struct.unpack_from("<IQ", raw, header_at + 4 + name_len) == (1, 0)  # shape (0,)
+    skippable_at = header_at + header_size
+    assert raw[skippable_at : skippable_at + 4] == SKIPPABLE_MAGIC
+    (record_size,) = struct.unpack_from("<I", raw, skippable_at + 4)
+    record_at = skippable_at + 8
     magic, version, header_bytes, width, height, png_nbytes, crc = struct.unpack_from("<8s6I", raw, record_at)
     assert (magic, version) == (b"PVZTHUMB", 1)
     assert header_bytes + png_nbytes == record_size
@@ -83,14 +88,24 @@ def test_png_read_with_plain_byte_reads(tmp_path: Path, dataset: pv.DataSet | pv
 
 
 def test_pair_is_valid_zstd(tmp_path: Path) -> None:
-    """A zstd decoder reads the hand-built raw frames."""
+    """A streaming zstd decoder reads the header frame and decodes the record frame to nothing."""
     path = tmp_path / "t.pv"
     pz.write(pv.Sphere(), path, thumbnail=_png())
     frames = ref_reader.read_frames(path)
-    dctx = zstandard.ZstdDecompressor()
     raw = path.read_bytes()
-    assert dctx.decompress(raw[frames[1].start : frames[1].end]).startswith(b"PVZTHUMB")
-    assert frames[1].data[32:] == _png()
+    dctx = zstandard.ZstdDecompressor()
+    assert dctx.decompressobj().decompress(raw[frames[0].start : frames[0].end]) == frames[0].data
+    assert dctx.decompressobj().decompress(raw[frames[1].start : frames[1].end]) == b""
+    assert (frames[1].declared_size, frames[1].data) == (0, b"")
+
+
+def test_large_png(tmp_path: Path) -> None:
+    """A PNG larger than one zstd block stays contiguous."""
+    png = _png(1024, 1024)
+    assert len(png) > 128 * 1024
+    path = tmp_path / "t.pv"
+    pz.write(pv.Sphere(), path, thumbnail=png)
+    assert _extract(path.read_bytes())[:2] == (png, PNG_OFFSET)
 
 
 def test_older_reader_sees_an_ordinary_array(tmp_path: Path, dataset: pv.DataSet | pv.MultiBlock) -> None:
@@ -102,7 +117,7 @@ def test_older_reader_sees_an_ordinary_array(tmp_path: Path, dataset: pv.DataSet
 
     thumb = got.arrays.pop("__thumbnail")
     assert thumb.dtype == np.uint8
-    assert thumb.tobytes()[:8] == b"PVZTHUMB"
+    assert thumb.shape == (0,)
     assert got.arrays.keys() == want.arrays.keys()
     for name, arr in want.arrays.items():
         assert np.array_equal(got.arrays[name], arr)

@@ -19,19 +19,25 @@ __all__ = ["THUMBNAIL_MAX_BYTES", "ThumbnailInfo", "read_thumbnail"]
 THUMBNAIL_NAME = "__thumbnail"
 THUMBNAIL_MAGIC = b"PVZTHUMB"
 THUMBNAIL_VERSION = 1
-THUMBNAIL_SIZE = (256, 256)
+THUMBNAIL_SIZE = (512, 512)
 
 _DESCRIPTOR_BYTES = 32
-_RAW_FRAME_PREFIX = 12
-_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
-_RAW_FRAME_DESCRIPTOR = 0xA0
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _DTYPE_FIELD = b"|u1".ljust(16)
 _HEADER_BYTES = 4 + len(THUMBNAIL_NAME) + 4 + 8 + len(_DTYPE_FIELD)
-_RECORD_OFFSET = 2 * _RAW_FRAME_PREFIX + _HEADER_BYTES
+# Every container with a thumbnail starts with these bytes: the raw-block header frame, then the skippable magic.
+_FIXED_PREFIX = (
+    b"\x28\xb5\x2f\xfd\xa0"
+    + struct.pack("<I", _HEADER_BYTES)
+    + (1 | (_HEADER_BYTES << 3)).to_bytes(3, "little")
+    + struct.pack(f"<I{len(THUMBNAIL_NAME)}sIQ", len(THUMBNAIL_NAME), THUMBNAIL_NAME.encode(), 1, 0)
+    + _DTYPE_FIELD
+    + b"\x50\x2a\x4d\x18"
+)
+_RECORD_OFFSET = len(_FIXED_PREFIX) + 4
 
-THUMBNAIL_MAX_BYTES = 128 * 1024 - _DESCRIPTOR_BYTES
-"""Largest PNG a container can embed: the record must fit one raw zstd block."""
+THUMBNAIL_MAX_BYTES = 0xFFFFFFFF - _DESCRIPTOR_BYTES
+"""Largest PNG a container can embed."""
 
 
 @dataclass(frozen=True)
@@ -42,23 +48,6 @@ class ThumbnailInfo:
     height: int
     stale: bool
     """Whether the container's data changed after the thumbnail was written."""
-
-
-def _raw_frame_size(head: bytes, offset: int) -> int | None:
-    """Return the content size of the raw-block zstd frame at *offset*, or None."""
-    if head[offset : offset + 4] != _ZSTD_MAGIC or head[offset + 4] != _RAW_FRAME_DESCRIPTOR:
-        return None
-    (size,) = struct.unpack_from("<I", head, offset + 5)
-    block = int.from_bytes(head[offset + 9 : offset + 12], "little")
-    if block != 1 | (size << 3):  # last block, raw, holding the whole frame
-        return None
-    return size
-
-
-def _array_header(record_bytes: int) -> bytes:
-    """Return the array header of a thumbnail pair whose record is *record_bytes* long."""
-    name = THUMBNAIL_NAME.encode()
-    return struct.pack(f"<I{len(name)}sIQ", len(name), name, 1, record_bytes) + _DTYPE_FIELD
 
 
 def read_thumbnail(path: Path | str) -> bytes | None:
@@ -88,13 +77,9 @@ def read_thumbnail(path: Path | str) -> bytes | None:
     """
     with Path(path).open("rb") as f:
         head = f.read(_RECORD_OFFSET + _DESCRIPTOR_BYTES)
-        if len(head) < _RECORD_OFFSET + _DESCRIPTOR_BYTES:
+        if len(head) < _RECORD_OFFSET + _DESCRIPTOR_BYTES or not head.startswith(_FIXED_PREFIX):
             return None
-        record_bytes = _raw_frame_size(head, _RAW_FRAME_PREFIX + _HEADER_BYTES)
-        if record_bytes is None or _raw_frame_size(head, 0) != _HEADER_BYTES:
-            return None
-        if head[_RAW_FRAME_PREFIX : _RAW_FRAME_PREFIX + _HEADER_BYTES] != _array_header(record_bytes):
-            return None
+        (record_bytes,) = struct.unpack_from("<I", head, len(_FIXED_PREFIX))
         magic, version, header_bytes, _, _, png_nbytes, _ = struct.unpack_from("<8s6I", head, _RECORD_OFFSET)
         if magic != THUMBNAIL_MAGIC or version != THUMBNAIL_VERSION:
             return None

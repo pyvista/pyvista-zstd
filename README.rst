@@ -145,7 +145,7 @@ explicit offsets.
 
 A file can carry a small PNG preview that file browsers and Quick Look style
 viewers show without reading the dataset. Pass PNG bytes, or ``True`` to render
-one off-screen:
+a 512 x 512 image off-screen:
 
 .. code:: py
 

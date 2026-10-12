@@ -20,9 +20,10 @@ constexpr uint64_t kThumbnailDescriptorBytes = 32;
 constexpr uint64_t kThumbnailCrcOffset = 28;
 // Frame magic, descriptor byte, 4-byte content size, 3-byte block header.
 constexpr uint64_t kRawFramePrefixBytes = 12;
-// A raw block holds at most this many bytes, and the pair is one block per frame.
-constexpr uint64_t kRawBlockMaxBytes = 128u * 1024u;
-constexpr uint64_t kThumbnailMaxPngBytes = kRawBlockMaxBytes - kThumbnailDescriptorBytes;
+// Skippable-frame magic and 4-byte content size.
+constexpr uint32_t kSkippableMagic = 0x184D2A50u;
+constexpr uint64_t kSkippablePrefixBytes = 8;
+constexpr uint64_t kThumbnailMaxPngBytes = 0xFFFFFFFFull - kThumbnailDescriptorBytes;
 constexpr uint8_t kPngSignature[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
 
 inline uint32_t LoadU32LE(const uint8_t *p) {
@@ -63,6 +64,13 @@ inline void AppendRawFrame(std::vector<uint8_t> *out, const uint8_t *src, uint64
   StoreU32(out, static_cast<uint32_t>(n));
   const uint32_t block = 1u | (static_cast<uint32_t>(n) << 3);  // last block, raw
   for (int i = 0; i < 3; ++i) out->push_back(static_cast<uint8_t>((block >> (8 * i)) & 0xFF));
+  out->insert(out->end(), src, src + n);
+}
+
+// One zstd skippable frame holding `n` bytes verbatim; zstd decodes it to nothing.
+inline void AppendSkippableFrame(std::vector<uint8_t> *out, const uint8_t *src, uint64_t n) {
+  StoreU32(out, kSkippableMagic);
+  StoreU32(out, static_cast<uint32_t>(n));
   out->insert(out->end(), src, src + n);
 }
 

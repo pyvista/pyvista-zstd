@@ -35,6 +35,7 @@ UID_N_CHAR = 16
 """Width of the dataset-UID name prefix, and of the dtype field."""
 
 INDEX_ENTRY_SIZE = 16
+SKIPPABLE_MAGIC = 0x184D2A50
 """Bytes per trailer index entry: two little-endian u64 fields."""
 
 FILTER_NONE = 0
@@ -110,7 +111,9 @@ def read_frames(path: Path | str) -> list[Frame]:
     dctx = zstd.ZstdDecompressor()
     frames: list[Frame] = []
     for start, end, size in zip(starts, ends, sizes, strict=True):
-        data = dctx.decompress(raw[start:end], max_output_size=max(size, 1) + 4096)
+        # A zstd skippable frame (magic 0x184D2A50-5F) decodes to nothing.
+        is_skippable = int.from_bytes(raw[start : start + 4], "little") & 0xFFFFFFF0 == SKIPPABLE_MAGIC
+        data = b"" if is_skippable else dctx.decompress(raw[start:end], max_output_size=max(size, 1) + 4096)
         if len(data) != size:
             msg = f"frame at [{start}, {end}) yielded {len(data)} bytes, index declares {size}"
             raise ValueError(msg)

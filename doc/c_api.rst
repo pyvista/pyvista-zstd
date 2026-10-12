@@ -454,8 +454,7 @@ carries three write-side surfaces, documented in place:
   with the caller. Reproducing the reference writer byte for byte needs the same
   compression level *and* worker count, because zstd's threaded mode emits
   different, equally valid bytes. ``pvzstd_writer_set_thumbnail`` embeds a PNG
-  of at most ``PVZSTD_THUMBNAIL_MAX_BYTES`` as the container's first frame
-  pair, stored uncompressed.
+  as the container's first frame pair, stored uncompressed.
 * ``pvzstd_append_arrays`` -- add field arrays without rewriting the
   container. Existing frames are copied by offset and never decompressed, so the
   cost is what is added rather than the file size. Each call commits by rename,

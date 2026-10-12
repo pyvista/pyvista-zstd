@@ -457,36 +457,47 @@ container `file_version` versioned in §2.
 
 A container may embed one PNG preview image. It is written only on request and
 does not change `file_version`: to a reader that does not know about it, it is
-an ordinary `|u1` array that no dataset references, so every reader of the
+an ordinary empty `|u1` array that no dataset references, so every reader of the
 versions in §2 reads the dataset unchanged and skips it.
 
 **Position.** The thumbnail is always frame pair 0, named `__thumbnail`, and
 `frame_names[0]` is that name. The name has no dataset-UID prefix. A reader
 recognises the thumbnail only at pair 0; it is not reported as an array.
 
-**Encoding.** Both frames of the pair are zstd frames holding their content as a
-single raw (uncompressed) block, with a fixed 12-byte prefix:
+**Encoding.** The header frame is the §3 header with shape `(0,)` and dtype
+`|u1`, held as a single raw (uncompressed) block in a zstd frame with a fixed
+12-byte prefix:
 
 | Bytes | Value                                                  |
 | ----- | ------------------------------------------------------ |
 | 0-3   | `28 B5 2F FD`, the zstd frame magic                    |
 | 4     | `A0`: 4-byte content size, single segment, no checksum |
-| 5-8   | `u32` content size `n`                                 |
-| 9-11  | `u24` block header `1 \| (n << 3)`: last block, raw    |
+| 5-8   | `u32` content size, 43                                 |
+| 9-11  | `u24` block header `1 \| (43 << 3)`: last block, raw   |
 
-So the content of each frame starts 12 bytes after the frame does, and every
-offset in the pair is fixed. A raw block holds at most 131,072 bytes, which caps
-the record at that size and the PNG at 131,040 bytes.
+The payload frame is a zstd **skippable frame**: magic `50 2A 4D 18`
+(`0x184D2A50`), a `u32` length, then the thumbnail record verbatim. zstd
+decodes a skippable frame to nothing, so the index declares its decompressed
+size as 0, matching the header's shape. The record is contiguous whatever its
+size, up to the 4 GiB a `u32` length allows.
+
+A decoder that sizes its output from a frame's header must treat a skippable
+frame as empty: python-`zstandard`'s one-shot `decompress()` instead takes the
+skippable length as the expected output size and raises. Released readers of
+this format never decompress this frame, since nothing references it.
 
 **Layout from byte 0:**
 
-| Offset | Length | Content                                                                                |
-| ------ | ------ | -------------------------------------------------------------------------------------- |
-| 0      | 12     | frame prefix, `n = 43`                                                                 |
-| 12     | 43     | §3 header: `u32 11`, `"__thumbnail"`, `u32 1`, `u64 record_len`, `"\|u1"` padded to 16 |
-| 55     | 12     | frame prefix, `n = record_len`                                                         |
-| 67     | 32     | thumbnail descriptor                                                                   |
-| 99     | n      | PNG                                                                                    |
+| Offset | Length | Content                                                                       |
+| ------ | ------ | ----------------------------------------------------------------------------- |
+| 0      | 12     | raw-frame prefix                                                              |
+| 12     | 43     | §3 header: `u32 11`, `"__thumbnail"`, `u32 1`, `u64 0`, `"\|u1"` padded to 16 |
+| 55     | 4      | skippable-frame magic                                                         |
+| 59     | 4      | `u32` record length                                                           |
+| 63     | 32     | thumbnail descriptor                                                          |
+| 95     | n      | PNG                                                                           |
+
+Bytes 0-58 are the same in every container with a thumbnail.
 
 **Descriptor** (little-endian):
 
@@ -497,10 +508,10 @@ the record at that size and the PNG at 131,040 bytes.
 | 12     | `u32` header   | descriptor length; the PNG starts this many bytes into the record |
 | 16     | `u32` width    | PNG width in pixels                                               |
 | 20     | `u32` height   | PNG height in pixels                                              |
-| 24     | `u32` png_len  | PNG length; `header + png_len == record_len`                      |
+| 24     | `u32` png_len  | PNG length; `header + png_len` is the record length               |
 | 28     | `u32` data_crc | staleness check, below                                            |
 
-A reader locates the PNG at `67 + header`, not at a hard-coded 99, so a later
+A reader locates the PNG at `63 + header`, not at a hard-coded 95, so a later
 version-1 writer may lengthen the descriptor. A reader that finds any other
 version treats the container as having no thumbnail.
 
@@ -511,8 +522,7 @@ commits copy the pair verbatim and rewrite the index, so the check fails after
 any change to the data; the thumbnail is then stale. Whether a stale image is
 still worth showing is the viewer's decision.
 
-**Reading without zstd.** Read the first 99 bytes and check the two frame
-prefixes, the header bytes at 12 and the descriptor magic and version at 67;
-any mismatch means no thumbnail. The PNG is the `png_len` bytes at
-`67 + header`. The staleness check needs only the last 8 bytes, for the frame
-count, and the index.
+**Reading without zstd.** Read the first 95 bytes, compare bytes 0-58 with the
+fixed prefix and check the descriptor magic and version at 63; any mismatch
+means no thumbnail. The PNG is the `png_len` bytes at `63 + header`. The
+staleness check needs only the last 8 bytes, for the frame count, and the index.

@@ -602,9 +602,9 @@ def write(  # noqa: PLR0913
     thumbnail : bytes | bool, optional
         Embed a PNG preview image that viewers can show without reading the
         dataset. Pass the PNG bytes, or ``True`` to render a
-        256 x 256 image off-screen, which needs a working VTK render window.
-        The encoded PNG must be at most 131,040 bytes. Files with a thumbnail
-        remain readable by earlier releases, which ignore it.
+        512 x 512 image off-screen, which needs a working VTK render window.
+        Files with a thumbnail remain readable by earlier releases, which
+        ignore it.
 
     Notes
     -----

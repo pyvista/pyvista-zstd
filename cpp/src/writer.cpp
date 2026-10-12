@@ -291,7 +291,8 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   std::vector<uint8_t> payload;
   std::vector<uint8_t> frame;
 
-  // The thumbnail pair goes first, as raw blocks; its CRC is patched in after the trailer.
+  // The thumbnail pair goes first: a raw-block header frame, then the record in a
+  // skippable frame that decodes to nothing. Its CRC is patched in after the trailer.
   uint64_t thumbnail_crc_at = 0;
   if (has_thumbnail) {
     std::vector<uint8_t> record(kThumbnailMagic, kThumbnailMagic + 8);
@@ -303,15 +304,15 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
     StoreU32(&record, 0);
     record.insert(record.end(), writer->thumbnail_png.begin(), writer->thumbnail_png.end());
 
-    header = PackArrayMetadata(kThumbnailName, "|u1", {record.size()}, PVZSTD_FILTER_NONE);
+    header = PackArrayMetadata(kThumbnailName, "|u1", {0}, PVZSTD_FILTER_NONE);
     frame.clear();
     AppendRawFrame(&frame, header.data(), header.size());
     ends.push_back(frame.size());
     sizes.push_back(header.size());
-    thumbnail_crc_at = frame.size() + kRawFramePrefixBytes + kThumbnailCrcOffset;
-    AppendRawFrame(&frame, record.data(), record.size());
+    thumbnail_crc_at = frame.size() + kSkippablePrefixBytes + kThumbnailCrcOffset;
+    AppendSkippableFrame(&frame, record.data(), record.size());
     ends.push_back(frame.size());
-    sizes.push_back(record.size());
+    sizes.push_back(0);
     if (std::fwrite(frame.data(), 1, frame.size(), fp) != frame.size()) st = PVZSTD_E_IO;
     offset = frame.size();
   }

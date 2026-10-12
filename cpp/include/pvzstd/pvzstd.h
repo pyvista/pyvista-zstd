@@ -331,7 +331,7 @@ PVZSTD_API pvzstd_status pvzstd_writer_add_array_borrowed(pvzstd_writer *writer,
  * so it can be read without zstd (doc/format/container-v2.md, section 11). The
  * bytes are copied and must be a PNG: PVZSTD_E_INVALID otherwise, PVZSTD_E_RANGE
  * past PVZSTD_THUMBNAIL_MAX_BYTES. NULL with zero bytes removes it. */
-#define PVZSTD_THUMBNAIL_MAX_BYTES (128u * 1024u - 32u)
+#define PVZSTD_THUMBNAIL_MAX_BYTES (0xFFFFFFFFu - 32u)
 PVZSTD_API pvzstd_status pvzstd_writer_set_thumbnail(pvzstd_writer *writer, const void *png,
                                                      uint64_t nbytes);
 

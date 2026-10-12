@@ -12,14 +12,13 @@ import pyvista as pv
 
 import pyvista_zstd as pz
 from pyvista_zstd import _capi
-from pyvista_zstd.thumbnail import THUMBNAIL_MAX_BYTES
 from pyvista_zstd.thumbnail import THUMBNAIL_SIZE
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 # Offset of the thumbnail record's version field.
-VERSION_AT = 12 + 43 + 12 + 8
+VERSION_AT = 12 + 43 + 8 + 8
 
 
 def _png(width: int = 24, height: int = 16) -> bytes:
@@ -134,23 +133,20 @@ def test_rejects_non_png(tmp_path: Path) -> None:
         pz.write(pv.Sphere(), tmp_path / "t.pv", thumbnail="thumb.png")
 
 
-def test_rejects_oversized_png(tmp_path: Path) -> None:
-    """A PNG too large for one raw block is refused."""
-    rng = np.random.default_rng(1)
-    buf = io.BytesIO()
-    Image.fromarray(rng.integers(0, 255, (256, 256, 3), dtype=np.uint8)).save(buf, format="PNG")
-    assert len(buf.getvalue()) > THUMBNAIL_MAX_BYTES
-    with pytest.raises(ValueError, match="at most"):
-        pz.write(pv.Sphere(), tmp_path / "t.pv", thumbnail=buf.getvalue())
+def test_large_png(tmp_path: Path) -> None:
+    """A PNG larger than one zstd block round-trips."""
+    png = _png(1024, 1024)
+    path = tmp_path / "t.pv"
+    pz.write(pv.Sphere(), path, thumbnail=png)
+    assert pz.read_thumbnail(path) == png
+    assert pz.Reader(path).thumbnail == png
 
 
 def test_core_validates_png() -> None:
-    """The core refuses non-PNG and oversized thumbnails itself."""
+    """The core refuses non-PNG thumbnails itself."""
     with _capi.CoreWriter() as writer:
         with pytest.raises(_capi.PvzstdError):
             writer.set_thumbnail(b"not a png" * 10)
-        with pytest.raises(_capi.PvzstdError):
-            writer.set_thumbnail(_png()[:8] + bytes(THUMBNAIL_MAX_BYTES))
         writer.set_thumbnail(_png())
 
 

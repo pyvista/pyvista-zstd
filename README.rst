@@ -154,7 +154,10 @@ a 512 x 512 image off-screen:
 
 The PNG is stored uncompressed at a fixed position, so non-Python readers can
 extract it without zstd; see section 11 of ``doc/format/container-v2.md``.
-Earlier releases read these files and ignore the thumbnail.
+Earlier releases read these files and ignore the thumbnail. A third-party Python
+reader that decompresses every frame with ``zstandard``'s
+``ZstdDecompressor.decompress()`` fails on them; use ``decompressobj()`` or
+Python 3.14's ``compression.zstd`` instead.
 
 
 PyVista Integration

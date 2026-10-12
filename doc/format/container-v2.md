@@ -481,10 +481,12 @@ decodes a skippable frame to nothing, so the index declares its decompressed
 size as 0, matching the header's shape. The record is contiguous whatever its
 size, up to the 4 GiB a `u32` length allows.
 
-A decoder that sizes its output from a frame's header must treat a skippable
-frame as empty: python-`zstandard`'s one-shot `decompress()` instead takes the
-skippable length as the expected output size and raises. Released readers of
-this format never decompress this frame, since nothing references it.
+A decoder must treat a skippable frame as empty. **Known limitation:**
+python-`zstandard` (0.25.0 and earlier) `ZstdDecompressor.decompress()` raises
+on one, so a Python reader that decompresses every frame fails on a container
+with a thumbnail. Skip pair 0, or decode with `decompressobj()` or Python 3.14's
+`compression.zstd`, which return `b""`. pyvista-zstd's own releases never
+decompress this frame.
 
 **Layout from byte 0:**
 

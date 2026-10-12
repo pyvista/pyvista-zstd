@@ -258,8 +258,16 @@ class DataSetMetadata:
         fixed_cell_sizes: dict[str, int],
         *,
         uid: str,
+        point_active: tuple[str | None, str | None, str | None, str | None] | None = None,
+        cell_active: tuple[str | None, str | None, str | None, str | None] | None = None,
+        celltypes_dtype: str | None = None,
     ) -> DataSetMetadata:
-        """Create metadata from a dataset."""
+        """
+        Create metadata from a dataset.
+
+        *point_active* and *cell_active* name the active scalars, vectors,
+        normals and texture coordinates; left out, they are read from *ds*.
+        """
         # Many pyvista calls require intermediate object assembly, side step or
         # do once when possible.
 
@@ -279,27 +287,43 @@ class DataSetMetadata:
         else:
             points_dtype = None
 
-        pd = ds.point_data
-        cd = ds.cell_data
+        if point_active is None:
+            pd = ds.point_data
+            point_active = (
+                pd.active_scalars_name,
+                pd.active_vectors_name,
+                pd.active_normals_name,
+                pd.active_texture_coordinates_name,
+            )
+        if cell_active is None:
+            cd = ds.cell_data
+            cell_active = (
+                cd.active_scalars_name,
+                cd.active_vectors_name,
+                cd.active_normals_name,
+                cd.active_texture_coordinates_name,
+            )
+        if celltypes_dtype is None and isinstance(ds, UnstructuredGrid):
+            celltypes_dtype = str(ds.celltypes.dtype)
         kwargs: dict[str, Any] = {
             "ds_type": type(ds).__name__,
             "uid": uid,
-            "n_points": ds.n_points,
+            "n_points": ds.GetNumberOfPoints(),
             "points_dtype": str(points_dtype) if points_dtype is not None else None,
-            "n_cells": ds.n_cells,
-            "celltypes_dtype": str(ds.celltypes.dtype) if hasattr(ds, "celltypes") else None,
+            "n_cells": ds.GetNumberOfCells(),
+            "celltypes_dtype": celltypes_dtype,
             "point_data_keys": point_info,
             "cell_data_keys": cell_info,
             "field_data_keys": field_info,
             "fixed_cell_sizes": fixed_cell_sizes,
-            "point_data_active_scalars_name": pd.active_scalars_name,
-            "point_data_active_vectors_name": pd.active_vectors_name,
-            "point_data_active_texture_coordinates_name": pd.active_texture_coordinates_name,
-            "point_data_active_normals_name": pd.active_normals_name,
-            "cell_data_active_scalars_name": cd.active_scalars_name,
-            "cell_data_active_vectors_name": cd.active_vectors_name,
-            "cell_data_active_texture_coordinates_name": cd.active_texture_coordinates_name,
-            "cell_data_active_normals_name": cd.active_normals_name,
+            "point_data_active_scalars_name": point_active[_ACTIVE_SCALARS],
+            "point_data_active_vectors_name": point_active[_ACTIVE_VECTORS],
+            "point_data_active_texture_coordinates_name": point_active[_ACTIVE_TCOORDS],
+            "point_data_active_normals_name": point_active[_ACTIVE_NORMALS],
+            "cell_data_active_scalars_name": cell_active[_ACTIVE_SCALARS],
+            "cell_data_active_vectors_name": cell_active[_ACTIVE_VECTORS],
+            "cell_data_active_texture_coordinates_name": cell_active[_ACTIVE_TCOORDS],
+            "cell_data_active_normals_name": cell_active[_ACTIVE_NORMALS],
         }
 
         if isinstance(ds, pv.ImageData):
@@ -394,7 +418,8 @@ def _add_cell_array(  # noqa: PLR0913
     bounds them without looking. Leave it None to have the values scanned. It
     only ever governs the int32 narrowing -- see :func:`_narrowed_to_int32`.
     """
-    if not cell_array:
+    # A vtkCellArray is truthy even when empty, so the count is what decides.
+    if cell_array is None or cell_array.GetNumberOfCells() == 0:
         return
 
     connectivity = vtk_to_numpy(cell_array.GetConnectivityArray())
@@ -459,8 +484,16 @@ def _vtk_cells(
     return carr
 
 
+def _points_of(ds: DataSet) -> NDArray[Any]:
+    """Return the dataset's points as the NumPy view of the VTK array, (0, 3) when it has none."""
+    vtk_points = ds.GetPoints()
+    if vtk_points is None:
+        return np.empty((0, 3), dtype=np.float64)
+    return vtk_to_numpy(vtk_points.GetData())
+
+
 def _add_arrays_pointset(ds_id: str, ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
 
 
 def _add_arrays_rgrid(ds_id: str, ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -478,9 +511,9 @@ def _add_arrays_polydata(
     *,
     force_int32: bool = True,
 ) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
     # Every one of these holds point ids, so the point count bounds them all.
-    max_point_id = ds.n_points - 1
+    max_point_id = ds.GetNumberOfPoints() - 1
     for name, cells in (
         (POLYS, ds.GetPolys()),
         (LINES, ds.GetLines()),
@@ -506,10 +539,11 @@ def _add_arrays_ugrid(
     *,
     force_int32: bool = True,
 ) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
-    arrays[f"{ds_id}{CELL_TYPES_KEY}"] = ds.celltypes
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
+    celltypes = ds.celltypes
+    arrays[f"{ds_id}{CELL_TYPES_KEY}"] = celltypes
 
-    max_point_id = ds.n_points - 1
+    max_point_id = ds.GetNumberOfPoints() - 1
     _add_cell_array(
         ds_id,
         arrays,
@@ -520,7 +554,7 @@ def _add_arrays_ugrid(
         max_entry=max_point_id,
     )
 
-    has_polyhedra = bool(np.any(ds.celltypes == pv.CellType.POLYHEDRON))
+    has_polyhedra = bool(np.any(celltypes == pv.CellType.POLYHEDRON))
     if has_polyhedra:
         if pv.vtk_version_info < (9, 4):
             msg = (
@@ -563,7 +597,7 @@ def _add_arrays_esgrid(
 
 
 def _add_arrays_sgrid(ds_id: str, ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
 
 
 # eventually add: compression: Compression = "zstandard",
@@ -675,7 +709,7 @@ class Writer:
             self._ids[key] = f"{len(self._ids):0{UID_N_CHAR}x}"
         return self._ids[key]
 
-    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901, PLR0912
+    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901
         """Extract dataset data as arrays."""
         ds_id = self._make_ds_id(ds)
         fixed_cell_sizes: dict[str, int] = {}
@@ -721,23 +755,24 @@ class Writer:
             msg = f"Unsupported type {type(ds)}"
             raise TypeError(msg)
 
-        point_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.point_data.items():
-            self._arrays[f"{ds_id}{key}{POINT_DATA_SUFFIX}"] = array
-            point_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
-
-        cell_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.cell_data.items():
-            self._arrays[f"{ds_id}{key}{CELL_DATA_SUFFIX}"] = array
-            cell_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
-
-        field_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.field_data.items():
-            self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
-            field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+        point_info, point_active = _stage_attributes(ds_id, ds, "point_data", POINT_DATA_SUFFIX, self._arrays)
+        cell_info, cell_active = _stage_attributes(ds_id, ds, "cell_data", CELL_DATA_SUFFIX, self._arrays)
+        field_info, _ = _stage_attributes(ds_id, ds, "field_data", FIELD_DATA_SUFFIX, self._arrays)
 
         # supply dataset metadata
-        ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes, uid=ds_id)
+        ds_meta = DataSetMetadata.from_dataset(
+            ds,
+            point_info,
+            cell_info,
+            field_info,
+            fixed_cell_sizes,
+            uid=ds_id,
+            point_active=point_active,
+            cell_active=cell_active,
+            celltypes_dtype=str(self._arrays[f"{ds_id}{CELL_TYPES_KEY}"].dtype)
+            if f"{ds_id}{CELL_TYPES_KEY}" in self._arrays
+            else None,
+        )
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
         self._uses_fixed_width_cells = self._uses_fixed_width_cells or bool(fixed_cell_sizes)
 
@@ -853,6 +888,52 @@ def _set_points(ds: DataSet, ds_id: str, segments: dict[str, Any]) -> None:
     ds.SetPoints(vtk_points)
 
 
+_ATTRIBUTE_GETTERS = {"point_data": "GetPointData", "cell_data": "GetCellData", "field_data": "GetFieldData"}
+# vtkDataSetAttributes attribute slots, in the order GetAttributeIndices fills.
+_ACTIVE_SCALARS, _ACTIVE_VECTORS, _ACTIVE_NORMALS, _ACTIVE_TCOORDS = 0, 1, 2, 3
+
+
+def _stage_attributes(
+    ds_id: str,
+    ds: DataSet,
+    attribute: str,
+    suffix: str,
+    arrays: dict[str, NDArray[Any]],
+) -> tuple[dict[str, ArrayInfo], tuple[str | None, str | None, str | None, str | None]]:
+    """
+    Stage one attribute set's arrays and return their info plus the active names.
+
+    Each VTK array is fetched once; the bool, complex and string arrays
+    pyvista types for the caller go through its getter so they stage as the
+    caller sees them.
+    """
+    field_data = getattr(ds, _ATTRIBUTE_GETTERS[attribute])()
+    association = attribute.split("_", maxsplit=1)[0].upper()
+    special: set[str] = set()
+    for tracked in ("_association_bitarray_names", "_association_complex_names"):
+        special |= getattr(ds, tracked, {}).get(association, set())
+
+    names: list[str] = []
+    info: dict[str, ArrayInfo] = {}
+    for index in range(field_data.GetNumberOfArrays()):
+        name = field_data.GetArrayName(index)
+        names.append(name)
+        vtk_array = field_data.GetAbstractArray(index)
+        if name in special or not isinstance(vtk_array, vtkDataArray):
+            array = getattr(ds, attribute)[name]
+        else:
+            array = vtk_to_numpy(vtk_array)
+        arrays[f"{ds_id}{name}{suffix}"] = array
+        info[name] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+
+    if attribute == "field_data":
+        return info, (None, None, None, None)
+    slots = [0] * field_data.NUM_ATTRIBUTES
+    field_data.GetAttributeIndices(slots)
+    active = tuple(names[slots[i]] if slots[i] >= 0 else None for i in range(_ACTIVE_TCOORDS + 1))
+    return info, active  # type: ignore[return-value]
+
+
 _DATA_SUFFIXES = (
     (POINT_DATA_SUFFIX, "point_data", "GetPointData"),
     (CELL_DATA_SUFFIX, "cell_data", "GetCellData"),
@@ -888,7 +969,8 @@ def _segments_to_ugrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> UnstructuredGrid:
-    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
+    # A grid without cells has no cells frame; SetCells needs an array regardless.
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes) or vtkCellArray()
 
     celltypes_key = f"{ds_id}{CELL_TYPES_KEY}"
     celltypes_vtk = _owned(segments, celltypes_key, VTK_UNSIGNED_CHAR)

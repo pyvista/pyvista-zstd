@@ -11,7 +11,8 @@ datasets using `Zstandard <https://github.com/facebook/zstd>`_
 :func:`pyvista_zstd.read` and :func:`pyvista_zstd.write` work on files.
 A container that is already in memory, rather than on disk, is read with
 :func:`pyvista_zstd.read_buffer`, and a single array with
-:func:`pyvista_zstd.read_array`.
+:func:`pyvista_zstd.read_array`. :func:`pyvista_zstd.append_arrays` adds arrays
+to an existing file.
 
 
 .. autosummary::
@@ -20,6 +21,7 @@ A container that is already in memory, rather than on disk, is read with
    pyvista_zstd.read
    pyvista_zstd.read_buffer
    pyvista_zstd.read_array
+   pyvista_zstd.append_arrays
    pyvista_zstd.write
 
 

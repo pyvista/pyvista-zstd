@@ -268,3 +268,26 @@ def test_read_array_function_legacy_field_no_warning(tmp_path: Path) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error", FutureWarning)
         _assert_same_array(pyvista_zstd.read_array(path, "time"), ds.field_data["time"])
+
+
+def test_invalid_association_checked_first(tmp_path: Path) -> None:
+    """An invalid association raises ValueError even where a MultiBlock would raise TypeError."""
+    path = tmp_path / "mb.pv"
+    pyvista_zstd.write(pv.MultiBlock({"sphere": pv.Sphere(), "empty": None}), path)
+    with pytest.raises(ValueError, match="association must be one of"):
+        pyvista_zstd.read_array(path, "Normals", association="points")  # type: ignore[arg-type]
+    with pyvista_zstd.Reader(path) as reader:
+        with pytest.raises(ValueError, match="association must be one of"):
+            reader.read_array("Normals", association="points")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="association must be one of"):
+            reader[1].read_array("Normals", association="points")  # type: ignore[arg-type]
+
+
+def test_missing_array_names_its_association(tmp_path: Path) -> None:
+    """A name stored under another association says which one."""
+    path = tmp_path / "sphere.pv"
+    pyvista_zstd.write(pv.Sphere(), path)
+    with pytest.raises(KeyError, match="'Normals' is a point array"):
+        pyvista_zstd.read_array(path, "Normals")
+    with pytest.raises(KeyError, match="'Normals' is a point array"):
+        pyvista_zstd.Reader(path).read_array("Normals", association="cell")

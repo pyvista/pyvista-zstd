@@ -24,7 +24,7 @@ On-disk layout
 Appended arrays are recorded so they round-trip through an ordinary read: their
 frames join the body and index, their names join the file metadata, and they are
 registered as ``field_data`` on the root dataset (under the ``…__field_data``
-suffix) so :pyattr:`Reader.available_field_arrays` and :meth:`Reader.read`
+suffix) so :attr:`Reader.available_field_arrays` and :meth:`Reader.read`
 surface them with no reader change.
 
 Crash safety
@@ -53,6 +53,7 @@ from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import ArrayInfo
 from pyvista_zstd.pyvista_zstd import MultiBlockMetadata
 from pyvista_zstd.pyvista_zstd import Reader
+from pyvista_zstd.pyvista_zstd import _check_association
 from pyvista_zstd.pyvista_zstd import _shuffle_mode
 from pyvista_zstd.pyvista_zstd import _warn_backend_deprecated
 
@@ -128,7 +129,7 @@ def append_arrays(
     -----
     The appended blocks become visible as ``field_data`` arrays:
     :meth:`pyvista_zstd.Reader.read` returns them in ``grid.field_data`` and
-    :pyattr:`pyvista_zstd.Reader.available_field_arrays` lists them. Use
+    :attr:`pyvista_zstd.Reader.available_field_arrays` lists them. Use
     :func:`read_array` / :class:`AppendReader` to read one block back without
     decompressing the rest of the file.
 
@@ -186,6 +187,7 @@ def read_array(
 
     """
     _warn_backend_deprecated(backend)
+    _check_association(association)
     # AppendReader serves field arrays without the legacy-format FutureWarning that Reader raises on .zvtk files.
     if association == "field":
         with AppendReader(filename) as append_reader:

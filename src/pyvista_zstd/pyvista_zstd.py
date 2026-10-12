@@ -176,7 +176,9 @@ class ZstdFileMetadata:
     """
     File-level facts of a pyvista-zstd container.
 
-    Returned by :attr:`pyvista_zstd.Reader.file_metadata`.
+    Returned by :attr:`pyvista_zstd.Reader.file_metadata`. The attributes are
+    the supported interface; the JSON and array conversions serve the file
+    format.
 
     Attributes
     ----------
@@ -221,10 +223,14 @@ class MultiBlockMetadata:
     Metadata of a stored :class:`pyvista.MultiBlock`.
 
     Returned by :attr:`pyvista_zstd.Reader.dataset_metadata` for a MultiBlock
-    file, with :attr:`children_ds` filled in down the whole tree.
+    file, with :attr:`children_ds` filled in down the whole tree. The
+    attributes are the supported interface; the JSON and array conversions
+    serve the file format.
 
     Attributes
     ----------
+    ds_type : str
+        ``"MultiBlock"``.
     uid : str
         Identifier of this block within the file.
     children : list[str]
@@ -275,7 +281,9 @@ class DataSetMetadata:
     """
     Metadata of one stored dataset, known without decompressing its arrays.
 
-    Returned by :attr:`pyvista_zstd.Reader.dataset_metadata`.
+    Returned by :attr:`pyvista_zstd.Reader.dataset_metadata`. The attributes
+    are the supported interface; the JSON and array conversions serve the
+    file format.
 
     Attributes
     ----------
@@ -1162,11 +1170,16 @@ def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: 
         return reader.read(n_threads=n_threads)
 
 
-def _association_arrays(meta: DataSetMetadata, association: str) -> dict[str, ArrayInfo]:
-    """Return the arrays of *meta* that belong to *association*."""
+def _check_association(association: str) -> None:
+    """Raise ValueError unless *association* is one of the valid associations."""
     if association not in _ASSOCIATION_SUFFIXES:
         msg = f"association must be one of {tuple(_ASSOCIATION_SUFFIXES)}, not {association!r}"
         raise ValueError(msg)
+
+
+def _association_arrays(meta: DataSetMetadata, association: str) -> dict[str, ArrayInfo]:
+    """Return the arrays of *meta* that belong to *association*."""
+    _check_association(association)
     return getattr(meta, f"{association}_data_keys")
 
 
@@ -1215,6 +1228,7 @@ class _DataSetReader:
 
     def read_array(self, name: str, *, association: Association) -> NDArray[Any]:
         """Decompress one named array of this block; see :meth:`Reader.read_array`."""
+        _check_association(association)
         if not isinstance(self._meta, DataSetMetadata):
             msg = "Only dataset blocks have arrays; index a MultiBlock node further."
             raise TypeError(msg)
@@ -1566,6 +1580,7 @@ class Reader:
         (842, 3)
 
         """
+        _check_association(association)
         if isinstance(self._ds_metadata, MultiBlockMetadata):
             msg = "A MultiBlock file has no root arrays; read a block's arrays with reader[i].read_array(...)."
             raise TypeError(msg)
@@ -1576,6 +1591,9 @@ class Reader:
         arrays = _association_arrays(meta, association)
         if name not in arrays:
             msg = f"{association} array {name!r} not found; available: {sorted(arrays)}"
+            elsewhere = [other for other in _ASSOCIATION_SUFFIXES if name in _association_arrays(meta, other)]
+            if elsewhere:
+                msg += f"; {name!r} is a {' and '.join(elsewhere)} array"
             raise KeyError(msg)
         core = self._core_reader()
         index = core.find(f"{meta.uid}{name}{_ASSOCIATION_SUFFIXES[association]}")

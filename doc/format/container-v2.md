@@ -128,17 +128,18 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 
 ## 2. File versions
 
-`FILE_VERSION = 2` is what writers emit today (`:74`). Three versions exist
-(`:78-80`) and a 1:1 reader must accept all three:
+`FILE_VERSION = 3` is the highest a writer emits today. Four versions exist
+and a 1:1 reader must accept all four:
 
-| Value | Name                             | Meaning                                             |
-| ----- | -------------------------------- | --------------------------------------------------- |
-| 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                     |
-| 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter. |
-| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
+| Value | Name                             | Meaning                                                       |
+| ----- | -------------------------------- | ------------------------------------------------------------- |
+| 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                               |
+| 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter.           |
+| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.                |
+| 3     | `FILE_VERSION_SUB_FRAMES`        | At least one payload is stored as several zstd frames (§3.3). |
 
 A decoder must also have a ceiling. The C core carries one,
-`PVZSTD_FILE_VERSION_MAX = 2`, readable at runtime as
+`PVZSTD_FILE_VERSION_MAX = 3`, readable at runtime as
 `pvzstd_max_file_version()`, and a container stamped higher is refused with
 `PVZSTD_E_VERSION` rather than read: a later version may transform payloads in
 a way this build cannot invert, so reading one would hand back
@@ -256,6 +257,28 @@ Three rules, all implemented in `cpp/src/reader.cpp` and exercised by
   128 KiB block spelled as a 4-byte RLE block); anything above that product is
   refused. Relying on the allocation to throw instead is not enough: a build
   with exceptions compiled out cannot answer a throw.
+
+### 3.3 Payload sub-frames (version 3)
+
+A payload index entry still names one byte range and one decompressed size,
+but the range may hold **several zstd frames back to back**. The writer splits
+any payload larger than 4 MiB into consecutive frames of 4 MiB (the last one
+shorter), each compressed on its own, and stamps the file version 3 when it has
+done so for any array. The index does not record the split: the frames' own
+headers do, since every one of them declares its content size, and the content
+sizes add up to the entry's decompressed size.
+
+A reader that hands the whole range to `ZSTD_decompress` gets the whole payload,
+because that call consumes every frame in the range. A reader that wants the
+pieces walks them with `ZSTD_findFrameCompressedSize` and
+`ZSTD_getFrameContentSize`, places each one's output after the previous one's,
+and may decompress them in parallel; that is what `pvzstd_read_array_at` and
+`pvzstd_read_arrays` do. The shuffle filter, when present, was applied to the
+payload as a whole before it was split, so it is reversed after every piece
+is in place.
+
+Header frames and the metadata documents are never split. Appended and
+streamed arrays are not split either; only `pvzstd_writer_write` does it.
 
 ## 4. Metadata
 

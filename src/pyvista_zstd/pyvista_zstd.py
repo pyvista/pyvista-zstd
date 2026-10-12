@@ -843,6 +843,15 @@ class _Segments(dict[str, Any]):
             return np.empty(shape, dtype=dtype)
         return vtk_to_numpy(vtk_array).reshape(shape)
 
+    def release(self) -> None:
+        """Forget the VTK wrappers once a dataset owns the arrays."""
+        # VTK 9.7 keeps a ghost for every dropped wrapper that still carries
+        # state, and adding one scans all of them. Empty, they drop for free
+        # and are rebuilt on the next access.
+        for vtk_array in self.vtk.values():
+            vtk_array.__dict__.clear()
+        self.vtk.clear()
+
 
 def _vtk_type_for(name: str, shape: tuple[int, ...], dtype: np.dtype[Any]) -> int | None:
     """Return the VTK type to decompress frame *name* into, or None to keep it in NumPy."""
@@ -941,8 +950,8 @@ _DATA_SUFFIXES = (
 )
 
 
-def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
-    """Attach the point, cell and field arrays of *ds_id* to *ds*."""
+def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> dict[str, Any]:
+    """Attach the arrays of *ds_id* to *ds* and return the VTK attribute sets fetched on the way."""
     # Fetched once per dataset: on VTK 9.7 every dropped wrapper costs a scan
     # of all live ones, so repeated lookups are not free.
     attributes: dict[str, Any] = {}
@@ -962,6 +971,7 @@ def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
                     target = attributes[vtk_getter] = getattr(ds, vtk_getter)()
                 vtk_array.SetName(name)
                 target.AddArray(vtk_array)
+    return attributes
 
 
 def _segments_to_ugrid(
@@ -1126,8 +1136,8 @@ def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
     return rgrid
 
 
-def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
-    """Apply metadata to a dataset."""
+def _apply_metadata(ds: DataSet, metadata: DataSetMetadata, attributes: dict[str, Any]) -> None:
+    """Apply metadata to a dataset, through the attribute sets in *attributes* where already fetched."""
     for getter, scalars, vectors, tcoords, normals in (
         (
             "GetPointData",
@@ -1146,16 +1156,18 @@ def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
     ):
         if scalars is None and vectors is None and tcoords is None and normals is None:
             continue
-        attributes = getattr(ds, getter)()
+        field_data = attributes.get(getter)
+        if field_data is None:
+            field_data = getattr(ds, getter)()
         # Only a vtkDataArray can be active scalars; a string array is left as is.
-        if scalars is not None and isinstance(attributes.GetAbstractArray(scalars), vtkDataArray):
-            attributes.SetActiveScalars(scalars)
-        if vectors is not None and attributes.HasArray(vectors):
-            attributes.SetActiveVectors(vectors)
-        if tcoords is not None and attributes.HasArray(tcoords):
-            attributes.SetActiveTCoords(tcoords)
-        if normals is not None and attributes.HasArray(normals):
-            attributes.SetActiveNormals(normals)
+        if scalars is not None and isinstance(field_data.GetAbstractArray(scalars), vtkDataArray):
+            field_data.SetActiveScalars(scalars)
+        if vectors is not None and field_data.HasArray(vectors):
+            field_data.SetActiveVectors(vectors)
+        if tcoords is not None and field_data.HasArray(tcoords):
+            field_data.SetActiveTCoords(tcoords)
+        if normals is not None and field_data.HasArray(normals):
+            field_data.SetActiveNormals(normals)
 
 
 try:
@@ -1497,6 +1509,9 @@ class Reader:
 
         self.__ds_reader: _DataSetReader | None = None
         self._frames_by_ds: dict[str, list[str]] | None = None
+        self._ds_meta_by_uid: dict[str, DataSetMetadata] = {}
+        if isinstance(self._ds_metadata, DataSetMetadata):
+            self._ds_meta_by_uid[self._ds_metadata.uid] = self._ds_metadata
 
     # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
     def __enter__(self) -> Reader:  # noqa: PYI034
@@ -1624,7 +1639,7 @@ class Reader:
         msg = "No dataset metadata found"  # pragma: no cover
         raise RuntimeError(msg)  # pragma: no cover
 
-    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str], n_threads: int | None) -> dict[str, NDArray[Any]]:
+    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str], n_threads: int | None) -> _Segments:
         """
         Decompress a dataset's arrays through the C++ core.
 
@@ -1637,8 +1652,15 @@ class Reader:
         threads = _capi.THREADS_AUTO if n_threads is None else n_threads
         segments = _Segments()
         segments.update(reader.read_arrays(keep=keep - {meta_key}, n_threads=threads, allocate=segments.allocate))
-        segments[meta_key] = np.frombuffer(self._metadata_documents[meta_key].encode("utf-8"), dtype=np.uint8)
         return segments
+
+    def _dataset_metadata(self, ds_id: str) -> DataSetMetadata:
+        """Return the parsed metadata of dataset *ds_id*, parsing its document once."""
+        metadata = self._ds_meta_by_uid.get(ds_id)
+        if metadata is None:
+            metadata = DataSetMetadata.from_json(self._metadata_documents[f"{ds_id}{DS_METADATA_KEY}"])
+            self._ds_meta_by_uid[ds_id] = metadata
+        return metadata
 
     def _core_reader(self) -> CoreReader:
         """
@@ -1710,7 +1732,9 @@ class Reader:
         # Frame-addressed, so downselecting skips the decompression too, not
         # just the copy into the dataset.
         segments = self._read_ds_segments_cpp(ds_id, selected_frame_names, n_threads)
-        return self._segments_to_ds(ds_id, segments)
+        ds = self._segments_to_ds(ds_id, segments, self._dataset_metadata(ds_id))
+        segments.release()
+        return ds
 
     def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901
         """Read metadata hierarchy from the pyvista-zstd file."""
@@ -1727,8 +1751,7 @@ class Reader:
                 mb_meta = MultiBlockMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
                 mblock_meta[mb_meta.uid] = mb_meta
             elif key.endswith(DS_METADATA_KEY):
-                uid = key[:UID_N_CHAR]
-                dataset_meta[uid] = DataSetMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
+                dataset_meta[key[:UID_N_CHAR]] = self._dataset_metadata(key[:UID_N_CHAR])
 
         # assemble hierarchy tree by wiring children to their metadata
         for uid, m in mblock_meta.items():
@@ -1790,10 +1813,8 @@ class Reader:
         # Same entry point as an indexed read, so the two cannot drift apart.
         return self._ds_reader.read(n_threads)
 
-    def _segments_to_ds(self, ds_id: str, segments: dict[str, Any]) -> DataSet:
-        meta_arr = segments[f"{ds_id}{DS_METADATA_KEY}"]
-        ds_metadata = DataSetMetadata.from_array(meta_arr)
-
+    def _segments_to_ds(self, ds_id: str, segments: dict[str, Any], ds_metadata: DataSetMetadata) -> DataSet:
+        """Build the dataset *ds_id* from its decompressed frames."""
         # convert this to match when Python 3.9 goes EOL
         ds_type = ds_metadata.ds_type
         if ds_type == "UnstructuredGrid":
@@ -1814,8 +1835,7 @@ class Reader:
             msg = f"pyvista-zstd does not support DataSet type `{ds_type}` for decompression"
             raise RuntimeError(msg)
 
-        _add_data(ds_id, ds, segments)
-        _apply_metadata(ds, ds_metadata)
+        _apply_metadata(ds, ds_metadata, _add_data(ds_id, ds, segments))
         return ds
 
     @property

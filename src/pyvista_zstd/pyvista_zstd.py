@@ -311,6 +311,9 @@ class DataSetMetadata:
             )
         elif isinstance(ds, ExplicitStructuredGrid):
             kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
+            if not ds.n_points:
+                # vtkExplicitStructuredGrid() leaves its extent uninitialised; store none for a grid without points.
+                kwargs.update(dimensions=(0, 0, 0), offset=(0, 0, 0))
 
         return cls(**kwargs)
 

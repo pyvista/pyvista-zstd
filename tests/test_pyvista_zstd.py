@@ -267,7 +267,11 @@ def _make_offset_grid(ds_type: str) -> DataSet:
         "ExplicitStructuredGrid": image.cast_to_structured_grid().cast_to_explicit_structured_grid(),
     }
     grid = grids[ds_type]
+    cells = grid.GetCells() if ds_type == "ExplicitStructuredGrid" else None
     grid.SetExtent(2, 5, -1, 3, 10, 15)
+    if cells is not None:
+        # vtkExplicitStructuredGrid.SetExtent replaces the cells.
+        grid.SetCells(cells)
     return grid
 
 
@@ -910,7 +914,10 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
     elif kind == "no_flags_name":
         esgrid.SetFacesConnectivityFlagsArrayName(None)
     elif kind == "extent_offset":
+        # vtkExplicitStructuredGrid.SetExtent replaces the cells.
+        cells = esgrid.GetCells()
         esgrid.SetExtent(2, 5, -1, 3, 10, 15)
+        esgrid.SetCells(cells)
     elif kind != "cast":
         msg = f"Unknown ExplicitStructuredGrid kind {kind!r}"
         raise ValueError(msg)
@@ -976,8 +983,9 @@ def test_empty_esgrid_round_trip(tmp_path: Path) -> None:
 
     out = pv.read(filename)
     assert isinstance(out, ExplicitStructuredGrid)
-    assert out.GetExtent() == esgrid.GetExtent()
+    assert out.GetExtent() == (0, -1, 0, -1, 0, -1)
     assert out.n_points == 0
+    assert out.n_cells == 0
 
 
 def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:

@@ -375,9 +375,9 @@ ExplicitStructuredGrid, and MultiBlock.
 StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
 and the `cells_connectivity` frame with a fixed cell size of 8, and records
 `faces_connectivity_flags_array_name` when the grid has one. The reader sets
-the extent of every structured dataset from `dimensions` and `offset`; a file
-with no `offset` reads back with an extent starting at 0.
-The reader converts ExplicitStructuredGrid connectivity to storage as wide as
+the extent of every structured dataset from its dimensions and the stored
+`offset`; a file with no `offset` reads back with an extent starting at 0. The
+reader converts ExplicitStructuredGrid connectivity to storage as wide as
 `vtkIdType` (fixed-size where VTK supports it), the only width
 `vtkExplicitStructuredGrid` reads cell points from correctly
 ([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An

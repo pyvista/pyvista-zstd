@@ -939,10 +939,12 @@ def test_empty_structured_grid_round_trip(
     assert isinstance(out, grid_type)
     assert out.GetExtent() == (0, -1, 0, -1, 0, -1)
     assert out.n_points == 0
-    # VTK before 9.4 counts one cell for an empty extent.
-    assert out.n_cells == (0 if pv.vtk_version_info >= (9, 4) else 1)
     if isinstance(out, ExplicitStructuredGrid):
+        # VTK before 9.4 counts one cell for an empty ExplicitStructuredGrid extent.
+        assert out.n_cells == (0 if pv.vtk_version_info >= (9, 4) else 1)
         assert out.GetCells().GetNumberOfCells() == 0
+    else:
+        assert out.n_cells == 0
 
 
 def test_esgrid_dimensions_must_match_points(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

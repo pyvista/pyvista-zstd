@@ -30,19 +30,8 @@ using namespace pvzstd::json;    // NOLINT(google-build-using-namespace)
 
 namespace {
 
-constexpr const char kDsMetadataKey[] = "__ds_metadata";
-constexpr const char kMultiblockKey[] = "__multiblock__ds_metadata";
-constexpr const char kFileMetadataKey[] = "__pyvista_zstd_metadata";
-constexpr const char kFieldDataSuffix[] = "__field_data";
-constexpr size_t kUidNChar = 16;
-constexpr int kFileVersionShuffle = 1;
 // The metadata tail is two arrays -- dataset then file -- so four frames.
 constexpr size_t kTailFrames = 4;
-
-bool EndsWith(const std::string &s, const char *suffix) {
-  const size_t n = std::strlen(suffix);
-  return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
-}
 
 bool TruncateTo(std::FILE *fp, uint64_t size) {
   if (std::fflush(fp) != 0) return false;
@@ -140,7 +129,7 @@ pvzstd_status WriteTail(pvzstd_stream *s) {
     plain.push_back(PackArrayMetadata(s->ds_name, "|u1", {s->ds_json.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(s->ds_json.begin(), s->ds_json.end());
     plain.push_back(
-        PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
+        PackArrayMetadata(kFileMetadataSuffix, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
   } catch (const std::exception &) {
     // See ReadFrame. No guard in front: both documents are already-allocated
@@ -268,8 +257,8 @@ pvzstd_status pvzstd_stream_open(const char *path, pvzstd_stream **out) try {
     // A MultiBlock container has no single root dataset to stream into. Same
     // refusal pvzstd_append_arrays makes, reported under the same code: one
     // condition answered two ways is a condition callers cannot handle once.
-    if (EndsWith(frame_names[i], kMultiblockKey)) return fail(PVZSTD_E_UNSUPPORTED);
-    if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataKey)) root_idx = i;
+    if (EndsWith(frame_names[i], kMultiblockSuffix)) return fail(PVZSTD_E_UNSUPPORTED);
+    if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataSuffix)) root_idx = i;
   }
   if (root_idx == frame_names.size()) return fail(PVZSTD_E_FORMAT);
   if (frame_names[root_idx].size() < kUidNChar) return fail(PVZSTD_E_FORMAT);

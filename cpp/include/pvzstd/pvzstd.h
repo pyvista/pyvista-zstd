@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 11u
+#define PVZSTD_ABI_VERSION 12u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -74,12 +74,12 @@ typedef enum pvzstd_status {
 /* Highest container file_version this build can decode.
  *
  * A container stamped higher is refused rather than read: a newer format may
- * transform payloads in a way this build cannot invert, so reading one would
- * hand back corrupt values instead of failing. The ceiling lives here, beside
- * the decoder it describes, so every caller of this ABI gets the same answer --
- * a language binding that kept its own copy would refuse files the library can
- * read, or accept files it cannot. */
-#define PVZSTD_FILE_VERSION_MAX 2u
+ * transform payloads in a way this build cannot invert, or carry data this build
+ * would drop, so reading one would hand back wrong values instead of failing.
+ * The ceiling lives here, beside the decoder it describes, so every caller of
+ * this ABI gets the same answer -- a language binding that kept its own copy
+ * would refuse files the library can read, or accept files it cannot. */
+#define PVZSTD_FILE_VERSION_MAX 3u
 PVZSTD_API uint32_t pvzstd_max_file_version(void);
 
 typedef struct pvzstd_reader pvzstd_reader;
@@ -294,7 +294,7 @@ PVZSTD_API pvzstd_status pvzstd_writer_set_threads(pvzstd_writer *writer, int n_
 
 PVZSTD_API pvzstd_status pvzstd_writer_set_shuffle(pvzstd_writer *writer, pvzstd_shuffle_mode mode);
 
-/* Cell topology stored without an offsets array; promotes the file version to 2. */
+/* Cell topology stored without an offsets array; promotes the file version to at least 2. */
 PVZSTD_API pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int enabled);
 
 /* Append one array; call order is frame order, which is how names map to frames.
@@ -318,7 +318,11 @@ PVZSTD_API pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, co
                                                        const char *json);
 
 /* Emit the file. The trailing file-metadata frame is generated here, so it always
- * agrees with what was written. */
+ * agrees with what was written. The file version is 3 when a staged
+ * "*__ds_metadata" document has ds_type "ExplicitStructuredGrid" or a
+ * "*__multiblock__ds_metadata" document has a field_data_keys member, and the
+ * call returns PVZSTD_E_INVALID, writing nothing, when such a document is not a
+ * JSON object. */
 PVZSTD_API pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path);
 
 /* ------------------------------------------------------------------ *

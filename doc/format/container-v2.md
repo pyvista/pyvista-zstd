@@ -128,26 +128,27 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 
 ## 2. File versions
 
-`FILE_VERSION = 2` is what writers emit today (`:74`). Three versions exist
-(`:78-80`) and a 1:1 reader must accept all three:
+`FILE_VERSION = 3` is the highest version writers emit. Four versions exist
+and a 1:1 reader must accept all four:
 
-| Value | Name                             | Meaning                                             |
-| ----- | -------------------------------- | --------------------------------------------------- |
-| 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                     |
-| 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter. |
-| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
+| Value | Name                                                                          | Meaning                                                                                              |
+| ----- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| 0     | `FILE_VERSION_UNFILTERED`                                                     | No optional feature used.                                                                            |
+| 1     | `FILE_VERSION_SHUFFLE`                                                        | At least one array carries the byte-shuffle filter.                                                  |
+| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS`                                              | Cell topology stored without an offsets array.                                                       |
+| 3     | `FILE_VERSION_MULTIBLOCK_FIELD_DATA`, `FILE_VERSION_EXPLICIT_STRUCTURED_GRID` | A MultiBlock carries field arrays of its own (§4), or the file holds an ExplicitStructuredGrid (§7). |
 
 A decoder must also have a ceiling. The C core carries one,
-`PVZSTD_FILE_VERSION_MAX = 2`, readable at runtime as
+`PVZSTD_FILE_VERSION_MAX = 3`, readable at runtime as
 `pvzstd_max_file_version()`, and a container stamped higher is refused with
 `PVZSTD_E_VERSION` rather than read: a later version may transform payloads in
-a way this build cannot invert, so reading one would hand back
-plausible-looking corrupt values instead of failing. The ceiling belongs beside
-the decoder it describes -- a binding that kept its own copy would refuse files
-the library can read, or accept files it cannot.
+a way this build cannot invert, or carry data this build would drop, so reading
+one would hand back plausible-looking wrong values instead of failing. The
+ceiling belongs beside the decoder it describes -- a binding that kept its own
+copy would refuse files the library can read, or accept files it cannot.
 
 The version is promoted by the _writer_ only when it actually uses an optional
-encoding — the `ZstdFileMetadata` default is the legacy
+feature — the `ZstdFileMetadata` default is the legacy
 `FILE_VERSION_UNFILTERED` (`:220-222`). **A file's version therefore describes
 the features it uses, not the version of the library that wrote it.**
 
@@ -160,12 +161,16 @@ cumulative.** Measured on this build:
 | mixed hex + tet | `True`     | 1       | `{}`               | yes             |
 | homogeneous hex | `False`    | 2       | `{"cells": 8}`     | no              |
 | homogeneous hex | `True`     | **2**   | `{"cells": 8}`     | **yes**         |
+| ESG             | `False`    | **3**   | `{"cells": 8}`     | no              |
+| ESG             | `True`     | **3**   | `{"cells": 8}`     | **yes**         |
 
-The last row is the hazard: a **version-2 file may or may not carry shuffled
-arrays**, because 2 outranks 1 and overwrites it. Any reader that decides
-whether to expect a `filter_id` byte by testing `file_version >= 1` will
-mis-parse a shuffled version-2 file. **Filter presence must be determined
-per-frame from the header length (§3), never from the file version.**
+The bold rows are the hazard: a **version-2 or version-3 file may or may not
+carry shuffled arrays, and a version-3 file may or may not carry fixed-width
+cells**, because a higher tier overwrites a lower one. Any reader that decides
+whether to expect a `filter_id` byte by testing `file_version >= 1`, or expects
+fixed-width cells only when `file_version == 2`, will mis-parse such a file.
+**Filter presence must be determined per-frame from the header length (§3), and
+fixed-width cells from `fixed_cell_sizes`, never from the file version.**
 
 ## 3. Per-array frame header
 
@@ -268,12 +273,26 @@ Three JSON documents, each stored as a frame:
   `separators=(",", ":")`, i.e. no whitespace (`:226`).
 - **`DataSetMetadata`** (`:272-300`) under `__ds_metadata` (`:92`).
 - **`MultiBlockMetadata`** (`:239-241`) under `__multiblock__ds_metadata` (`:93`).
+  Fields: `uid`, `children` (child UIDs in block order, `EMPTY_DS` for a
+  `None` block), `children_keys` (block names), `children_ds` (always `null`
+  on disk), and the optional `field_data_keys`.
+
+A MultiBlock's own field arrays are stored like a dataset's, as
+`<uid><name>__field_data` frames under the MultiBlock's UID, and listed in its
+`field_data_keys` with the same `{"shape": [...], "dtype": "..."}` entries as
+`DataSetMetadata`. The member is omitted when the MultiBlock has no field
+arrays, because readers whose ceiling is below 3 (pyvista-zstd 0.5.0 and
+earlier) reject an unknown member; when any MultiBlock document carries it, the
+writer stamps `file_version` 3 so those readers refuse the file with
+`PVZSTD_E_VERSION` first.
 
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
-normals, for both point and cell data), and the optional ImageData block
-(`dimensions`, `origin`, `spacing`, `direction_matrix`, `offset`).
+normals, for both point and cell data), and the optional grid fields:
+`dimensions` for ImageData, StructuredGrid and ExplicitStructuredGrid,
+`origin`, `spacing`, `direction_matrix`, `offset` for ImageData only, and
+`faces_connectivity_flags_array_name` for ExplicitStructuredGrid only.
 
 The active-attribute names are easy to overlook and are **observable
 behaviour**: dropping them silently changes which array a downstream plot
@@ -366,7 +385,22 @@ kernel, the probe, and copy elision.
 PointSet, PolyData (with `polys` / `lines` / `strips` / `verts`, `:115-118`),
 UnstructuredGrid (including `polyhedron` and `polyhedron_locaction` —
 note the spelling in the source, `:111-112`), RectilinearGrid (`_x_rgrid` /
-`_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, and MultiBlock.
+`_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, StructuredGrid,
+ExplicitStructuredGrid, and MultiBlock.
+
+StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
+and the `cells_connectivity` frame with a fixed cell size of 8 (with
+`cells_offset` instead when the grid has no cells), and records
+`faces_connectivity_flags_array_name` when the grid has one. Both record
+`dimensions` in `__ds_metadata`, stored as `(0, 0, 0)` with no cells for a grid
+without points. An ExplicitStructuredGrid has no `celltypes` frame, and any file
+holding one is stamped `file_version` 3, since earlier readers expect that
+frame. The reader converts ExplicitStructuredGrid
+connectivity to storage as wide as `vtkIdType` (fixed-size where VTK supports
+it), the only width `vtkExplicitStructuredGrid` reads cell points from correctly
+([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An
+ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
+its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.
 
 `EMPTY_DS` (`:121`) is a sentinel for an empty dataset and is 16 characters
 to align with the UID width.

@@ -52,7 +52,7 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 11
+ABI_VERSION = 12
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16

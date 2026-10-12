@@ -1,10 +1,10 @@
 // Writer half of the .pv container. See doc/format/container-v2.md.
 //
 // Byte-for-byte agreement with the reference writer constrains more than the
-// layout: the file version is the highest optional encoding used (2 fixed-width
-// cells, else 1 if anything is shuffled, else 0; not cumulative), and every frame
-// needs the same level AND worker count, since zstd's multi-threaded mode emits
-// different bytes.
+// layout: the file version is the highest optional feature used (3 MultiBlock
+// field data or an ExplicitStructuredGrid, else 2 fixed-width cells, else 1 if
+// anything is shuffled, else 0; not cumulative), and every frame needs the same
+// level AND worker count, since zstd's multi-threaded mode emits different bytes.
 
 #include <zstd.h>
 
@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "detail.h"
+#include "json_read.h"
 #include "pvzstd/pvzstd.h"
 
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
@@ -37,6 +38,38 @@ struct PendingArray {
   const uint8_t *bytes() const { return borrowed != nullptr ? borrowed : owned.data(); }
   uint64_t size() const { return borrowed != nullptr ? borrowed_size : owned.size(); }
 };
+
+// Whether `json` is a single JSON object and nothing else.
+bool IsJsonObject(const std::string &json) {
+  size_t i = 0;
+  if (!pvzstd::json::SkipWs(json, &i) || json[i] != '{') return false;
+  if (!pvzstd::json::SkipValue(json, &i)) return false;
+  return !pvzstd::json::SkipWs(json, &i);
+}
+
+// Sets *uses to whether a staged metadata document records MultiBlock field
+// arrays or an ExplicitStructuredGrid, both of which readers with a ceiling of 2
+// cannot decode. PVZSTD_E_INVALID when a metadata document is not a JSON object.
+pvzstd_status ScanVersion3Features(const std::vector<PendingArray> &arrays, bool *uses) {
+  *uses = false;
+  for (const PendingArray &a : arrays) {
+    if (!EndsWith(a.name, kDsMetadataSuffix)) continue;
+    const std::string json(reinterpret_cast<const char *>(a.bytes()), a.size());
+    if (!IsJsonObject(json)) return PVZSTD_E_INVALID;
+    if (EndsWith(a.name, kMultiblockSuffix)) {
+      size_t open = 0;
+      size_t past = 0;
+      if (pvzstd::json::MemberObjectSpan(json, "field_data_keys", &open, &past)) *uses = true;
+    } else {
+      std::string ds_type;
+      if (pvzstd::json::MemberString(json, "ds_type", &ds_type) &&
+          ds_type == "ExplicitStructuredGrid") {
+        *uses = true;
+      }
+    }
+  }
+  return PVZSTD_OK;
+}
 
 }  // namespace
 
@@ -157,7 +190,7 @@ pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, const char *u
   if (writer == nullptr || uid == nullptr || json == nullptr) return PVZSTD_E_INVALID;
   const uint64_t n = std::strlen(json);
   PendingArray entry;
-  entry.name = std::string(uid) + "__ds_metadata";
+  entry.name = std::string(uid) + kDsMetadataSuffix;
   entry.dtype = "|u1";
   entry.shape.push_back(n);
   entry.is_metadata_json = true;
@@ -200,9 +233,14 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
     }
   }
 
-  // 2. File version is the highest optional encoding used, not a generation.
+  // 2. File version is the highest optional feature used, not a generation.
+  bool uses_version_3 = false;
+  const pvzstd_status scanned = ScanVersion3Features(writer->arrays, &uses_version_3);
+  if (scanned != PVZSTD_OK) return scanned;
   int file_version = 0;
-  if (writer->fixed_width_cells) {
+  if (uses_version_3) {
+    file_version = 3;
+  } else if (writer->fixed_width_cells) {
     file_version = 2;
   } else if (any_filtered) {
     file_version = 1;
@@ -225,7 +263,7 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   for (const PendingArray &a : writer->arrays) total_bytes += a.size();
 
   PendingArray meta_entry;
-  meta_entry.name = "__pyvista_zstd_metadata";
+  meta_entry.name = kFileMetadataSuffix;
   meta_entry.dtype = "|u1";
   meta_entry.shape.push_back(meta.size());
   meta_entry.is_metadata_json = true;

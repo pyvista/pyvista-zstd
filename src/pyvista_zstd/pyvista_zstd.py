@@ -12,6 +12,7 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
 import json
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -64,20 +65,23 @@ if TYPE_CHECKING:  # pragma: no cover
     from pyvista_zstd._capi import CoreReader
 
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The
-# core enforces the ceiling; this constant only publishes it.
-FILE_VERSION = 2
-# Version stamped on files that use neither byte filters nor fixed-width cell
-# arrays. Such files stay byte-identical to the legacy format and remain
-# readable by older releases.
+# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays, version 3
+# MultiBlock field data and ExplicitStructuredGrid without celltypes. The core
+# enforces the ceiling; this constant only publishes it.
+FILE_VERSION = 3
+# Version stamped on files that use no optional feature. Such files stay
+# byte-identical to the legacy format and remain readable by older releases.
 FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
+# Both features share version 3.
+FILE_VERSION_MULTIBLOCK_FIELD_DATA = 3
+FILE_VERSION_EXPLICIT_STRUCTURED_GRID = 3
 FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
-# The cell arrays an ExplicitStructuredGrid needs to be cast back into one.
+# Cell arrays that rebuild an ExplicitStructuredGrid from a file with no stored dimensions.
 ESGRID_BLOCK_KEYS = ("BLOCK_I", "BLOCK_J", "BLOCK_K")
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
@@ -160,8 +164,8 @@ class ZstdFileMetadata:
     frame_names: list[str]
     compression_level: int
     compression: Compression = "zstandard"
-    # Defaults to the legacy version; writers promote this when they use an
-    # optional encoding such as byte shuffle or fixed-width cell topology.
+    # Defaults to the legacy version; the core writer promotes it when the file
+    # uses an optional feature.
     file_version: int = FILE_VERSION_UNFILTERED
 
     def to_json(self) -> str:
@@ -191,14 +195,23 @@ class MultiBlockMetadata:
     # optional and used for ds reader
     children_ds: dict[str, MultiBlockMetadata | DataSetMetadata | None] | None = None
 
+    # the MultiBlock's own field arrays, omitted from the JSON when empty
+    field_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
+
     def to_json(self) -> str:
         """Convert to JSON."""
-        return json.dumps(asdict(self), separators=(",", ":"))
+        raw = asdict(self)
+        # Omitted when empty, since its presence stamps file version 3.
+        if not raw["field_data_keys"]:
+            del raw["field_data_keys"]
+        return json.dumps(raw, separators=(",", ":"))
 
     @classmethod
     def from_json(cls, s: str) -> MultiBlockMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        raw = json.loads(s)
+        raw["field_data_keys"] = {k: ArrayInfo(**v) for k, v in raw.get("field_data_keys", {}).items()}
+        return cls(**raw)
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> MultiBlockMetadata:
@@ -235,12 +248,13 @@ class DataSetMetadata:
     cell_data_active_texture_coordinates_name: str | None = None
     cell_data_active_normals_name: str | None = None
 
-    # Optional ImageData metadata
+    # Optional grid metadata
     dimensions: tuple[int, int, int] | None = None
     origin: tuple[float, float, float] | None = None
     spacing: tuple[float, float, float] | None = None
     direction_matrix: list[list[float]] | None = None
     offset: int | None = None
+    faces_connectivity_flags_array_name: str | None = None
 
     @classmethod
     def from_dataset(  # noqa: PLR0913
@@ -304,14 +318,23 @@ class DataSetMetadata:
                 direction_matrix=ds.direction_matrix.tolist(),
                 offset=ds.offset,
             )
-        elif isinstance(ds, pv.StructuredGrid):
+        elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
             kwargs["dimensions"] = ds.dimensions
+            if not ds.n_points:
+                # Store either grid without points as empty; a default ExplicitStructuredGrid's extent is uninitialised.
+                kwargs.update(dimensions=(0, 0, 0), n_cells=0)
+            if isinstance(ds, ExplicitStructuredGrid):
+                kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
         return cls(**kwargs)
 
     def to_json(self) -> str:
-        """Convert to JSON."""
-        return json.dumps(asdict(self), separators=(",", ":"))
+        """Convert to JSON, leaving out an unset ExplicitStructuredGrid flags array name."""
+        fields = asdict(self)
+        # pyvista-zstd 0.5.0 rejects metadata keys it does not know.
+        if fields["faces_connectivity_flags_array_name"] is None:
+            del fields["faces_connectivity_flags_array_name"]
+        return json.dumps(fields, separators=(",", ":"))
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> DataSetMetadata:
@@ -527,8 +550,17 @@ def _add_arrays_esgrid(
     *,
     force_int32: bool = True,
 ) -> None:
-    ugrid = ds.cast_to_unstructured_grid()
-    _add_arrays_ugrid(ds_id, ugrid, arrays, fixed_cell_sizes, force_int32=force_int32)
+    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    _add_cell_array(
+        ds_id,
+        arrays,
+        CELLS,
+        # A grid without points is stored empty, so drop the cells its extent allocated.
+        ds.GetCells() if ds.n_points else vtkCellArray(),
+        fixed_cell_sizes,
+        force_int32=force_int32,
+        max_entry=ds.n_points - 1,
+    )
 
 
 def _add_arrays_sgrid(ds_id: str, ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -682,6 +714,7 @@ class Writer:
                 uid=ds_id,
                 children=child_ids,
                 children_keys=children_keys,
+                field_data_keys=self._add_field_arrays(ds_id, ds),
             )
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = multi_meta.to_array()
 
@@ -696,19 +729,28 @@ class Writer:
             point_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
         cell_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.cell_data.items():
+        # A structured grid without points is stored with no cells, so it keeps no cell data either.
+        stored_empty = isinstance(ds, (StructuredGrid, ExplicitStructuredGrid)) and not ds.n_points
+        for key, array in [] if stored_empty else ds.cell_data.items():
             self._arrays[f"{ds_id}{key}{CELL_DATA_SUFFIX}"] = array
             cell_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
-        field_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.field_data.items():
-            self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
-            field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+        field_info = self._add_field_arrays(ds_id, ds)
 
         # supply dataset metadata
         ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes, uid=ds_id)
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
         self._uses_fixed_width_cells = self._uses_fixed_width_cells or bool(fixed_cell_sizes)
+
+    def _add_field_arrays(self, ds_id: str, ds: DataSet | MultiBlock) -> dict[str, ArrayInfo]:
+        """Stage the field arrays of a dataset or MultiBlock and return their metadata."""
+        field_info: dict[str, ArrayInfo] = {}
+        for key, value in ds.field_data.items():
+            # pyvista < 0.50 returns a string array set from a scalar, such as the user_dict, as ``str``.
+            array = np.atleast_1d(value)
+            self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
+            field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+        return field_info
 
     def write(
         self,
@@ -816,15 +858,41 @@ def _segments_to_esgrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> ExplicitStructuredGrid:
-    """
-    Rebuild an explicit structured grid from its frames.
+    """Rebuild an explicit structured grid from its dimensions, points and cells."""
+    if metadata.dimensions is None:
+        return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
-    The cast is driven by the ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` cell arrays,
-    so they have to be on the grid before it happens. The caller attaches cell
-    data only after this returns, which is why they are pulled from the
-    segments here rather than left to the general path -- without this the
-    cast sees a grid with no cell data at all and refuses every file.
-    """
+    points = segments[f"{ds_id}{POINTS_KEY}"]
+    # SetDimensions allocates a cell for every i/j/k position, so check the size first.
+    if math.prod(metadata.dimensions) != len(points):
+        msg = (
+            f"ExplicitStructuredGrid dimensions {tuple(metadata.dimensions)} do not match its "
+            f"{len(points)} points; the file is corrupt or was written from an inconsistent grid."
+        )
+        raise ValueError(msg)
+
+    esgrid = ExplicitStructuredGrid()
+    esgrid.SetDimensions(*metadata.dimensions)
+    esgrid.points = points
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
+    if cells is not None:
+        # VTK misreads ESG cells narrower than vtkIdType: https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
+        if cells.IsHomogeneous() > 0 and hasattr(cells, "ConvertToFixedSizeDefaultStorage"):
+            cells.ConvertToFixedSizeDefaultStorage()
+        else:
+            cells.ConvertToDefaultStorage()
+        esgrid.SetCells(cells)
+    if metadata.faces_connectivity_flags_array_name is not None:
+        esgrid.SetFacesConnectivityFlagsArrayName(metadata.faces_connectivity_flags_array_name)
+    return esgrid
+
+
+def _segments_to_esgrid_by_blocking(
+    ds_id: str,
+    segments: dict[str, Any],
+    metadata: DataSetMetadata,
+) -> ExplicitStructuredGrid:
+    """Rebuild an explicit structured grid with no stored dimensions from its blocking cell arrays."""
     ugrid = _segments_to_ugrid(ds_id, segments, metadata)
 
     missing = []
@@ -835,10 +903,14 @@ def _segments_to_esgrid(
         else:
             missing.append(name)
     if missing:
+        absent = [name for name in missing if name not in metadata.cell_data_keys]
+        if absent:
+            advice = f"The file does not store {absent}; rewrite it from the source grid with a current pyvista-zstd."
+        else:
+            advice = f"Select {missing} in selected_cell_arrays to read this file."
         msg = (
-            f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
-            "These cell arrays define the i/j/k blocking and are required by "
-            "the cast; do not exclude them via selected_cell_arrays."
+            f"Cannot rebuild an ExplicitStructuredGrid without {missing}, which define its "
+            f"i/j/k blocking in a file with no stored dimensions. {advice}"
         )
         raise ValueError(msg)
 
@@ -1122,6 +1194,7 @@ class _DataSetReader:
             mb = MultiBlock()
             for key, child in zip(self._meta.children_keys, self._children, strict=True):
                 mb[key] = child._read_shared(built, n_threads)  # noqa: SLF001
+            self._parent._read_multiblock_field_data(mb, self._meta, n_threads)  # noqa: SLF001
             return mb
 
         if self._meta is None:
@@ -1138,7 +1211,10 @@ class _DataSetReader:
         if isinstance(self._meta, DataSetMetadata):
             return f"{prefix}{connector}{self._meta.ds_type}"
         if isinstance(self._meta, MultiBlockMetadata):
-            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)})"]
+            fields = ""
+            if self._meta.field_data_keys:
+                fields = f", field arrays: {', '.join(self._meta.field_data_keys)}"
+            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)}{fields})"]
             for i, child in enumerate(self._children):
                 last = i == len(self._children) - 1
                 child_prefix = prefix + ("   " if is_last else "│  ")
@@ -1471,6 +1547,16 @@ class Reader:
         names = set(self._metadata.frame_names) - excluded
         return {f for f in names if f.startswith(ds_id)}
 
+    def _read_multiblock_field_data(self, mb: MultiBlock, meta: MultiBlockMetadata, n_threads: int | None) -> None:
+        """Add a MultiBlock's own field arrays from the file."""
+        if not meta.field_data_keys:
+            return
+        frames = {f"{meta.uid}{name}{FIELD_DATA_SUFFIX}": name for name in meta.field_data_keys}
+        threads = _capi.THREADS_AUTO if n_threads is None else n_threads
+        segments = self._core_reader().read_arrays(keep=set(frames), n_threads=threads)
+        for frame, name in frames.items():
+            mb.field_data.set_array(segments[frame], name)
+
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
         """Read a single dataset."""
@@ -1602,6 +1688,8 @@ class Reader:
         """
         Return a set of all point array names available in the dataset.
 
+        Empty for a MultiBlock file, which reads every array.
+
         Returns
         -------
         set[str]
@@ -1634,6 +1722,8 @@ class Reader:
         """
         Return a set of all cell array names available in the dataset.
 
+        Empty for a MultiBlock file, which reads every array.
+
         Returns
         -------
         set[str]
@@ -1663,7 +1753,11 @@ class Reader:
 
     @property
     def available_field_arrays(self) -> set[str]:
-        """Return a set of all field array names available in the dataset."""
+        """
+        Return a set of all field array names available in the dataset.
+
+        Empty for a MultiBlock file, which reads every array.
+        """
         if isinstance(self._ds_metadata, MultiBlockMetadata):
             return set()
         return set(self._ds_metadata.field_data_keys)
@@ -1673,7 +1767,7 @@ class Reader:
         """
         Return the set of currently selected point arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_point_arrays is None:
             return self.available_point_arrays.copy()
@@ -1707,7 +1801,7 @@ class Reader:
         """
         Return the set of currently selected cell arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_cell_arrays is None:
             return self.available_cell_arrays.copy()
@@ -1741,7 +1835,7 @@ class Reader:
         """
         Return the set of currently selected field arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_field_arrays is None:
             return self.available_field_arrays.copy()

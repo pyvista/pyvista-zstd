@@ -116,33 +116,30 @@ def _staging_files(container: Path) -> list[Path]:
     return sorted(container.parent.glob(f"{container.name}.append.*"))
 
 
-@pytest.mark.skipif(
-    os.name == "nt",
-    reason="Windows will not replace a file another process holds open, so the collision cannot be staged there",
-)
-def test_a_container_replaced_mid_append_is_refused_rather_than_overwritten(tmp_path: Path) -> None:
-    """
-    An append whose container is replaced while it works reports it and writes nothing.
+COLLISION_ATTEMPTS = 5
+"""Tries at staging the replacement before the append commits; one is normally enough."""
 
-    The collision is driven rather than raced for. The child's staging file
-    cannot exist before the child has opened and parsed the container, so its
-    appearance is a point strictly after the read and strictly before the
-    commit -- which is exactly the interval the check exists to cover. The
-    replacement is a single ``os.replace``, against a body copy of some tens of
-    milliseconds, so what is timing-dependent is only the margin and not the
-    ordering.
+
+def _append_while_replaced(workdir: Path) -> tuple[str | None, bytes, Path]:
     """
-    container = tmp_path / "shared.pv"
+    Replace a container once an append is staging, and return its verdict.
+
+    Returns ``None`` instead of the verdict when the append committed before the
+    replacement landed: it then rightly reports ``"ok"`` and the replacement is
+    the file left behind, so no collision was staged.
+    """
+    workdir.mkdir()
+    container = workdir / "shared.pv"
     pz.write(_bulk(11), container, progress_bar=False)
 
     # What the other writer commits: the same container with its own array.
-    theirs = tmp_path / "theirs.pv"
+    theirs = workdir / "theirs.pv"
     shutil.copyfile(container, theirs)
     pz.append_arrays(theirs, {"step_1_theirs": np.arange(8, dtype=np.int64)})
     replacement = theirs.read_bytes()
 
-    ready = tmp_path / "ready"
-    go = tmp_path / "go"
+    ready = workdir / "ready"
+    go = workdir / "go"
     child = subprocess.Popen(  # noqa: S603
         [sys.executable, "-c", _CHILD, str(container), str(ready), str(go), "step_1_ours", "5"],
         stdout=subprocess.PIPE,
@@ -151,11 +148,41 @@ def test_a_container_replaced_mid_append_is_refused_rather_than_overwritten(tmp_
     try:
         _wait_for(ready.exists, "the child to finish importing")
         go.touch()
-        _wait_for(lambda: _staging_files(container), "the child's append to open its staging file")
+        # Also ends on the child's exit: an append can stage and commit between two polls.
+        _wait_for(
+            lambda: _staging_files(container) or child.poll() is not None,
+            "the child's append to open its staging file",
+        )
         theirs.replace(container)
         verdict = child.communicate(timeout=RACE_TIMEOUT_S)[0].strip()
     finally:
         child.kill()
+
+    if verdict == "ok" and container.read_bytes() == replacement:
+        return None, replacement, container
+    return verdict, replacement, container
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows will not replace a file another process holds open, so the collision cannot be staged there",
+)
+def test_a_container_replaced_mid_append_is_refused_rather_than_overwritten(tmp_path: Path) -> None:
+    """
+    An append whose container is replaced while it works reports it and writes nothing.
+
+    The child's staging file cannot exist before the child has opened and
+    parsed the container, so its appearance is a point strictly after the read
+    and strictly before the commit -- the interval the check exists to cover.
+    A child that copies the body and commits before the replacement lands
+    stages no collision, and the attempt is repeated.
+    """
+    for attempt in range(COLLISION_ATTEMPTS):
+        verdict, replacement, container = _append_while_replaced(tmp_path / f"attempt_{attempt}")
+        if verdict is not None:
+            break
+    else:
+        pytest.fail(f"the append reported ok and left the replacement in place in all {COLLISION_ATTEMPTS} attempts")
 
     assert verdict == "changed", (
         f"the append reported {verdict!r} for a container that was replaced while it was staging"

@@ -23,13 +23,7 @@ using namespace pvzstd::json;    // NOLINT(google-build-using-namespace)
 
 namespace {
 
-constexpr const char kDsMetadataKey[] = "__ds_metadata";
-constexpr const char kMultiblockKey[] = "__multiblock__ds_metadata";
-constexpr const char kFileMetadataKey[] = "__pyvista_zstd_metadata";
-constexpr const char kFieldDataSuffix[] = "__field_data";
-constexpr size_t kUidNChar = 16;
 constexpr size_t kCopyChunk = 8u << 20;
-constexpr int kFileVersionShuffle = 1;
 
 class ScopedFile {
  public:
@@ -131,11 +125,6 @@ pvzstd_status DecompressFrame(std::FILE *fp, const std::vector<FrameEntry> &fram
   if (got != plain.size()) return PVZSTD_E_FORMAT;
   *out = std::move(plain);
   return PVZSTD_OK;
-}
-
-bool EndsWith(const std::string &s, const char *suffix) {
-  const size_t n = std::strlen(suffix);
-  return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
 }
 
 struct StagedFrame {
@@ -240,8 +229,8 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     // from PVZSTD_E_FORMAT because the file is intact -- it is this operation that
     // has nowhere to put the arrays, and a caller told "format error" would
     // report a good container as damaged.
-    if (EndsWith(frame_names[i], kMultiblockKey)) return PVZSTD_E_UNSUPPORTED;
-    if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataKey)) root_idx = i;
+    if (EndsWith(frame_names[i], kMultiblockSuffix)) return PVZSTD_E_UNSUPPORTED;
+    if (root_idx == frame_names.size() && EndsWith(frame_names[i], kDsMetadataSuffix)) root_idx = i;
   }
   if (root_idx == frame_names.size()) return PVZSTD_E_FORMAT;
   if (frame_names[root_idx].size() < kUidNChar) return PVZSTD_E_FORMAT;
@@ -340,7 +329,7 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
   //    the field_data_keys object exactly as it was.
   std::string ds_new = ds_json;
   ds_new.insert(fdk_past - 1, fdk_addition);
-  const std::string ds_name = ds_id + kDsMetadataKey;
+  const std::string ds_name = ds_id + kDsMetadataSuffix;
   final_names.push_back(ds_name);
 
   // 5. Regenerate the file metadata, in the reference dataclass's field order.
@@ -361,7 +350,7 @@ pvzstd_status pvzstd_append_arrays(const char *path, const pvzstd_append_array *
     plain.push_back(PackArrayMetadata(ds_name, "|u1", {ds_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(ds_new.begin(), ds_new.end());
     plain.push_back(
-        PackArrayMetadata(kFileMetadataKey, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
+        PackArrayMetadata(kFileMetadataSuffix, "|u1", {file_new.size()}, PVZSTD_FILTER_NONE));
     plain.emplace_back(file_new.begin(), file_new.end());
   } catch (const std::exception &) {
     // See ReadAt: std::length_error is not a std::bad_alloc. No guard in front

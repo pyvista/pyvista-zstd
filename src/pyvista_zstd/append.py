@@ -181,9 +181,12 @@ def read_array(
         file, which has no root arrays.
     TypeError
         The file is a MultiBlock and *association* is ``"point"`` or ``"cell"``.
+    ValueError
+        *association* is not ``"field"``, ``"point"`` or ``"cell"``.
 
     """
     _warn_backend_deprecated(backend)
+    # AppendReader serves field arrays without the legacy-format FutureWarning that Reader raises on .zvtk files.
     if association == "field":
         with AppendReader(filename) as append_reader:
             if name in append_reader:

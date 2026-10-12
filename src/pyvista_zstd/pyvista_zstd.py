@@ -181,8 +181,9 @@ class ZstdFileMetadata:
     Attributes
     ----------
     frame_names : list[str]
-        Stored name of every frame, metadata frames included, in file order.
-        Each name starts with the 16-character identifier of its dataset.
+        Stored name of every array and dataset-metadata document, in file
+        order; the file-metadata document itself is not listed. Each name
+        starts with the 16-character identifier of its dataset.
     compression_level : int
         Zstandard level the file was written with.
     compression : str
@@ -1209,7 +1210,7 @@ class _DataSetReader:
 
     @property
     def dataset_metadata(self) -> DataSetMetadata | MultiBlockMetadata | None:
-        """Return this block's metadata, or ``None`` for an empty block."""
+        """Return this block's metadata, or ``None`` for an empty block; treat it as read-only."""
         return self._meta
 
     def read_array(self, name: str, *, association: Association) -> NDArray[Any]:
@@ -1482,7 +1483,7 @@ class Reader:
 
     @property
     def compressed_nbytes(self) -> int:
-        """Return the size of the compressed frames."""
+        """Return the size in bytes of the compressed frames, metadata frames included."""
         return int(self._compressed_sizes.sum())
 
     @property
@@ -1508,7 +1509,8 @@ class Reader:
         Return the dataset's metadata without decompressing any array.
 
         A MultiBlock file returns a :class:`MultiBlockMetadata` whose
-        ``children_ds`` holds the metadata of every block, nested.
+        ``children_ds`` holds the metadata of every block, nested. The objects
+        are the reader's own, so treat them as read-only.
 
         Examples
         --------

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+import warnings
 
 import numpy as np
 import pytest
@@ -256,3 +257,14 @@ def test_read_array_function_multiblock(tmp_path: Path, association: str, error:
     pyvista_zstd.write(pv.MultiBlock({"sphere": _populated(pv.Sphere())}), path)
     with pytest.raises(error, match="is a MultiBlock file"):
         pyvista_zstd.read_array(path, "time", association=association)
+
+
+def test_read_array_function_legacy_field_no_warning(tmp_path: Path) -> None:
+    """Reading a field array of a legacy .zvtk file through read_array raises no FutureWarning."""
+    ds = _populated(pv.Sphere())
+    path = tmp_path / "sphere.zvtk"
+    with pytest.warns(FutureWarning):
+        pyvista_zstd.write(ds, path)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        _assert_same_array(pyvista_zstd.read_array(path, "time"), ds.field_data["time"])

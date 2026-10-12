@@ -89,11 +89,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.13"]
-        vtk-version: ["9.2.6", "9.3.1", "9.4.2", "9.5.0", "latest"]
+        vtk-version: ["9.3.1", "9.4.2", "9.5.0", "latest"]
         exclude:
-          # vtk 9.2.6 / 9.3.1 wheels not published for Python 3.13
-          - vtk-version: "9.2.6"
-            python-version: "3.13"
+          # vtk 9.3.1 wheels not published for Python 3.13
           - vtk-version: "9.3.1"
             python-version: "3.13"
 
@@ -110,14 +108,14 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Set up vtk
-        if: ${{ matrix.vtk-version != 'latest' }}
-        run: uv pip install --system vtk==${{ matrix.vtk-version }}
-
       - name: Install with test dependencies
+        # Pin vtk in the same resolve so the dependencies cannot replace it.
         env:
           PVZSTD_BUILD_CORE: "1"
-        run: uv pip install --system .[tests]
+        run: uv pip install --system .[tests] ${{ matrix.vtk-version != 'latest' && format('vtk=={0}', matrix.vtk-version) || '' }}
+
+      - name: Confirm the VTK version
+        run: python -c "import importlib.metadata as m, sys; v = m.version('vtk'); print('vtk', v); sys.exit(0 if '${{ matrix.vtk-version }}' in ('latest', v) else 1)"
 
       - name: Confirm the C++ core is present
         run: |

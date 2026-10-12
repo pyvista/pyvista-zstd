@@ -52,7 +52,7 @@ __all__ = [
     "max_file_version",
 ]
 
-ABI_VERSION = 11
+ABI_VERSION = 12
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 DTYPE_LEN = 16
@@ -213,6 +213,18 @@ class _ArrayInfo(Structure):
     )
 
 
+class _ThumbnailInfo(Structure):
+    """Mirrors ``pvzstd_thumbnail_info``."""
+
+    _fields_ = (
+        ("png", c_void_p),
+        ("nbytes", c_uint64),
+        ("width", c_uint32),
+        ("height", c_uint32),
+        ("stale", c_int),
+    )
+
+
 class _AppendArray(Structure):
     # Field order is the C declaration's; ctypes reproduces its padding from that,
     # and a reordering here would misread every member past the first difference.
@@ -271,6 +283,7 @@ _load_error: str | None = None
 def _bind(lib: ctypes.CDLL) -> None:
     """Declare every signature. ctypes defaults are wrong for 64-bit returns."""
     _bind_reader(lib)
+    _bind_thumbnail(lib)
     _bind_writer(lib)
 
 
@@ -361,6 +374,15 @@ def _bind_reader(lib: ctypes.CDLL) -> None:
 
     lib.pvzstd_frame_sizes.restype = c_int
     lib.pvzstd_frame_sizes.argtypes = [c_void_p, POINTER(c_uint64), POINTER(c_uint64), c_uint64]
+
+
+def _bind_thumbnail(lib: ctypes.CDLL) -> None:
+    """Thumbnail entry points of the reader and writer."""
+    lib.pvzstd_thumbnail.restype = c_int
+    lib.pvzstd_thumbnail.argtypes = [c_void_p, POINTER(_ThumbnailInfo)]
+
+    lib.pvzstd_writer_set_thumbnail.restype = c_int
+    lib.pvzstd_writer_set_thumbnail.argtypes = [c_void_p, c_char_p, c_uint64]
 
 
 def _bind_writer(lib: ctypes.CDLL) -> None:
@@ -858,6 +880,14 @@ class CoreReader:
         )
         return decompressed, compressed
 
+    def thumbnail(self) -> tuple[bytes, int, int, bool] | None:
+        """Return ``(png, width, height, stale)`` for the embedded thumbnail, or None."""
+        info = _ThumbnailInfo()
+        _check(self._lib.pvzstd_thumbnail(self._live, byref(info)))
+        if not info.png:
+            return None
+        return ctypes.string_at(info.png, info.nbytes), info.width, info.height, bool(info.stale)
+
 
 class CoreWriter:
     """
@@ -931,6 +961,10 @@ class CoreWriter:
     def set_fixed_width_cells(self, *, enabled: bool) -> None:
         """Record whether any dataset used the fixed-width cell encoding."""
         _check(self._lib.pvzstd_writer_set_fixed_width_cells(self._live, 1 if enabled else 0))
+
+    def set_thumbnail(self, png: bytes) -> None:
+        """Embed PNG bytes as the container's thumbnail."""
+        _check(self._lib.pvzstd_writer_set_thumbnail(self._live, png, len(png)))
 
     def add_array(self, name: str, arr: NDArray[Any]) -> None:
         """

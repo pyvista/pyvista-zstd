@@ -17,6 +17,7 @@
 
 #include "detail.h"
 #include "pvzstd/pvzstd.h"
+#include "thumbnail.h"
 
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
 
@@ -46,6 +47,9 @@ struct pvzstd_writer {
   pvzstd_shuffle_mode shuffle = PVZSTD_SHUFFLE_NEVER;
   bool fixed_width_cells = false;
   std::vector<PendingArray> arrays;
+  std::vector<uint8_t> thumbnail_png;
+  uint32_t thumbnail_width = 0;
+  uint32_t thumbnail_height = 0;
 };
 
 namespace {
@@ -65,6 +69,7 @@ pvzstd_status AddArray(pvzstd_writer *writer, const char *name, const char *dtyp
   if (ndim > 0 && shape == nullptr) return PVZSTD_E_INVALID;
   if (std::strlen(dtype) > PVZSTD_DTYPE_LEN) return PVZSTD_E_INVALID;
   if (!ParseDtype(dtype).valid) return PVZSTD_E_INVALID;
+  if (std::strcmp(name, kThumbnailName) == 0) return PVZSTD_E_INVALID;  // reserved
 
   const uint8_t *src = static_cast<const uint8_t *>(data);
   PendingArray entry;
@@ -130,6 +135,30 @@ pvzstd_status pvzstd_writer_set_shuffle(pvzstd_writer *writer, pvzstd_shuffle_mo
 pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int enabled) try {
   if (writer == nullptr) return PVZSTD_E_INVALID;
   writer->fixed_width_cells = enabled != 0;
+  return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
+}
+
+pvzstd_status pvzstd_writer_set_thumbnail(pvzstd_writer *writer, const void *png,
+                                          uint64_t nbytes) try {
+  if (writer == nullptr) return PVZSTD_E_INVALID;
+  if (png == nullptr && nbytes == 0) {
+    writer->thumbnail_png.clear();
+    return PVZSTD_OK;
+  }
+  if (nbytes > PVZSTD_THUMBNAIL_MAX_BYTES) return PVZSTD_E_RANGE;
+  const uint8_t *src = static_cast<const uint8_t *>(png);
+  uint32_t width = 0;
+  uint32_t height = 0;
+  if (!PngSize(src, nbytes, &width, &height)) return PVZSTD_E_INVALID;
+  try {
+    writer->thumbnail_png.assign(src, src + nbytes);
+  } catch (const std::exception &) {
+    return PVZSTD_E_NOMEM;
+  }
+  writer->thumbnail_width = width;
+  writer->thumbnail_height = height;
   return PVZSTD_OK;
 } catch (...) {
   return PVZSTD_E_NOMEM;
@@ -209,7 +238,12 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   }
 
   // 3. Trailing file-metadata frame, in the reference dataclass's field order.
+  const bool has_thumbnail = !writer->thumbnail_png.empty();
   std::string meta = "{\"frame_names\":[";
+  if (has_thumbnail) {
+    AppendJsonString(&meta, kThumbnailName);
+    meta.push_back(',');  // arrays is never empty here
+  }
   for (size_t i = 0; i < writer->arrays.size(); ++i) {
     if (i != 0) meta.push_back(',');
     AppendJsonString(&meta, writer->arrays[i].name);
@@ -246,6 +280,13 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   // 4. Worker count, from the total computed above.
   const int workers = EffectiveWorkers(ResolveThreads(writer->threads, total_bytes));
 
+  // Built before the file is opened, so a failed allocation leaves nothing open.
+  std::vector<uint8_t> thumbnail_prefix;
+  if (has_thumbnail) {
+    thumbnail_prefix = ThumbnailPrefix(writer->thumbnail_png.size(), writer->thumbnail_width,
+                                       writer->thumbnail_height);
+  }
+
   // 5. Emit (header, payload) pairs, recording END offsets.
   std::FILE *fp = std::fopen(path, "wb");
   if (fp == nullptr) return PVZSTD_E_IO;
@@ -257,6 +298,21 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   std::vector<uint8_t> header;
   std::vector<uint8_t> payload;
   std::vector<uint8_t> frame;
+
+  // The thumbnail pair goes first, with its PNG written straight from the stored copy.
+  if (has_thumbnail) {
+    const uint64_t png_nbytes = writer->thumbnail_png.size();
+    if (std::fwrite(thumbnail_prefix.data(), 1, thumbnail_prefix.size(), fp) !=
+            thumbnail_prefix.size() ||
+        std::fwrite(writer->thumbnail_png.data(), 1, png_nbytes, fp) != png_nbytes) {
+      st = PVZSTD_E_IO;
+    }
+    offset = thumbnail_prefix.size() + png_nbytes;
+    ends.push_back(kThumbnailHeaderFrameBytes);
+    sizes.push_back(kThumbnailArrayHeaderBytes);
+    ends.push_back(offset);
+    sizes.push_back(0);  // a skippable frame decodes to nothing
+  }
 
   for (size_t i = 0; i < emit.size() && st == PVZSTD_OK; ++i) {
     const PendingArray &a = *emit[i];
@@ -307,6 +363,17 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
     }
     StoreU64(&trailer, static_cast<uint64_t>(ends.size()));
     if (std::fwrite(trailer.data(), 1, trailer.size(), fp) != trailer.size()) st = PVZSTD_E_IO;
+
+    // 7. Staleness CRC, patched into the thumbnail descriptor.
+    if (st == PVZSTD_OK && has_thumbnail) {
+      const uint32_t crc = IndexCrc(trailer.data(), ends.size());
+      uint8_t crc_bytes[4];
+      for (int k = 0; k < 4; ++k) crc_bytes[k] = static_cast<uint8_t>((crc >> (8 * k)) & 0xFF);
+      if (std::fseek(fp, static_cast<long>(kThumbnailCrcAt), SEEK_SET) != 0 ||
+          std::fwrite(crc_bytes, 1, sizeof(crc_bytes), fp) != sizeof(crc_bytes)) {
+        st = PVZSTD_E_IO;
+      }
+    }
   }
 
   if (std::fclose(fp) != 0 && st == PVZSTD_OK) st = PVZSTD_E_IO;

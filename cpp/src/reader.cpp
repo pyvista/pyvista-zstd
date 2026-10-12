@@ -18,6 +18,7 @@
 #include "json_read.h"
 #include "pvzstd/pvzstd.h"
 #include "threads.h"
+#include "thumbnail.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -31,7 +32,6 @@
 namespace {
 
 constexpr uint64_t kTrailerCountBytes = 8;
-constexpr uint64_t kIndexEntryBytes = 16;
 constexpr char kDsMetadataSuffix[] = "__ds_metadata";
 constexpr char kFileMetadataSuffix[] = "__pyvista_zstd_metadata";
 // The .zvtk-era spelling of the same frame. Accepted so a legacy container
@@ -47,6 +47,8 @@ constexpr size_t kUidNChar = 16;
 // what keeps the four answers the same. Named here so the uses below read as
 // they did.
 using pvzstd::detail::ExceedsSizeT;
+using pvzstd::detail::kIndexEntryBytes;
+using pvzstd::detail::LoadU32;
 
 // The most a zstd frame can expand, per compressed byte. A zstd block covers at
 // most 128 KiB, and the cheapest way to spell one is an RLE block: a 3-byte
@@ -62,12 +64,6 @@ constexpr uint64_t kMaxExpansionRatio = 32768;
 uint64_t LoadU64(const uint8_t *p) {
   uint64_t v = 0;
   for (int i = 7; i >= 0; --i) v = (v << 8) | p[static_cast<size_t>(i)];
-  return v;
-}
-
-uint32_t LoadU32(const uint8_t *p) {
-  uint32_t v = 0;
-  for (int i = 3; i >= 0; --i) v = (v << 8) | p[static_cast<size_t>(i)];
   return v;
 }
 
@@ -270,6 +266,10 @@ struct pvzstd_reader {
   // Root dataset's field-data blocks, in metadata order. Empty for MultiBlock.
   std::vector<std::string> field_names;
   std::vector<int64_t> field_indices;  // into `arrays`; -1 if the frame is gone
+  // The thumbnail record, inside the container's bytes; null when it has none.
+  const uint8_t *thumbnail_record = nullptr;
+  pvzstd::detail::ThumbnailRecord thumbnail;
+  bool thumbnail_stale = false;
   // Filled in by pvzstd_array_info_at so the caller sees stable pointers.
   mutable std::vector<uint64_t> scratch_shape;
 };
@@ -375,6 +375,26 @@ pvzstd_status ParseHeader(const std::vector<uint8_t> &buf, ArrayEntry *entry) {
   return PVZSTD_OK;
 }
 
+// Take in the thumbnail pair; a record this build does not read is left out.
+void ReadThumbnail(pvzstd_reader *reader, const ArrayEntry &entry, uint64_t index_off,
+                   uint64_t n_frames) {
+  using pvzstd::detail::kSkippablePrefixBytes;
+  const ContainerBytes &raw = reader->map;
+  const uint64_t frame_len = entry.payload_end - entry.payload_start;
+  if (frame_len < kSkippablePrefixBytes) return;
+  const uint8_t *frame = raw.data() + entry.payload_start;
+  if (LoadU32(frame) != pvzstd::detail::kSkippableMagic) return;
+  const uint64_t record_len = LoadU32(frame + 4);
+  if (record_len != frame_len - kSkippablePrefixBytes) return;
+  const uint8_t *record = frame + kSkippablePrefixBytes;
+  pvzstd::detail::ThumbnailRecord parsed;
+  if (!pvzstd::detail::ParseThumbnailRecord(record, record_len, &parsed)) return;
+  reader->thumbnail_record = record;
+  reader->thumbnail = parsed;
+  reader->thumbnail_stale =
+      pvzstd::detail::IndexCrc(raw.data() + index_off, n_frames) != parsed.data_crc;
+}
+
 // Parse a container out of the bytes the reader already points at, however it
 // came by them. Every entry point that produces a reader meets here, because a
 // second copy of this walk would be a second set of bounds checks to keep in
@@ -461,6 +481,13 @@ pvzstd_status ParseContainer(pvzstd_reader *reader, uint32_t *file_version) {
     entry.payload_end = pay_end;
     if (!DeclaredSizeAgrees(entry.shape, entry.dtype, entry.nbytes)) {
       return PVZSTD_E_FORMAT;
+    }
+
+    // Only the exact thumbnail header, which declares an empty array, is taken as the
+    // thumbnail pair; any other pair 0 is an ordinary array whatever its name.
+    if (i == 0 && frame == pvzstd::detail::ThumbnailArrayHeader()) {
+      ReadThumbnail(reader, entry, index_off, n_frames);
+      continue;
     }
 
     const bool is_ds = EndsWith(entry.name, kDsMetadataSuffix);
@@ -888,5 +915,19 @@ const char *pvzstd_status_message(pvzstd_status status) {
 }
 
 uint32_t pvzstd_abi_version(void) { return PVZSTD_ABI_VERSION; }
+
+pvzstd_status pvzstd_thumbnail(const pvzstd_reader *reader, pvzstd_thumbnail_info *out) try {
+  if (reader == nullptr || out == nullptr) return PVZSTD_E_INVALID;
+  *out = pvzstd_thumbnail_info{};
+  if (reader->thumbnail_record == nullptr) return PVZSTD_OK;
+  out->png = reader->thumbnail_record + reader->thumbnail.png_offset;
+  out->nbytes = reader->thumbnail.png_nbytes;
+  out->width = reader->thumbnail.width;
+  out->height = reader->thumbnail.height;
+  out->stale = reader->thumbnail_stale ? 1 : 0;
+  return PVZSTD_OK;
+} catch (...) {
+  return PVZSTD_E_NOMEM;
+}
 
 }  // extern "C"

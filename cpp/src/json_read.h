@@ -1,6 +1,6 @@
 // A reader for the two JSON metadata documents this format carries -- members of
-// a compact json.dumps, not a general JSON parser. In a header because the append
-// and read paths must agree on what a member of those documents is.
+// a compact json.dumps, not a general JSON parser. In a header because the write,
+// append and read paths must agree on what a member of those documents is.
 
 #ifndef PVZSTD_JSON_READ_H
 #define PVZSTD_JSON_READ_H

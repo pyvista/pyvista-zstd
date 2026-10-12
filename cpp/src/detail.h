@@ -32,6 +32,9 @@ constexpr char kFieldDataSuffix[] = "__field_data";
 
 // Width of the dataset UID that prefixes every frame name.
 constexpr size_t kUidNChar = PVZSTD_DTYPE_LEN;
+
+// File version of the byte-shuffle filter, the floor an append or stream that
+// shuffles raises a file to.
 constexpr int kFileVersionShuffle = 1;
 
 // Whether `s` ends with `suffix`.
@@ -195,8 +198,9 @@ inline pvzstd_status CompressFrame(const uint8_t *src, uint64_t n, int level, in
 }
 
 // Matches json.dumps' default escaping, except that non-ASCII is written as raw
-// UTF-8: readers whose file-version ceiling is below 3 reject \u escapes above
-// ASCII.
+// UTF-8: the pyvista-zstd 0.5.0 core cannot parse a \u escape above ASCII, so it
+// would not find file_version past such a name and would skip its version ceiling
+// instead of refusing a version 3 file.
 inline void AppendJsonString(std::string *out, const std::string &s) {
   out->push_back('"');
   for (const char c : s) {

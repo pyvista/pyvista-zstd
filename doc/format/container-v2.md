@@ -161,12 +161,16 @@ cumulative.** Measured on this build:
 | mixed hex + tet | `True`     | 1       | `{}`               | yes             |
 | homogeneous hex | `False`    | 2       | `{"cells": 8}`     | no              |
 | homogeneous hex | `True`     | **2**   | `{"cells": 8}`     | **yes**         |
+| ESG             | `False`    | **3**   | `{"cells": 8}`     | no              |
+| ESG             | `True`     | **3**   | `{"cells": 8}`     | **yes**         |
 
-The last row is the hazard: a **version-2 file may or may not carry shuffled
-arrays**, because 2 outranks 1 and overwrites it. Any reader that decides
-whether to expect a `filter_id` byte by testing `file_version >= 1` will
-mis-parse a shuffled version-2 file. **Filter presence must be determined
-per-frame from the header length (§3), never from the file version.**
+The bold rows are the hazard: a **version-2 or version-3 file may or may not
+carry shuffled arrays, and a version-3 file may or may not carry fixed-width
+cells**, because a higher tier overwrites a lower one. Any reader that decides
+whether to expect a `filter_id` byte by testing `file_version >= 1`, or expects
+fixed-width cells only when `file_version == 2`, will mis-parse such a file.
+**Filter presence must be determined per-frame from the header length (§3), and
+fixed-width cells from `fixed_cell_sizes`, never from the file version.**
 
 ## 3. Per-array frame header
 

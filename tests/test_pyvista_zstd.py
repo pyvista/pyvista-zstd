@@ -909,6 +909,18 @@ def test_multiblock_field_data_member_presence_sets_file_version(tmp_path: Path,
     assert pyvista_zstd.Reader(filename)._metadata.file_version == expected  # noqa: SLF001
 
 
+@pytest.mark.parametrize("suffix", [impl.DS_METADATA_KEY, impl.MULTIBLOCK_METADATA_KEY])
+@pytest.mark.parametrize("doc", ['{"ds_type":', "[]", '{"uid":"x"} trailing'])
+def test_unparsable_staged_metadata_is_refused(tmp_path: Path, suffix: str, doc: str) -> None:
+    """A staged metadata document that is not a JSON object is refused, and nothing is written."""
+    filename = tmp_path / "tmp.pv"
+    with _capi.CoreWriter() as writer:
+        writer.add_array(f"{'0' * 16}{suffix}", np.frombuffer(doc.encode(), dtype=np.uint8))
+        with pytest.raises(_capi.PvzstdError, match="invalid argument"):
+            writer.write(filename)
+    assert not filename.exists()
+
+
 def test_multiblock_block_field_data_keeps_file_version(polydata: PolyData, tmp_path: Path) -> None:
     """Field data only on a MultiBlock's datasets leaves the file version unchanged."""
     polydata.user_dict["a"] = 1

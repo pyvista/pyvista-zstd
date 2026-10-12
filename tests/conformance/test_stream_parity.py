@@ -171,6 +171,7 @@ def test_stream_into_a_version_3_file_with_non_ascii_names(tmp_path) -> None:
     assert pz.Reader(cpp)._metadata.file_version == pz.pyvista_zstd.FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
     out = pz.read(cpp)
     assert isinstance(out, pv.ExplicitStructuredGrid)
+    assert np.array_equal(out.field_data["étape_0"], np.arange(5.0))
     assert np.array_equal(out.field_data["étape_1😀"], np.arange(3, dtype=np.int32))
     assert np.array_equal(out.point_data["témp"], grid.point_data["témp"])
 

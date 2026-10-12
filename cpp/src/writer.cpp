@@ -39,25 +39,36 @@ struct PendingArray {
   uint64_t size() const { return borrowed != nullptr ? borrowed_size : owned.size(); }
 };
 
-// Whether a staged metadata document records MultiBlock field arrays or an
-// ExplicitStructuredGrid, both of which version 2 readers cannot decode.
-bool UsesVersion3Feature(const std::vector<PendingArray> &arrays) {
+// Whether `json` is a single JSON object and nothing else.
+bool IsJsonObject(const std::string &json) {
+  size_t i = 0;
+  if (!pvzstd::json::SkipWs(json, &i) || json[i] != '{') return false;
+  if (!pvzstd::json::SkipValue(json, &i)) return false;
+  return !pvzstd::json::SkipWs(json, &i);
+}
+
+// Sets *uses to whether a staged metadata document records MultiBlock field
+// arrays or an ExplicitStructuredGrid, both of which readers with a ceiling of 2
+// cannot decode. PVZSTD_E_INVALID when a metadata document is not a JSON object.
+pvzstd_status ScanVersion3Features(const std::vector<PendingArray> &arrays, bool *uses) {
+  *uses = false;
   for (const PendingArray &a : arrays) {
     if (!EndsWith(a.name, kDsMetadataSuffix)) continue;
     const std::string json(reinterpret_cast<const char *>(a.bytes()), a.size());
+    if (!IsJsonObject(json)) return PVZSTD_E_INVALID;
     if (EndsWith(a.name, kMultiblockSuffix)) {
       size_t open = 0;
       size_t past = 0;
-      if (pvzstd::json::MemberObjectSpan(json, "field_data_keys", &open, &past)) return true;
+      if (pvzstd::json::MemberObjectSpan(json, "field_data_keys", &open, &past)) *uses = true;
     } else {
       std::string ds_type;
       if (pvzstd::json::MemberString(json, "ds_type", &ds_type) &&
           ds_type == "ExplicitStructuredGrid") {
-        return true;
+        *uses = true;
       }
     }
   }
-  return false;
+  return PVZSTD_OK;
 }
 
 }  // namespace
@@ -223,8 +234,11 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   }
 
   // 2. File version is the highest optional feature used, not a generation.
+  bool uses_version_3 = false;
+  const pvzstd_status scanned = ScanVersion3Features(writer->arrays, &uses_version_3);
+  if (scanned != PVZSTD_OK) return scanned;
   int file_version = 0;
-  if (UsesVersion3Feature(writer->arrays)) {
+  if (uses_version_3) {
     file_version = 3;
   } else if (writer->fixed_width_cells) {
     file_version = 2;

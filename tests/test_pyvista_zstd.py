@@ -23,6 +23,7 @@ from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
 import pyvista_zstd
+from pyvista_zstd import _capi
 from pyvista_zstd import pyvista_zstd as impl
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ SPHERE_FILE_VERSION_0_FIXTURE = TEST_DATA_DIR / "sphere_file_version_0.pv"
 ESGRID_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_blocking_0_5_0.pv"
 ESGRID_NO_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_no_blocking_0_5_0.pv"
 SGRID_0_5_0_FIXTURE = TEST_DATA_DIR / "sgrid_0_5_0.pv"
+ESGRID_LONE_BLOCK_I_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_lone_block_i_0_5_0.pv"
 
 
 def _expected_fixture_sphere() -> PolyData:
@@ -1026,12 +1028,21 @@ DS_METADATA_FIELDS_0_5_0 = {
 }
 
 
-@pytest.mark.parametrize("fixture", ["polydata", "ugrid", "imagedata", "sgrid", "rgrid", "pointset"])
-def test_ds_metadata_keys_readable_by_0_5_0(fixture: str, request: pytest.FixtureRequest) -> None:
-    """Metadata for datasets other than ExplicitStructuredGrid only uses keys pyvista-zstd 0.5.0 accepts."""
-    ds = request.getfixturevalue(fixture)
-    metadata = impl.DataSetMetadata.from_dataset(ds, {}, {}, {}, {}, uid="0" * impl.UID_N_CHAR)
-    assert set(json.loads(metadata.to_json())) <= DS_METADATA_FIELDS_0_5_0
+@pytest.mark.parametrize("fixture", ["polydata", "ugrid", "imagedata", "sgrid", "rgrid", "pointset", "multi_block"])
+def test_ds_metadata_keys_readable_by_0_5_0(fixture: str, request: pytest.FixtureRequest, tmp_path: Path) -> None:
+    """Files of datasets other than ExplicitStructuredGrid only write metadata keys pyvista-zstd 0.5.0 accepts."""
+    filename = tmp_path / "ds.pv"
+    pyvista_zstd.write(request.getfixturevalue(fixture), filename)
+
+    with _capi.CoreReader(filename) as reader:
+        documents = [
+            json.loads(document)
+            for name, document in reader.metadata_documents()
+            if name.endswith(impl.DS_METADATA_KEY) and not name.endswith(impl.MULTIBLOCK_METADATA_KEY)
+        ]
+    assert documents
+    for document in documents:
+        assert set(document) <= DS_METADATA_FIELDS_0_5_0
 
 
 def test_read_esgrid_0_5_0_fixtures() -> None:
@@ -1053,6 +1064,17 @@ def test_read_esgrid_0_5_0_fixtures() -> None:
 
     with pytest.raises(ValueError, match=r"does not store \['BLOCK_I', 'BLOCK_J', 'BLOCK_K'\]; rewrite it"):
         pyvista_zstd.read(ESGRID_NO_BLOCKING_0_5_0_FIXTURE)
+
+
+@pytest.mark.parametrize("deselect", [False, True])
+def test_read_esgrid_lone_block_i_0_5_0_fixture(deselect: bool) -> None:  # noqa: FBT001
+    """A ``pyvista-zstd==0.5.0`` file storing only ``BLOCK_I`` asks to be rewritten, never to select arrays."""
+    reader = pyvista_zstd.Reader(ESGRID_LONE_BLOCK_I_0_5_0_FIXTURE)
+    if deselect:
+        reader.selected_cell_arrays = set()
+    with pytest.raises(ValueError, match=r"does not store \['BLOCK_J', 'BLOCK_K'\]; rewrite it") as excinfo:
+        reader.read()
+    assert "selected_cell_arrays" not in str(excinfo.value)
 
 
 def test_vtk_imports_route_through_pyvista() -> None:

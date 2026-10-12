@@ -841,8 +841,7 @@ def _segments_to_esgrid(
     esgrid.points = segments[f"{ds_id}{POINTS_KEY}"]
     cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
     if cells is not None:
-        # vtkExplicitStructuredGrid reads cell points correctly only from storage as wide as vtkIdType,
-        # see https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
+        # VTK misreads ESG cells narrower than vtkIdType: https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
         if hasattr(cells, "ConvertToFixedSizeDefaultStorage"):
             cells.ConvertToFixedSizeDefaultStorage()
         else:
@@ -869,18 +868,14 @@ def _segments_to_esgrid_by_blocking(
         else:
             missing.append(name)
     if missing:
-        deselected = [name for name in missing if name in metadata.cell_data_keys]
         absent = [name for name in missing if name not in metadata.cell_data_keys]
-        reasons = []
-        if deselected:
-            reasons.append(f"Select {deselected} in selected_cell_arrays to read this file.")
         if absent:
-            reasons.append(
-                f"The file does not store {absent}; rewrite it from the source grid with a current pyvista-zstd."
-            )
+            advice = f"The file does not store {absent}; rewrite it from the source grid with a current pyvista-zstd."
+        else:
+            advice = f"Select {missing} in selected_cell_arrays to read this file."
         msg = (
             f"Cannot rebuild an ExplicitStructuredGrid without {missing}, which define its "
-            f"i/j/k blocking in a file with no stored dimensions. {' '.join(reasons)}"
+            f"i/j/k blocking in a file with no stored dimensions. {advice}"
         )
         raise ValueError(msg)
 
@@ -890,7 +885,7 @@ def _segments_to_esgrid_by_blocking(
 def _grid_extent(metadata: DataSetMetadata) -> tuple[int, ...]:
     """Return a structured grid's extent from its stored dimensions and offset, which defaults to 0."""
     if metadata.dimensions is None:  # pragma: no cover
-        msg = f"A {metadata.ds_type} needs stored dimensions to be rebuilt; the file stores none."
+        msg = f"Cannot rebuild a {metadata.ds_type} from a file that does not store its dimensions."
         raise ValueError(msg)
     offset = metadata.offset or (0, 0, 0)
     return tuple(

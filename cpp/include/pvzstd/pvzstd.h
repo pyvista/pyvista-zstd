@@ -239,7 +239,7 @@ PVZSTD_API pvzstd_status pvzstd_thumbnail(const pvzstd_reader *reader, pvzstd_th
 /* ---- Frame sizes ----
  *
  * Two frames per array, (header, payload), in file order -- including the
- * metadata frames, which are not reported as arrays. These are the trailer's
+ * metadata frames and the thumbnail pair, which are not reported as arrays. These are the trailer's
  * own numbers, so a caller needing them no longer has to parse the trailer
  * itself to answer "how big is this file decompressed". */
 
@@ -313,6 +313,7 @@ PVZSTD_API pvzstd_status pvzstd_writer_set_shuffle(pvzstd_writer *writer, pvzstd
 PVZSTD_API pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int enabled);
 
 /* Append one array; call order is frame order, which is how names map to frames.
+ * The name "__thumbnail" is reserved and refused with PVZSTD_E_INVALID.
  * ``dtype`` is a numpy dtype string such as "<f8". The data is copied. */
 PVZSTD_API pvzstd_status pvzstd_writer_add_array(pvzstd_writer *writer, const char *name,
                                                  const char *dtype, const uint64_t *shape,

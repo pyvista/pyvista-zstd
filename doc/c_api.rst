@@ -342,7 +342,7 @@ the UID prefix or the ``__field_data`` suffix the frame carries.
 
 ``pvzstd_frame_count`` and ``pvzstd_frame_sizes`` expose the trailer's own
 numbers -- two frames per array, ``(header, payload)``, in file order, metadata
-frames included -- so a caller can answer "how big is this file decompressed"
+frames and the thumbnail pair included -- so a caller can answer "how big is this file decompressed"
 without parsing the trailer itself.
 
 Thumbnail

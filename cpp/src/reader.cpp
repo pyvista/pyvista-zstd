@@ -32,7 +32,6 @@
 namespace {
 
 constexpr uint64_t kTrailerCountBytes = 8;
-constexpr uint64_t kIndexEntryBytes = 16;
 constexpr char kDsMetadataSuffix[] = "__ds_metadata";
 constexpr char kFileMetadataSuffix[] = "__pyvista_zstd_metadata";
 // The .zvtk-era spelling of the same frame. Accepted so a legacy container
@@ -48,6 +47,8 @@ constexpr size_t kUidNChar = 16;
 // what keeps the four answers the same. Named here so the uses below read as
 // they did.
 using pvzstd::detail::ExceedsSizeT;
+using pvzstd::detail::kIndexEntryBytes;
+using pvzstd::detail::LoadU32;
 
 // The most a zstd frame can expand, per compressed byte. A zstd block covers at
 // most 128 KiB, and the cheapest way to spell one is an RLE block: a 3-byte
@@ -63,12 +64,6 @@ constexpr uint64_t kMaxExpansionRatio = 32768;
 uint64_t LoadU64(const uint8_t *p) {
   uint64_t v = 0;
   for (int i = 7; i >= 0; --i) v = (v << 8) | p[static_cast<size_t>(i)];
-  return v;
-}
-
-uint32_t LoadU32(const uint8_t *p) {
-  uint32_t v = 0;
-  for (int i = 3; i >= 0; --i) v = (v << 8) | p[static_cast<size_t>(i)];
   return v;
 }
 
@@ -273,7 +268,6 @@ struct pvzstd_reader {
   std::vector<int64_t> field_indices;  // into `arrays`; -1 if the frame is gone
   // The thumbnail record, inside the container's bytes; null when it has none.
   const uint8_t *thumbnail_record = nullptr;
-  uint64_t thumbnail_len = 0;
   pvzstd::detail::ThumbnailRecord thumbnail;
   bool thumbnail_stale = false;
   // Filled in by pvzstd_array_info_at so the caller sees stable pointers.
@@ -389,18 +383,16 @@ void ReadThumbnail(pvzstd_reader *reader, const ArrayEntry &entry, uint64_t inde
   const uint64_t frame_len = entry.payload_end - entry.payload_start;
   if (frame_len < kSkippablePrefixBytes) return;
   const uint8_t *frame = raw.data() + entry.payload_start;
-  if (pvzstd::detail::LoadU32LE(frame) != pvzstd::detail::kSkippableMagic) return;
-  const uint64_t record_len = pvzstd::detail::LoadU32LE(frame + 4);
+  if (LoadU32(frame) != pvzstd::detail::kSkippableMagic) return;
+  const uint64_t record_len = LoadU32(frame + 4);
   if (record_len != frame_len - kSkippablePrefixBytes) return;
   const uint8_t *record = frame + kSkippablePrefixBytes;
   pvzstd::detail::ThumbnailRecord parsed;
   if (!pvzstd::detail::ParseThumbnailRecord(record, record_len, &parsed)) return;
-  const uint32_t crc = pvzstd::detail::Crc32(raw.data() + index_off + 2 * kIndexEntryBytes,
-                                             (n_frames - 2) * kIndexEntryBytes);
   reader->thumbnail_record = record;
-  reader->thumbnail_len = record_len;
   reader->thumbnail = parsed;
-  reader->thumbnail_stale = crc != parsed.data_crc;
+  reader->thumbnail_stale =
+      pvzstd::detail::IndexCrc(raw.data() + index_off, n_frames) != parsed.data_crc;
 }
 
 // Parse a container out of the bytes the reader already points at, however it
@@ -491,7 +483,9 @@ pvzstd_status ParseContainer(pvzstd_reader *reader, uint32_t *file_version) {
       return PVZSTD_E_FORMAT;
     }
 
-    if (i == 0 && entry.name == pvzstd::detail::kThumbnailName) {
+    // Only the exact thumbnail header, which declares an empty array, is taken as the
+    // thumbnail pair; any other pair 0 is an ordinary array whatever its name.
+    if (i == 0 && frame == pvzstd::detail::ThumbnailArrayHeader()) {
       ReadThumbnail(reader, entry, index_off, n_frames);
       continue;
     }

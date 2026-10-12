@@ -100,7 +100,8 @@ order equals `frame_names` order on every frame but that last one.
 
 Note also that not every dataset writes a `points` frame: ImageData's geometry
 is implied by `dimensions` / `origin` / `spacing` in `__ds_metadata`, so an
-ImageData file with no attached arrays contains only the two metadata pairs.
+ImageData file with no attached arrays contains only the two metadata pairs,
+plus the thumbnail pair (§11) when it has one.
 
 ### 1.1 Consequences that bind the implementation
 
@@ -461,8 +462,10 @@ an ordinary empty `|u1` array that no dataset references, so every reader of the
 versions in §2 reads the dataset unchanged and skips it.
 
 **Position.** The thumbnail is always frame pair 0, named `__thumbnail`, and
-`frame_names[0]` is that name. The name has no dataset-UID prefix. A reader
-recognises the thumbnail only at pair 0; it is not reported as an array.
+`frame_names[0]` is that name. The name has no dataset-UID prefix and is
+reserved: writers refuse it for an ordinary array. A reader takes pair 0 as the
+thumbnail only when its header is exactly the 43 bytes below; it is then not
+reported as an array. Any other pair 0 is read as an ordinary array.
 
 **Encoding.** The header frame is the §3 header with shape `(0,)` and dtype
 `|u1`, held as a single raw (uncompressed) block in a zstd frame with a fixed
@@ -525,6 +528,7 @@ any change to the data; the thumbnail is then stale. Whether a stale image is
 still worth showing is the viewer's decision.
 
 **Reading without zstd.** Read the first 95 bytes, compare bytes 0-58 with the
-fixed prefix and check the descriptor magic and version at 63; any mismatch
-means no thumbnail. The PNG is the `png_len` bytes at `63 + header`. The
+fixed prefix, check the descriptor magic and version at 63, and check that
+`header >= 32` and `header + png_len` equals the record length at 59; any
+mismatch means no thumbnail. The PNG is the `png_len` bytes at `63 + header`. The
 staleness check needs only the last 8 bytes, for the frame count, and the index.

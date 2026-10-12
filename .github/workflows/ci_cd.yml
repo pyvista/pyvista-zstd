@@ -125,6 +125,9 @@ jobs:
           from pyvista_zstd import _capi
           print('C++ core loaded from', _capi.library_path())"
 
+      - name: Setup headless display
+        uses: pyvista/setup-headless-display-action@v5.1
+
       - name: Unit Testing
         run: pytest -vv
 

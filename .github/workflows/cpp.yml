@@ -99,6 +99,9 @@ jobs:
           print(f"ABI {_capi.ABI_VERSION} from {actual}")
           PY
 
+      - name: Setup headless display
+        uses: pyvista/setup-headless-display-action@v5.1
+
       - name: Conformance and parity
         shell: bash
         run: pytest tests -vv

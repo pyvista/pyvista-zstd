@@ -23,10 +23,11 @@ if TYPE_CHECKING:
 # Offset of the thumbnail record's version field.
 VERSION_AT = 12 + 43 + 8 + 8
 # Alpha below which an edge pixel counts as faint, and full opacity.
-FAINT_ALPHA = 64
 OPAQUE = 255
-# Largest mean colour difference between faint edge pixels and the opaque interior.
-FRINGE_TOLERANCE = 20
+# A flat mesh colour, the alpha band counted as edge, and the largest mean difference allowed there.
+EDGE_COLOR = (200, 50, 120)
+EDGE_ALPHA = (0.2, 0.8)
+EDGE_TOLERANCE = 10
 # Offset of the record's PNG-length field.
 PNG_LEN_AT = 12 + 43 + 8 + 24
 
@@ -215,19 +216,19 @@ def test_render(tmp_path: Path) -> None:
 
 
 @requires_render
-def test_render_has_no_light_fringe(tmp_path: Path) -> None:
-    """Edge pixels of a dark mesh are not lightened by the render background."""
+def test_render_edges_keep_the_mesh_colour(tmp_path: Path) -> None:
+    """Partly covered edge pixels of a flat, unlit mesh have the mesh's own colour."""
     path = tmp_path / "t.pv"
-    pv.global_theme.color = "#33344a"
+    pv.global_theme.color = EDGE_COLOR
+    pv.global_theme.lighting = False
     try:
-        pz.write(pv.Sphere(), path, thumbnail=True)
+        pz.write(pv.Disc(inner=0, outer=1, c_res=200), path, thumbnail=True)
     finally:
         pv.global_theme.restore_defaults()
     image = np.asarray(Image.open(io.BytesIO(pz.read_thumbnail(path)))).astype(float)
-    alpha = image[..., 3]
-    faint = image[(alpha > 0) & (alpha < FAINT_ALPHA)][:, :3].mean()
-    opaque = image[alpha == OPAQUE][:, :3].mean()
-    assert abs(faint - opaque) < FRINGE_TOLERANCE  # neither a light nor a dark fringe
+    alpha = image[..., 3] / OPAQUE
+    edge = image[(alpha > EDGE_ALPHA[0]) & (alpha < EDGE_ALPHA[1])][:, :3].mean(axis=0)
+    assert np.abs(edge - EDGE_COLOR).max() < EDGE_TOLERANCE, edge
 
 
 @requires_render

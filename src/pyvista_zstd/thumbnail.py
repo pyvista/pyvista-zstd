@@ -12,6 +12,7 @@ import numpy as np
 import pyvista as pv
 
 if TYPE_CHECKING:
+    from numpy.typing import NDArray
     from pyvista import DataSet
     from pyvista import MultiBlock
 
@@ -23,6 +24,9 @@ THUMBNAIL_VERSION = 1
 THUMBNAIL_SIZE = (512, 512)
 _RENDER_SCALE = 2
 _RENDER_MARGIN = 0.05
+# Where the sRGB transfer function switches from its linear segment to its power curve.
+_SRGB_DECODE_KNEE = 0.04045
+_SRGB_ENCODE_KNEE = 0.0031308
 
 _DESCRIPTOR_BYTES = 32
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -107,12 +111,22 @@ def _validated_png(png: bytes) -> bytes:
     return png
 
 
+def _srgb_to_linear(c: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Decode sRGB values in [0, 1] to linear light."""
+    return np.where(c <= _SRGB_DECODE_KNEE, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _linear_to_srgb(c: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Encode linear-light values in [0, 1] as sRGB."""
+    return np.where(c <= _SRGB_ENCODE_KNEE, c * 12.92, 1.055 * c ** (1 / 2.4) - 0.055)
+
+
 def _render_png(ds: DataSet | MultiBlock) -> bytes:
     """Render *ds* off-screen on a transparent background, cropped to the content, as PNG bytes."""
     from PIL import Image  # noqa: PLC0415
 
     pl = pv.Plotter(off_screen=True, window_size=[_RENDER_SCALE * s for s in THUMBNAIL_SIZE])
-    # Over black, the transparent screenshot's colour is premultiplied by alpha.
+    # Over black, multisampled edges hold colour premultiplied by coverage in linear light.
     pl.background_color = "black"
     try:
         pl.add_mesh(ds, show_scalar_bar=False)
@@ -125,18 +139,29 @@ def _render_png(ds: DataSet | MultiBlock) -> bytes:
     if rows.size == 0:
         msg = "the rendered image is empty"
         raise ValueError(msg)
-    content = img[rows.min() : rows.max() + 1, cols.min() : cols.max() + 1]
+    content = img[rows.min() : rows.max() + 1, cols.min() : cols.max() + 1] / 255
+    content[..., :3] = _srgb_to_linear(content[..., :3])
     height, width = content.shape[:2]
     side = max(height, width)
     side += 2 * int(np.ceil(_RENDER_MARGIN * side))
-    square = np.zeros((side, side, 4), dtype=np.uint8)
+    square = np.zeros((side, side, 4), dtype=np.float32)
     top, left = (side - height) // 2, (side - width) // 2
     square[top : top + height, left : left + width] = content
 
+    # Resize premultiplied linear channels, then divide out coverage once at the final size.
+    small = np.stack(
+        [
+            np.asarray(Image.fromarray(square[..., k]).resize(THUMBNAIL_SIZE, Image.Resampling.LANCZOS))
+            for k in range(4)
+        ],
+        axis=-1,
+    ).clip(0, 1)
+    alpha = small[..., 3:]
+    straight = np.divide(small[..., :3], alpha, out=np.zeros_like(small[..., :3]), where=alpha > 0)
+    rgba = np.concatenate([_linear_to_srgb(straight.clip(0, 1)), alpha], axis=-1)
+
     buf = io.BytesIO()
-    premultiplied = Image.frombytes("RGBa", (side, side), square.tobytes())
-    image = premultiplied.resize(THUMBNAIL_SIZE, Image.Resampling.LANCZOS).convert("RGBA")
-    image.save(buf, format="PNG", optimize=True)
+    Image.fromarray(np.round(rgba * 255).astype(np.uint8)).save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 

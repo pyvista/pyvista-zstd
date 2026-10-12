@@ -18,7 +18,7 @@ classifiers = [
 ]
 # The core links zstd itself; nothing under ``src/`` imports the ``zstandard``
 # Python bindings, so they are a test dependency, not a runtime one.
-dependencies = ["pyvista>=0.45.0", "tqdm>=4.0.0"]
+dependencies = ["pyvista>=0.45.0", "tqdm>=4.1.0", "vtk>=9.3.1"]
 description = "VTK zstandard compression library."
 dynamic = ["version"]
 license = "MIT"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -762,15 +763,91 @@ def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
 
 
 def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
-    """Each block's user_dict survives a write and read."""
+    """The user_dict of a MultiBlock and of each of its blocks survives a write and read."""
+    multi_block.user_dict.update(USER_DICT)
     for i, ds in enumerate(multi_block):
         ds.user_dict.update(USER_DICT, index=i)
     tmp_filename = tmp_path / "tmp.pv"
     pyvista_zstd.write(multi_block, tmp_filename)
     out = pyvista_zstd.read(tmp_filename)
 
+    assert out.user_dict == multi_block.user_dict == USER_DICT
     for i, (ds, ds_out) in enumerate(zip(multi_block, out, strict=True)):
         assert ds_out.user_dict == ds.user_dict == {**USER_DICT, "index": i}
+
+
+def _multiblock_with_field_data(polydata: PolyData) -> MultiBlock:
+    inner = MultiBlock([polydata])
+    inner.field_data["ints"] = np.arange(3, dtype=np.int16)
+    inner.field_data["text"] = "inner"
+    mblock = MultiBlock({"poly": polydata, "inner": inner})
+    mblock.field_data["floats"] = np.linspace(0, 1, 4)
+    mblock.field_data["names"] = ["a", "b"]
+    return mblock
+
+
+def _assert_field_data_equal(out: MultiBlock, expected: MultiBlock) -> None:
+    assert out.field_data.keys() == expected.field_data.keys()
+    for name in expected.field_data:
+        assert type(out.field_data[name]) is type(expected.field_data[name])
+        assert np.array_equal(out.field_data[name], expected.field_data[name])
+        assert np.asarray(out.field_data[name]).dtype == np.asarray(expected.field_data[name]).dtype
+
+
+def test_multiblock_field_data(polydata: PolyData, tmp_path: Path) -> None:
+    """Field data on a MultiBlock and on a nested MultiBlock survives a write and read."""
+    mblock = _multiblock_with_field_data(polydata)
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(mblock, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    _assert_field_data_equal(out, mblock)
+    _assert_field_data_equal(out["inner"], mblock["inner"])
+    assert not out["poly"].field_data
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    _assert_field_data_equal(reader[1].read(), mblock["inner"])
+    assert "Field arrays" in repr(reader)
+    assert "floats" in repr(reader)
+
+
+def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """The user_dict of every MultiBlock in a nested hierarchy survives a write and read."""
+    innermost = MultiBlock({"ugrid": ugrid})
+    inner = MultiBlock({"poly": polydata, "innermost": innermost, "empty": None})
+    root = MultiBlock({"inner": inner, "poly": polydata})
+    for depth, mblock in enumerate([root, inner, innermost]):
+        mblock.user_dict.update(USER_DICT, depth=depth)
+        mblock.field_data["depth"] = np.array([depth])
+    polydata.user_dict["leaf"] = True
+
+    tmp_filename = tmp_path / "tmp.pv"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        pyvista_zstd.write(root, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    nested_out = [out, out["inner"], out["inner"]["innermost"]]
+    for depth, (mblock, mblock_out) in enumerate(zip([root, inner, innermost], nested_out, strict=True)):
+        assert mblock_out.user_dict == mblock.user_dict == {**USER_DICT, "depth": depth}
+        assert mblock_out.field_data["depth"].tolist() == [depth]
+    assert out["poly"].user_dict == out["inner"]["poly"].user_dict == {"leaf": True}
+    assert not out["inner"]["innermost"]["ugrid"].user_dict
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    assert reader[0].read().user_dict == inner.user_dict
+    assert reader[0][1].read().user_dict == innermost.user_dict
+
+
+def test_multiblock_metadata_without_field_data(multi_block: MultiBlock, tmp_path: Path) -> None:
+    """MultiBlock metadata without field data has no field-data entry."""
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(multi_block, tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
+
+    raw = reader._metadata_documents[f"{reader._ds_metadata.uid}{impl.MULTIBLOCK_METADATA_KEY}"]  # noqa: SLF001
+    assert "field_data_keys" not in json.loads(raw)
+    assert "Field arrays" not in repr(reader)
 
 
 def _reproducible_polydata() -> PolyData:

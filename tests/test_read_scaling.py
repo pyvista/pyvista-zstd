@@ -150,6 +150,7 @@ def test_read_arrays_rejects_bad_allocation(tmp_path: Path) -> None:
             reader.read_arrays(keep={names[0]}, allocate=wrong)
 
 
+@pytest.mark.skipif(pv.vtk_version_info >= (9, 8), reason="VTK 9.8 drops stateful wrappers for free")
 def test_segments_release_empties_vtk_wrappers() -> None:
     """Allocated VTK arrays are handed back with no Python-side state, so dropping them is free."""
     from pyvista_zstd.pyvista_zstd import _Segments  # noqa: PLC0415

@@ -845,11 +845,10 @@ class _Segments(dict[str, Any]):
 
     def release(self) -> None:
         """Forget the VTK wrappers once a dataset owns the arrays."""
-        # VTK 9.7 keeps a ghost for every dropped wrapper that still carries
-        # state, and adding one scans all of them. Empty, they drop for free
-        # and are rebuilt on the next access.
-        for vtk_array in self.vtk.values():
-            vtk_array.__dict__.clear()
+        # Before VTK 9.8 (d1489916c5), dropping a wrapper that carries state scans every ghost.
+        if pv.vtk_version_info < (9, 8):
+            for vtk_array in self.vtk.values():
+                vtk_array.__dict__.clear()
         self.vtk.clear()
 
 

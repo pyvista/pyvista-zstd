@@ -191,14 +191,23 @@ class MultiBlockMetadata:
     # optional and used for ds reader
     children_ds: dict[str, MultiBlockMetadata | DataSetMetadata | None] | None = None
 
+    # the MultiBlock's own field arrays, omitted from the JSON when empty
+    field_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
+
     def to_json(self) -> str:
         """Convert to JSON."""
-        return json.dumps(asdict(self), separators=(",", ":"))
+        raw = asdict(self)
+        # Omitted when empty: pyvista-zstd 0.5.0 and earlier reject unknown members.
+        if not raw["field_data_keys"]:
+            del raw["field_data_keys"]
+        return json.dumps(raw, separators=(",", ":"))
 
     @classmethod
     def from_json(cls, s: str) -> MultiBlockMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        raw = json.loads(s)
+        raw["field_data_keys"] = {k: ArrayInfo(**v) for k, v in raw.get("field_data_keys", {}).items()}
+        return cls(**raw)
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> MultiBlockMetadata:
@@ -682,6 +691,7 @@ class Writer:
                 uid=ds_id,
                 children=child_ids,
                 children_keys=children_keys,
+                field_data_keys=self._add_field_arrays(ds_id, ds),
             )
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = multi_meta.to_array()
 
@@ -700,15 +710,22 @@ class Writer:
             self._arrays[f"{ds_id}{key}{CELL_DATA_SUFFIX}"] = array
             cell_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
 
-        field_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.field_data.items():
-            self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
-            field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+        field_info = self._add_field_arrays(ds_id, ds)
 
         # supply dataset metadata
         ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes, uid=ds_id)
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
         self._uses_fixed_width_cells = self._uses_fixed_width_cells or bool(fixed_cell_sizes)
+
+    def _add_field_arrays(self, ds_id: str, ds: DataSet | MultiBlock) -> dict[str, ArrayInfo]:
+        """Stage the field arrays of a dataset or MultiBlock and return their metadata."""
+        field_info: dict[str, ArrayInfo] = {}
+        for key, value in ds.field_data.items():
+            # pyvista < 0.50 returns a string array set from a scalar, such as the user_dict, as ``str``.
+            array = np.atleast_1d(value)
+            self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
+            field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+        return field_info
 
     def write(
         self,
@@ -1122,6 +1139,7 @@ class _DataSetReader:
             mb = MultiBlock()
             for key, child in zip(self._meta.children_keys, self._children, strict=True):
                 mb[key] = child._read_shared(built, n_threads)  # noqa: SLF001
+            self._parent._read_multiblock_field_data(mb, self._meta, n_threads)  # noqa: SLF001
             return mb
 
         if self._meta is None:
@@ -1138,7 +1156,10 @@ class _DataSetReader:
         if isinstance(self._meta, DataSetMetadata):
             return f"{prefix}{connector}{self._meta.ds_type}"
         if isinstance(self._meta, MultiBlockMetadata):
-            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)})"]
+            fields = ""
+            if self._meta.field_data_keys:
+                fields = f", field arrays: {', '.join(self._meta.field_data_keys)}"
+            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)}{fields})"]
             for i, child in enumerate(self._children):
                 last = i == len(self._children) - 1
                 child_prefix = prefix + ("   " if is_last else "│  ")
@@ -1471,6 +1492,16 @@ class Reader:
         names = set(self._metadata.frame_names) - excluded
         return {f for f in names if f.startswith(ds_id)}
 
+    def _read_multiblock_field_data(self, mb: MultiBlock, meta: MultiBlockMetadata, n_threads: int | None) -> None:
+        """Add a MultiBlock's own field arrays from the file."""
+        if not meta.field_data_keys:
+            return
+        frames = {f"{meta.uid}{name}{FIELD_DATA_SUFFIX}": name for name in meta.field_data_keys}
+        threads = _capi.THREADS_AUTO if n_threads is None else n_threads
+        segments = self._core_reader().read_arrays(keep=set(frames), n_threads=threads)
+        for frame, name in frames.items():
+            mb.field_data.set_array(segments[frame], name)
+
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
         """Read a single dataset."""
@@ -1602,6 +1633,8 @@ class Reader:
         """
         Return a set of all point array names available in the dataset.
 
+        Empty for a MultiBlock file, which reads every array.
+
         Returns
         -------
         set[str]
@@ -1634,6 +1667,8 @@ class Reader:
         """
         Return a set of all cell array names available in the dataset.
 
+        Empty for a MultiBlock file, which reads every array.
+
         Returns
         -------
         set[str]
@@ -1663,7 +1698,11 @@ class Reader:
 
     @property
     def available_field_arrays(self) -> set[str]:
-        """Return a set of all field array names available in the dataset."""
+        """
+        Return a set of all field array names available in the dataset.
+
+        Empty for a MultiBlock file, which reads every array.
+        """
         if isinstance(self._ds_metadata, MultiBlockMetadata):
             return set()
         return set(self._ds_metadata.field_data_keys)
@@ -1673,7 +1712,7 @@ class Reader:
         """
         Return the set of currently selected point arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_point_arrays is None:
             return self.available_point_arrays.copy()
@@ -1707,7 +1746,7 @@ class Reader:
         """
         Return the set of currently selected cell arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_cell_arrays is None:
             return self.available_cell_arrays.copy()
@@ -1741,7 +1780,7 @@ class Reader:
         """
         Return the set of currently selected field arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_field_arrays is None:
             return self.available_field_arrays.copy()

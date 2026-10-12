@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 import subprocess
 import sys
 from typing import TYPE_CHECKING
+from typing import Any
 import warnings
 
 import numpy as np
 import pytest
 import pyvista as pv
 from pyvista.core.composite import MultiBlock
+from pyvista.core.datasetattributes import DataSetAttributes
 from pyvista.core.grid import ImageData
 from pyvista.core.grid import RectilinearGrid
 from pyvista.core.pointset import ExplicitStructuredGrid
@@ -733,6 +736,148 @@ def test_multiblock_two_empty_blocks(ugrid: UnstructuredGrid, tmp_path: Path) ->
     assert [out.get_block_name(i) for i in range(out.n_blocks)] == ["a", "real", "b"]
     assert out["a"] is None
     assert out["b"] is None
+
+
+USER_DICT = {"int": 1, "text": "x", "nested": {"list": [1.5, None, True]}}
+
+
+@pytest.fixture(params=["scalar", "array"])
+def one_value_strings(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """
+    Return one-value string field arrays as ``str`` or as one-element arrays.
+
+    pyvista < 0.50 returns a string array set from a scalar, such as the user_dict,
+    as ``str``; the ``"scalar"`` mode applies that to every one-value string array.
+    """
+    items = DataSetAttributes.items
+
+    def patched(self: DataSetAttributes) -> list[tuple[str, Any]]:
+        """Return the field arrays with one-value string arrays in the selected form."""
+        out = []
+        for key, value in items(self):
+            if (
+                request.param == "scalar"
+                and isinstance(value, np.ndarray)
+                and value.dtype.kind == "U"
+                and value.size == 1
+            ):
+                value = str(value.item())  # noqa: PLW2901
+            elif request.param == "array" and isinstance(value, str):
+                value = np.array([value])  # noqa: PLW2901
+            out.append((key, value))
+        return out
+
+    monkeypatch.setattr(DataSetAttributes, "items", patched)
+    return request.param
+
+
+@pytest.mark.filterwarnings("error::pyvista.PyVistaDeprecationWarning")
+@pytest.mark.usefixtures("one_value_strings")
+def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
+    """A dataset's user_dict survives a write and read."""
+    polydata.user_dict.update(USER_DICT)
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(polydata, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    assert out.user_dict == polydata.user_dict == USER_DICT
+    stored = pyvista_zstd.read_array(tmp_filename, "_PYVISTA_USER_DICT")
+    assert stored.shape == (1,)
+    assert stored.dtype.kind == "U"
+    info = pyvista_zstd.Reader(tmp_filename)._ds_metadata.field_data_keys["_PYVISTA_USER_DICT"]  # noqa: SLF001
+    assert tuple(info.shape) == stored.shape
+
+
+@pytest.mark.filterwarnings("error::pyvista.PyVistaDeprecationWarning")
+@pytest.mark.usefixtures("one_value_strings")
+def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
+    """The user_dict of a MultiBlock and of each of its blocks survives a write and read."""
+    multi_block.user_dict.update(USER_DICT)
+    for i, ds in enumerate(multi_block):
+        ds.user_dict.update(USER_DICT, index=i)
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(multi_block, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    assert out.user_dict == multi_block.user_dict == USER_DICT
+    info = pyvista_zstd.Reader(tmp_filename)._ds_metadata.field_data_keys["_PYVISTA_USER_DICT"]  # noqa: SLF001
+    assert tuple(info.shape) == (1,)
+    for i, (ds, ds_out) in enumerate(zip(multi_block, out, strict=True)):
+        assert ds_out.user_dict == ds.user_dict == {**USER_DICT, "index": i}
+
+
+def _multiblock_with_field_data(polydata: PolyData) -> MultiBlock:
+    inner = MultiBlock([polydata])
+    inner.field_data["ints"] = np.arange(3, dtype=np.int16)
+    inner.field_data["text"] = ["inner"]
+    mblock = MultiBlock({"poly": polydata, "inner": inner})
+    mblock.field_data["floats"] = np.linspace(0, 1, 4)
+    mblock.field_data["names"] = ["a", "b"]
+    return mblock
+
+
+def _assert_field_data_equal(out: MultiBlock, expected: MultiBlock) -> None:
+    assert out.field_data.keys() == expected.field_data.keys()
+    for name in expected.field_data:
+        assert type(out.field_data[name]) is type(expected.field_data[name])
+        assert np.array_equal(out.field_data[name], expected.field_data[name])
+        assert np.asarray(out.field_data[name]).dtype == np.asarray(expected.field_data[name]).dtype
+
+
+def test_multiblock_field_data(polydata: PolyData, tmp_path: Path) -> None:
+    """Field data on a MultiBlock and on a nested MultiBlock survives a write and read."""
+    mblock = _multiblock_with_field_data(polydata)
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(mblock, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    _assert_field_data_equal(out, mblock)
+    _assert_field_data_equal(out["inner"], mblock["inner"])
+    assert not out["poly"].field_data
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    _assert_field_data_equal(reader[1].read(), mblock["inner"])
+    assert "MultiBlock(children=2, field arrays: floats, names)" in repr(reader)
+    assert "MultiBlock(children=1, field arrays: ints, text)" in repr(reader)
+
+
+@pytest.mark.filterwarnings("error::pyvista.PyVistaDeprecationWarning")
+@pytest.mark.usefixtures("one_value_strings")
+def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid, tmp_path: Path) -> None:
+    """The user_dict of every MultiBlock in a nested hierarchy survives a write and read."""
+    innermost = MultiBlock({"ugrid": ugrid})
+    inner = MultiBlock({"poly": polydata, "innermost": innermost, "empty": None})
+    root = MultiBlock({"inner": inner, "poly": polydata})
+    for depth, mblock in enumerate([root, inner, innermost]):
+        mblock.user_dict.update(USER_DICT, depth=depth)
+        mblock.field_data["depth"] = np.array([depth])
+    polydata.user_dict["leaf"] = True
+
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(root, tmp_filename)
+    out = pyvista_zstd.read(tmp_filename)
+
+    nested_out = [out, out["inner"], out["inner"]["innermost"]]
+    for depth, (mblock, mblock_out) in enumerate(zip([root, inner, innermost], nested_out, strict=True)):
+        assert mblock_out.user_dict == mblock.user_dict == {**USER_DICT, "depth": depth}
+        assert mblock_out.field_data["depth"].tolist() == [depth]
+    assert out["poly"].user_dict == out["inner"]["poly"].user_dict == {"leaf": True}
+    assert not out["inner"]["innermost"]["ugrid"].user_dict
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    assert reader[0].read().user_dict == inner.user_dict
+    assert reader[0][1].read().user_dict == innermost.user_dict
+
+
+def test_multiblock_metadata_without_field_data(multi_block: MultiBlock, tmp_path: Path) -> None:
+    """MultiBlock metadata without field data has no field-data entry."""
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(multi_block, tmp_filename)
+    reader = pyvista_zstd.Reader(tmp_filename)
+
+    raw = reader._metadata_documents[f"{reader._ds_metadata.uid}{impl.MULTIBLOCK_METADATA_KEY}"]  # noqa: SLF001
+    assert "field_data_keys" not in json.loads(raw)
+    assert "field arrays" not in repr(reader)
 
 
 def _reproducible_polydata() -> PolyData:

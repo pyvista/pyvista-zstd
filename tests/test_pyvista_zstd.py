@@ -23,7 +23,6 @@ from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
 import pyvista_zstd
-from pyvista_zstd import _capi
 from pyvista_zstd import pyvista_zstd as impl
 
 if TYPE_CHECKING:
@@ -839,32 +838,6 @@ def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid
     reader = pyvista_zstd.Reader(tmp_filename)
     assert reader[0].read().user_dict == inner.user_dict
     assert reader[0][1].read().user_dict == innermost.user_dict
-
-
-@pytest.mark.parametrize("shuffle", [False, True])
-@pytest.mark.parametrize("owner", ["root", "nested"])
-def test_multiblock_field_data_file_version(polydata: PolyData, tmp_path: Path, owner: str, *, shuffle: bool) -> None:
-    """Field data on any MultiBlock stamps the MultiBlock field-data file version."""
-    inner = MultiBlock([polydata])
-    root = MultiBlock([inner])
-    (root if owner == "root" else inner).user_dict["a"] = 1
-    tmp_filename = tmp_path / "tmp.pv"
-    pyvista_zstd.write(root, tmp_filename, shuffle=shuffle)
-
-    reader = pyvista_zstd.Reader(tmp_filename)
-    assert reader._metadata.file_version == impl.FILE_VERSION_MULTIBLOCK_FIELD_DATA  # noqa: SLF001
-    assert impl.FILE_VERSION == impl.FILE_VERSION_MULTIBLOCK_FIELD_DATA == _capi.max_file_version()
-
-
-def test_multiblock_block_field_data_keeps_file_version(polydata: PolyData, tmp_path: Path) -> None:
-    """Field data only on a MultiBlock's datasets leaves the file version unchanged."""
-    polydata.user_dict["a"] = 1
-    pyvista_zstd.write(polydata, tmp_path / "alone.pv")
-    pyvista_zstd.write(MultiBlock([MultiBlock([polydata])]), tmp_path / "nested.pv")
-
-    alone = pyvista_zstd.Reader(tmp_path / "alone.pv")._metadata.file_version  # noqa: SLF001
-    nested = pyvista_zstd.Reader(tmp_path / "nested.pv")._metadata.file_version  # noqa: SLF001
-    assert nested == alone != impl.FILE_VERSION_MULTIBLOCK_FIELD_DATA
 
 
 def test_multiblock_metadata_without_field_data(multi_block: MultiBlock, tmp_path: Path) -> None:

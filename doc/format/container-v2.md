@@ -128,27 +128,26 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 
 ## 2. File versions
 
-`FILE_VERSION = 3` is the highest version writers emit. Four versions exist
-and a 1:1 reader must accept all four:
+`FILE_VERSION = 2` is what writers emit today (`:74`). Three versions exist
+(`:78-80`) and a 1:1 reader must accept all three:
 
-| Value | Name                                 | Meaning                                             |
-| ----- | ------------------------------------ | --------------------------------------------------- |
-| 0     | `FILE_VERSION_UNFILTERED`            | No optional feature used.                           |
-| 1     | `FILE_VERSION_SHUFFLE`               | At least one array carries the byte-shuffle filter. |
-| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS`     | Cell topology stored without an offsets array.      |
-| 3     | `FILE_VERSION_MULTIBLOCK_FIELD_DATA` | A MultiBlock carries field arrays of its own (§4).  |
+| Value | Name                             | Meaning                                             |
+| ----- | -------------------------------- | --------------------------------------------------- |
+| 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                     |
+| 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter. |
+| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
 
 A decoder must also have a ceiling. The C core carries one,
-`PVZSTD_FILE_VERSION_MAX = 3`, readable at runtime as
+`PVZSTD_FILE_VERSION_MAX = 2`, readable at runtime as
 `pvzstd_max_file_version()`, and a container stamped higher is refused with
 `PVZSTD_E_VERSION` rather than read: a later version may transform payloads in
-a way this build cannot invert, or carry data this build would drop, so reading
-one would hand back plausible-looking wrong values instead of failing. The
-ceiling belongs beside the decoder it describes -- a binding that kept its own copy would refuse files
+a way this build cannot invert, so reading one would hand back
+plausible-looking corrupt values instead of failing. The ceiling belongs beside
+the decoder it describes -- a binding that kept its own copy would refuse files
 the library can read, or accept files it cannot.
 
 The version is promoted by the _writer_ only when it actually uses an optional
-feature — the `ZstdFileMetadata` default is the legacy
+encoding — the `ZstdFileMetadata` default is the legacy
 `FILE_VERSION_UNFILTERED` (`:220-222`). **A file's version therefore describes
 the features it uses, not the version of the library that wrote it.**
 
@@ -277,9 +276,7 @@ A MultiBlock's own field arrays are stored like a dataset's, as
 `<uid><name>__field_data` frames under the MultiBlock's UID, and listed in its
 `field_data_keys` with the same `{"shape": [...], "dtype": "..."}` entries as
 `DataSetMetadata`. The member is omitted when the MultiBlock has no field
-arrays, because readers before version 3 reject an unknown member; when any
-MultiBlock document carries it, the writer stamps `file_version` 3 so those
-readers refuse the file with `PVZSTD_E_VERSION` first.
+arrays, because earlier readers reject an unknown member.
 
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,

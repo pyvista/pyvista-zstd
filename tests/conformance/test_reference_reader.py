@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 import pyvista_zstd as pz
-from pyvista_zstd.pyvista_zstd import FILE_VERSION_FIXED_WIDTH_CELLS
 
 UID_N_CHAR = 16
 
@@ -202,7 +201,7 @@ def test_fixed_width_cells_omits_the_offsets_frame(tmp_path) -> None:
     assert "cells_connectivity" in bare
     assert "cells_offset" not in bare
     assert container.ds_metadata["fixed_cell_sizes"] == {"cells": 8}
-    assert container.file_metadata["file_version"] == FILE_VERSION_FIXED_WIDTH_CELLS
+    assert container.file_metadata["file_version"] == pz.FILE_VERSION
 
 
 def test_file_version_does_not_imply_filter_presence(tmp_path) -> None:

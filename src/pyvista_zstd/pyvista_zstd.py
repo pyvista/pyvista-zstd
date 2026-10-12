@@ -64,17 +64,15 @@ if TYPE_CHECKING:  # pragma: no cover
     from pyvista_zstd._capi import CoreReader
 
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays, version 3
-# MultiBlock field data. The core enforces the ceiling; this constant only
-# publishes it.
-FILE_VERSION = 3
+# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The
+# core enforces the ceiling; this constant only publishes it.
+FILE_VERSION = 2
 # Version stamped on files that use neither byte filters nor fixed-width cell
 # arrays. Such files stay byte-identical to the legacy format and remain
 # readable by older releases.
 FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
-FILE_VERSION_MULTIBLOCK_FIELD_DATA = 3
 FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
@@ -197,7 +195,7 @@ class MultiBlockMetadata:
     def to_json(self) -> str:
         """Convert to JSON."""
         raw = asdict(self)
-        # Omitted when empty: older readers reject the key, and only version 3 files carry it.
+        # Omitted when empty: readers before this key reject unknown fields.
         if not raw["field_data_keys"]:
             del raw["field_data_keys"]
         return json.dumps(raw, separators=(",", ":"))

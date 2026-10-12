@@ -273,10 +273,9 @@ Three JSON documents, each stored as a frame:
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
 normals, for both point and cell data), and the optional grid fields:
-`dimensions` and `offset` (the extent's start) for ImageData, StructuredGrid
-and ExplicitStructuredGrid, `origin`, `spacing`, `direction_matrix` for
-ImageData only, and `faces_connectivity_flags_array_name` for
-ExplicitStructuredGrid only.
+`dimensions` for ImageData, StructuredGrid and ExplicitStructuredGrid,
+`origin`, `spacing`, `direction_matrix`, `offset` for ImageData only, and
+`faces_connectivity_flags_array_name` for ExplicitStructuredGrid only.
 
 The active-attribute names are easy to overlook and are **observable
 behaviour**: dropping them silently changes which array a downstream plot
@@ -375,11 +374,10 @@ ExplicitStructuredGrid, and MultiBlock.
 StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
 and the `cells_connectivity` frame with a fixed cell size of 8, and records
 `faces_connectivity_flags_array_name` when the grid has one. Both record
-`dimensions` and `offset` in `__ds_metadata`, and the reader sets the grid's
-extent from them; a file with no `offset` reads back with an extent starting
-at 0. The reader converts ExplicitStructuredGrid connectivity
-to storage as wide as `vtkIdType` (fixed-size where VTK supports it), the only
-width `vtkExplicitStructuredGrid` reads cell points from correctly
+`dimensions` in `__ds_metadata` and read back with an extent starting at 0.
+The reader converts ExplicitStructuredGrid connectivity to storage as wide as
+`vtkIdType` (fixed-size where VTK supports it), the only width
+`vtkExplicitStructuredGrid` reads cell points from correctly
 ([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An
 ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
 its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.

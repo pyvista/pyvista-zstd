@@ -235,12 +235,12 @@ class DataSetMetadata:
     cell_data_active_texture_coordinates_name: str | None = None
     cell_data_active_normals_name: str | None = None
 
-    # Optional grid metadata; dimensions and offset also describe structured grids
+    # Optional ImageData metadata; dimensions also describes structured grids
     dimensions: tuple[int, int, int] | None = None
     origin: tuple[float, float, float] | None = None
     spacing: tuple[float, float, float] | None = None
     direction_matrix: list[list[float]] | None = None
-    offset: tuple[int, int, int] | None = None
+    offset: int | None = None
     faces_connectivity_flags_array_name: str | None = None
 
     @classmethod
@@ -307,7 +307,6 @@ class DataSetMetadata:
             )
         elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
             kwargs["dimensions"] = ds.dimensions
-            kwargs["offset"] = ds.GetExtent()[::2]
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
@@ -837,7 +836,7 @@ def _segments_to_esgrid(
         return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
     esgrid = ExplicitStructuredGrid()
-    esgrid.SetExtent(*_grid_extent(metadata))
+    esgrid.SetDimensions(*metadata.dimensions)
     esgrid.points = segments[f"{ds_id}{POINTS_KEY}"]
     cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
     if cells is not None:
@@ -882,20 +881,9 @@ def _segments_to_esgrid_by_blocking(
     return ugrid.cast_to_explicit_structured_grid()
 
 
-def _grid_extent(metadata: DataSetMetadata) -> tuple[int, ...]:
-    """Return a structured grid's extent from its stored dimensions and offset, which defaults to 0."""
-    if metadata.dimensions is None:  # pragma: no cover
-        msg = f"Cannot rebuild a {metadata.ds_type} from a file that does not store its dimensions."
-        raise ValueError(msg)
-    offset = metadata.offset or (0, 0, 0)
-    return tuple(
-        bound for start, dim in zip(offset, metadata.dimensions, strict=True) for bound in (start, start + dim - 1)
-    )
-
-
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:
     sgrid = StructuredGrid(segments[f"{ds_id}{POINTS_KEY}"])
-    sgrid.SetExtent(*_grid_extent(metadata))
+    sgrid.dimensions = metadata.dimensions
     return sgrid
 
 

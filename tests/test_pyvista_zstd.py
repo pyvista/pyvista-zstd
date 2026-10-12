@@ -35,7 +35,6 @@ LEGACY_ZVTK_FIXTURE = TEST_DATA_DIR / "legacy_sphere.zvtk"
 SPHERE_FILE_VERSION_0_FIXTURE = TEST_DATA_DIR / "sphere_file_version_0.pv"
 ESGRID_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_blocking_0_5_0.pv"
 ESGRID_NO_BLOCKING_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_no_blocking_0_5_0.pv"
-SGRID_0_5_0_FIXTURE = TEST_DATA_DIR / "sgrid_0_5_0.pv"
 ESGRID_LONE_BLOCK_I_0_5_0_FIXTURE = TEST_DATA_DIR / "esgrid_lone_block_i_0_5_0.pv"
 
 
@@ -254,30 +253,6 @@ def test_sgrid(sgrid: StructuredGrid, tmp_path: Path) -> None:
     assert sgrid.point_data == sgrid_out.point_data
     assert sgrid.cell_data == sgrid_out.cell_data
     assert sgrid.field_data == sgrid_out.field_data
-    assert sgrid == sgrid_out
-
-
-def test_sgrid_extent_offset(tmp_path: Path) -> None:
-    """A StructuredGrid whose extent does not start at 0 keeps its extent."""
-    sgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid()
-    sgrid.SetExtent(2, 5, -1, 3, 10, 15)
-
-    filename = tmp_path / "sgrid.pv"
-    pyvista_zstd.write(sgrid, filename)
-    sgrid_out = pyvista_zstd.read(filename)
-
-    assert sgrid_out.GetExtent() == sgrid.GetExtent()
-    np.testing.assert_array_equal(sgrid_out.points, sgrid.points)
-    assert sgrid == sgrid_out
-
-
-def test_read_sgrid_0_5_0_fixture() -> None:
-    """Read a 4x5x6 StructuredGrid file written by ``pyvista-zstd==0.5.0``, which stores no offset."""
-    sgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid()
-    sgrid.point_data["point_ids"] = np.arange(sgrid.n_points, dtype=np.int32)
-
-    sgrid_out = pyvista_zstd.read(SGRID_0_5_0_FIXTURE)
-    assert sgrid_out.GetExtent() == (0, 3, 0, 4, 0, 5)
     assert sgrid == sgrid_out
 
 
@@ -879,8 +854,6 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
         esgrid.hide_cells([0, 7], inplace=True)
     elif kind == "connectivity_flags":
         esgrid.compute_connectivity(inplace=True)
-    elif kind == "extent_offset":
-        esgrid.SetExtent(2, 5, -1, 3, 10, 15)
     elif kind == "custom_flags_name":
         esgrid.SetFacesConnectivityFlagsArrayName("Neighbours")
         esgrid.compute_connectivity(inplace=True)
@@ -921,7 +894,6 @@ def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> N
         "unrelated_blocking",
         "hidden_cells",
         "connectivity_flags",
-        "extent_offset",
         "custom_flags_name",
         "no_flags_name",
     ],

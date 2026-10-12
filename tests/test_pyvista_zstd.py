@@ -260,19 +260,16 @@ def test_sgrid(sgrid: StructuredGrid, tmp_path: Path) -> None:
 
 def _make_offset_grid(ds_type: str) -> DataSet:
     """Return a 4x5x6 structured dataset of ``ds_type`` whose extent starts at (2, -1, 10)."""
+    if ds_type == "ExplicitStructuredGrid":
+        return _make_esgrid("extent_offset")
     image = pv.ImageData(dimensions=(4, 5, 6))
     grids = {
         "ImageData": image,
         "RectilinearGrid": image.cast_to_rectilinear_grid(),
         "StructuredGrid": image.cast_to_structured_grid(),
-        "ExplicitStructuredGrid": image.cast_to_structured_grid().cast_to_explicit_structured_grid(),
     }
     grid = grids[ds_type]
-    cells = grid.GetCells() if ds_type == "ExplicitStructuredGrid" else None
     grid.SetExtent(2, 5, -1, 3, 10, 15)
-    if cells is not None:
-        # vtkExplicitStructuredGrid.SetExtent replaces the cells.
-        grid.SetCells(cells)
     return grid
 
 
@@ -288,9 +285,9 @@ def test_structured_offset_round_trip(
     grid = _make_offset_grid(ds_type)
     filename = tmp_path / "grid.pv"
     with monkeypatch.context() as patch:
-        if has_offset_property:
+        if has_offset_property and not hasattr(grid, "offset"):
             patch.setattr(type(grid), "offset", property(lambda self: self.GetExtent()[::2]), raising=False)
-        else:
+        elif not has_offset_property:
             # A property without a getter hides offset from hasattr wherever pyvista defines it.
             patch.setattr(type(grid), "offset", property(), raising=False)
         pyvista_zstd.write(grid, filename)
@@ -978,16 +975,22 @@ def test_esgrid_round_trip(
 
 
 @pytest.mark.parametrize(
-    ("grid_type", "dimensions"),
-    [(ExplicitStructuredGrid, None), (ExplicitStructuredGrid, (3, 3, 3)), (pv.StructuredGrid, (2, 2, 2))],
+    ("grid_type", "extent"),
+    [
+        (ExplicitStructuredGrid, None),
+        (ExplicitStructuredGrid, (0, 2, 0, 2, 0, 2)),
+        (ExplicitStructuredGrid, (2, 4, -1, 1, 10, 12)),
+        (pv.StructuredGrid, (0, 1, 0, 1, 0, 1)),
+        (pv.StructuredGrid, (2, 3, -1, 0, 10, 11)),
+    ],
 )
 def test_empty_structured_grid_round_trip(
-    tmp_path: Path, grid_type: type[pv.DataSet], dimensions: tuple[int, int, int] | None
+    tmp_path: Path, grid_type: type[pv.DataSet], extent: tuple[int, int, int, int, int, int] | None
 ) -> None:
     """A structured grid without points is stored and read back empty."""
     grid = grid_type()
-    if dimensions is not None:
-        grid.SetDimensions(*dimensions)
+    if extent is not None:
+        grid.SetExtent(*extent)
         grid.cell_data["c"] = np.arange(grid.n_cells)
     filename = tmp_path / "grid.pv"
     pyvista_zstd.write(grid, filename)
@@ -996,6 +999,7 @@ def test_empty_structured_grid_round_trip(
         documents = reader.metadata_documents()
     (document,) = (json.loads(doc) for name, doc in documents if name.endswith(impl.DS_METADATA_KEY))
     assert document["dimensions"] == [0, 0, 0]
+    assert document["offset"] == [0, 0, 0]
     assert document["n_cells"] == 0
 
     out = pv.read(filename)

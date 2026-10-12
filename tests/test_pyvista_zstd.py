@@ -8,12 +8,14 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import TYPE_CHECKING
+from typing import Any
 import warnings
 
 import numpy as np
 import pytest
 import pyvista as pv
 from pyvista.core.composite import MultiBlock
+from pyvista.core.datasetattributes import DataSetAttributes
 from pyvista.core.grid import ImageData
 from pyvista.core.grid import RectilinearGrid
 from pyvista.core.pointset import ExplicitStructuredGrid
@@ -739,6 +741,33 @@ def test_multiblock_two_empty_blocks(ugrid: UnstructuredGrid, tmp_path: Path) ->
 USER_DICT = {"int": 1, "text": "x", "nested": {"list": [1.5, None, True]}}
 
 
+@pytest.fixture(params=["scalar", "array"])
+def one_value_strings(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Return one-value string field arrays as ``str``, as pyvista < 0.50 does, or as one-element arrays."""
+    items = DataSetAttributes.items
+
+    def patched(self: DataSetAttributes) -> list[tuple[str, Any]]:
+        """Return the field arrays with one-value string arrays in the selected form."""
+        out = []
+        for key, value in items(self):
+            if (
+                request.param == "scalar"
+                and isinstance(value, np.ndarray)
+                and value.dtype.kind == "U"
+                and value.size == 1
+            ):
+                value = str(value.item())  # noqa: PLW2901
+            elif request.param == "array" and isinstance(value, str):
+                value = np.array([value])  # noqa: PLW2901
+            out.append((key, value))
+        return out
+
+    monkeypatch.setattr(DataSetAttributes, "items", patched)
+    return request.param
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.usefixtures("one_value_strings")
 def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
     """A dataset's user_dict survives a write and read."""
     polydata.user_dict.update(USER_DICT)
@@ -754,6 +783,8 @@ def test_user_dict(polydata: PolyData, tmp_path: Path) -> None:
     assert tuple(info.shape) == stored.shape
 
 
+@pytest.mark.filterwarnings("error")
+@pytest.mark.usefixtures("one_value_strings")
 def test_user_dict_multiblock(multi_block: MultiBlock, tmp_path: Path) -> None:
     """The user_dict of a MultiBlock and of each of its blocks survives a write and read."""
     multi_block.user_dict.update(USER_DICT)
@@ -803,6 +834,8 @@ def test_multiblock_field_data(polydata: PolyData, tmp_path: Path) -> None:
     assert "MultiBlock(children=1, field arrays: ints, text)" in repr(reader)
 
 
+@pytest.mark.filterwarnings("error")
+@pytest.mark.usefixtures("one_value_strings")
 def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid, tmp_path: Path) -> None:
     """The user_dict of every MultiBlock in a nested hierarchy survives a write and read."""
     innermost = MultiBlock({"ugrid": ugrid})

@@ -98,7 +98,8 @@ inline bool ReadJsonString(const std::string &s, size_t *i, std::string *out) {
           unsigned code = 0;
           if (!ReadHex4(s, *i + 2, &code)) return false;
           *i += 4;
-          // json.dumps writes a code point above U+FFFF as a surrogate pair.
+          // json.dumps writes a code point above U+FFFF as a surrogate pair; a lone
+          // surrogate is kept as its own three-byte sequence, as surrogatepass would.
           if (code >= 0xD800 && code <= 0xDBFF && *i + 7 < s.size() && s[*i + 2] == '\\' &&
               s[*i + 3] == 'u') {
             unsigned low = 0;

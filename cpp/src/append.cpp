@@ -23,9 +23,7 @@ using namespace pvzstd::json;    // NOLINT(google-build-using-namespace)
 
 namespace {
 
-constexpr size_t kUidNChar = 16;
 constexpr size_t kCopyChunk = 8u << 20;
-constexpr int kFileVersionShuffle = 1;
 
 class ScopedFile {
  public:

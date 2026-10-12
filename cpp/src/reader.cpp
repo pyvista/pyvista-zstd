@@ -36,18 +36,15 @@ constexpr uint64_t kIndexEntryBytes = 16;
 // reaches the reader at all; which one a file used is reported by name through
 // pvzstd_metadata_name_at, because the caller may want to say so.
 constexpr char kLegacyFileMetadataSuffix[] = "__zvtk_metadata";
-constexpr size_t kUidNChar = 16;
 
-// Lives in detail.h now: the write, append and stream paths narrow file- and
-// caller-supplied lengths into allocations of their own, and one definition is
-// what keeps the four answers the same. Named here so the uses below read as
-// they did.
+// Shared with the write, append and stream paths (detail.h).
 using pvzstd::detail::EndsWith;
 using pvzstd::detail::ExceedsSizeT;
 using pvzstd::detail::kDsMetadataSuffix;
 using pvzstd::detail::kFieldDataSuffix;
 using pvzstd::detail::kFileMetadataSuffix;
 using pvzstd::detail::kMultiblockSuffix;
+using pvzstd::detail::kUidNChar;
 
 // The most a zstd frame can expand, per compressed byte. A zstd block covers at
 // most 128 KiB, and the cheapest way to spell one is an RLE block: a 3-byte

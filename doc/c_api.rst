@@ -163,7 +163,7 @@ The ABI version
 
 .. code:: c
 
-   #define PVZSTD_ABI_VERSION 11u
+   #define PVZSTD_ABI_VERSION 12u
    PVZSTD_API uint32_t pvzstd_abi_version(void);
 
 The macro is the version the caller compiled against; the function is the

@@ -164,8 +164,8 @@ class ZstdFileMetadata:
     frame_names: list[str]
     compression_level: int
     compression: Compression = "zstandard"
-    # Defaults to the legacy version; writers promote this when they use an
-    # optional encoding such as byte shuffle or fixed-width cell topology.
+    # Defaults to the legacy version; the core writer promotes it when the file
+    # uses an optional feature.
     file_version: int = FILE_VERSION_UNFILTERED
 
     def to_json(self) -> str:
@@ -201,7 +201,7 @@ class MultiBlockMetadata:
     def to_json(self) -> str:
         """Convert to JSON."""
         raw = asdict(self)
-        # Omitted when empty: pyvista-zstd 0.5.0 and earlier reject unknown members, and only version 3 files carry it.
+        # Omitted when empty, since its presence stamps file version 3.
         if not raw["field_data_keys"]:
             del raw["field_data_keys"]
         return json.dumps(raw, separators=(",", ":"))

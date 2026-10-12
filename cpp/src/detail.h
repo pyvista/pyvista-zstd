@@ -1,9 +1,10 @@
 // Primitives shared by the translation units that touch array bytes.
 //
-// Byte-level reproductions of specific reference-writer behaviours, not general
-// utilities: the shuffle decision, the worker count, the dtype width and the JSON
-// escaping each decide what ends up on disk, so a second implementation of any of
-// them would be a second chance to disagree.
+// Mostly byte-level reproductions of specific reference-writer behaviours: the
+// shuffle decision, the worker count, the dtype width and the JSON escaping each
+// decide what ends up on disk, so a second implementation of any of them would be
+// a second chance to disagree. The frame-name constants are here for the same
+// reason.
 
 #ifndef PVZSTD_DETAIL_H
 #define PVZSTD_DETAIL_H
@@ -22,11 +23,16 @@
 
 namespace pvzstd::detail {
 
-// Frame-name suffixes that identify the metadata and field-data frames.
+// Frame-name suffixes that identify the metadata and field-data frames; the
+// file-metadata suffix is also that frame's whole name.
 constexpr char kDsMetadataSuffix[] = "__ds_metadata";
 constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
 constexpr char kFileMetadataSuffix[] = "__pyvista_zstd_metadata";
 constexpr char kFieldDataSuffix[] = "__field_data";
+
+// Width of the dataset UID that prefixes every frame name.
+constexpr size_t kUidNChar = PVZSTD_DTYPE_LEN;
+constexpr int kFileVersionShuffle = 1;
 
 // Whether `s` ends with `suffix`.
 inline bool EndsWith(const std::string &s, const char *suffix) {
@@ -188,7 +194,9 @@ inline pvzstd_status CompressFrame(const uint8_t *src, uint64_t n, int level, in
   return PVZSTD_OK;
 }
 
-// Matches json.dumps' default (ensure_ascii, minimal separators).
+// Matches json.dumps' default escaping, except that non-ASCII is written as raw
+// UTF-8: readers whose file-version ceiling is below 3 reject \u escapes above
+// ASCII.
 inline void AppendJsonString(std::string *out, const std::string &s) {
   out->push_back('"');
   for (const char c : s) {

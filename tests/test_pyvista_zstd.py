@@ -895,7 +895,18 @@ def test_multiblock_field_data_file_version(  # noqa: PLR0913
 
     reader = pyvista_zstd.Reader(tmp_filename)
     assert reader._metadata.file_version == impl.FILE_VERSION_MULTIBLOCK_FIELD_DATA  # noqa: SLF001
-    assert impl.FILE_VERSION == impl.FILE_VERSION_MULTIBLOCK_FIELD_DATA == _capi.max_file_version()
+
+
+@pytest.mark.parametrize(("member", "expected"), [("", 0), (',"field_data_keys":{}', 3)])
+def test_multiblock_field_data_member_presence_sets_file_version(tmp_path: Path, member: str, expected: int) -> None:
+    """The field_data_keys member stamps version 3 by its presence, even when empty."""
+    doc = f'{{"uid":"{"0" * 16}","children":[],"children_keys":[],"children_ds":null{member}}}'
+    filename = tmp_path / "tmp.pv"
+    with _capi.CoreWriter() as writer:
+        writer.add_array(f"{'0' * 16}{impl.MULTIBLOCK_METADATA_KEY}", np.frombuffer(doc.encode(), dtype=np.uint8))
+        writer.write(filename)
+
+    assert pyvista_zstd.Reader(filename)._metadata.file_version == expected  # noqa: SLF001
 
 
 def test_multiblock_block_field_data_keeps_file_version(polydata: PolyData, tmp_path: Path) -> None:

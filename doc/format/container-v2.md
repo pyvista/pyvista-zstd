@@ -277,9 +277,10 @@ A MultiBlock's own field arrays are stored like a dataset's, as
 `<uid><name>__field_data` frames under the MultiBlock's UID, and listed in its
 `field_data_keys` with the same `{"shape": [...], "dtype": "..."}` entries as
 `DataSetMetadata`. The member is omitted when the MultiBlock has no field
-arrays, because readers before version 3 reject an unknown member; when any
-MultiBlock document carries it, the writer stamps `file_version` 3 so those
-readers refuse the file with `PVZSTD_E_VERSION` first.
+arrays, because readers whose ceiling is below 3 (pyvista-zstd 0.5.0 and
+earlier) reject an unknown member; when any MultiBlock document carries it, the
+writer stamps `file_version` 3 so those readers refuse the file with
+`PVZSTD_E_VERSION` first.
 
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,

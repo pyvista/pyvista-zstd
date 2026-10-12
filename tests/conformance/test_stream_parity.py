@@ -150,6 +150,31 @@ def test_streamed_blocks_read_back_through_the_reference_reader(tmp_path) -> Non
             assert np.array_equal(back[found[0]].ravel(), arr.ravel()), name
 
 
+def test_stream_into_a_version_3_file_with_non_ascii_names(tmp_path) -> None:
+    """Streaming into a non-ASCII-named ExplicitStructuredGrid file matches append and keeps version 3."""
+    grid = pv.ImageData(dimensions=(3, 3, 3)).cast_to_structured_grid().cast_to_explicit_structured_grid()
+    grid.point_data["témp"] = np.arange(grid.n_points, dtype=np.float64)
+    grid.field_data["born😀"] = np.array([1.5, 2.5])
+    seed = tmp_path / "seed.pv"
+    pz.write(grid, seed)
+    reference = tmp_path / "reference.pv"
+    cpp = tmp_path / "cpp.pv"
+    shutil.copyfile(seed, reference)
+    shutil.copyfile(seed, cpp)
+
+    commits = [{"étape_0": np.arange(5.0)}, {"étape_1😀": np.arange(3, dtype=np.int32)}]
+    for arrays in commits:
+        pz.append_arrays(reference, arrays, shuffle=True)
+    _run_stream(cpp, [_write_spec(tmp_path, f"u{i}", a) for i, a in enumerate(commits)], shuffle=True)
+
+    assert cpp.read_bytes() == reference.read_bytes()
+    assert pz.Reader(cpp)._metadata.file_version == pz.pyvista_zstd.FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
+    out = pz.read(cpp)
+    assert isinstance(out, pv.ExplicitStructuredGrid)
+    assert np.array_equal(out.field_data["étape_1😀"], np.arange(3, dtype=np.int32))
+    assert np.array_equal(out.point_data["témp"], grid.point_data["témp"])
+
+
 def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> None:
     """
     Streaming cost does not grow with what is already committed.

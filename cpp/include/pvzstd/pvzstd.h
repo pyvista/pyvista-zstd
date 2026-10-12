@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 11u
+#define PVZSTD_ABI_VERSION 12u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16
@@ -320,7 +320,7 @@ PVZSTD_API pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, co
 /* Emit the file. The trailing file-metadata frame is generated here, so it always
  * agrees with what was written. The file version is 3 when a staged
  * "*__ds_metadata" document has ds_type "ExplicitStructuredGrid" or a
- * "*__multiblock__ds_metadata" document has a non-empty field_data_keys. */
+ * "*__multiblock__ds_metadata" document has a field_data_keys member. */
 PVZSTD_API pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path);
 
 /* ------------------------------------------------------------------ *

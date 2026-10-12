@@ -352,6 +352,19 @@ def test_append_after_non_ascii_field_array(tmp_path) -> None:
         append_arrays(path, {"témp😀": np.arange(2.0)})
 
 
+def test_append_after_non_ascii_point_array(tmp_path) -> None:
+    """A non-ASCII point array name leaves the file's ASCII field arrays readable and appendable."""
+    ds = pv.Sphere()
+    ds.point_data["témp"] = np.arange(ds.n_points, dtype=np.float64)
+    ds.field_data["meta"] = np.arange(3.0)
+    path = _write_base(tmp_path / "a.pv", ds)
+
+    assert np.array_equal(read_array(path, "meta"), np.arange(3.0))
+    append_arrays(path, {"block0": np.arange(4.0)})
+    assert np.array_equal(read_array(path, "block0"), np.arange(4.0))
+    assert np.array_equal(pz.read(path).point_data["témp"], ds.point_data["témp"])
+
+
 def test_read_missing_array_raises(tmp_path, base_grid) -> None:
     """Reading a missing array raises KeyError."""
     path = _write_base(tmp_path / "f.pv", base_grid)

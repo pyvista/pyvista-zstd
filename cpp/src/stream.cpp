@@ -30,8 +30,6 @@ using namespace pvzstd::json;    // NOLINT(google-build-using-namespace)
 
 namespace {
 
-constexpr size_t kUidNChar = 16;
-constexpr int kFileVersionShuffle = 1;
 // The metadata tail is two arrays -- dataset then file -- so four frames.
 constexpr size_t kTailFrames = 4;
 

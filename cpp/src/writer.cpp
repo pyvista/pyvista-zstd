@@ -48,11 +48,7 @@ bool UsesVersion3Feature(const std::vector<PendingArray> &arrays) {
     if (EndsWith(a.name, kMultiblockSuffix)) {
       size_t open = 0;
       size_t past = 0;
-      std::vector<std::string> keys;
-      if (pvzstd::json::MemberObjectSpan(json, "field_data_keys", &open, &past) &&
-          pvzstd::json::ObjectKeys(json, open, &keys) && !keys.empty()) {
-        return true;
-      }
+      if (pvzstd::json::MemberObjectSpan(json, "field_data_keys", &open, &past)) return true;
     } else {
       std::string ds_type;
       if (pvzstd::json::MemberString(json, "ds_type", &ds_type) &&

@@ -563,6 +563,7 @@ class CoreReader:
         self._buffer: NDArray[np.uint8] | None = None
         # Decoded array headers and a name-to-index map, built on first use.
         self._catalog: tuple[list[tuple[str, np.dtype[Any], tuple[int, ...]]], dict[str, int]] | None = None
+        self._field_names: list[str] | None = None
 
         if (path is None) == (buffer is None):
             msg = "CoreReader takes exactly one of `path` and `buffer`"
@@ -715,12 +716,15 @@ class CoreReader:
             Empty for a MultiBlock container, which has no single root dataset.
 
         """
-        count = int(self._lib.pvzstd_field_array_count(self._live))
-        names = []
-        for i in range(count):
-            raw = self._lib.pvzstd_field_array_name_at(self._live, c_uint64(i))
-            names.append(raw.decode("utf-8"))
-        return names
+        if self._field_names is None:
+            live = self._live
+            count = int(self._lib.pvzstd_field_array_count(live))
+            names = []
+            for i in range(count):
+                raw = self._lib.pvzstd_field_array_name_at(live, c_uint64(i))
+                names.append(raw.decode("utf-8"))
+            self._field_names = names
+        return list(self._field_names)
 
     def find_field(self, name: str) -> int | None:
         """

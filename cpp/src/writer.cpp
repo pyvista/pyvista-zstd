@@ -1,10 +1,14 @@
 // Writer half of the .pv container. See doc/format/container-v2.md.
 //
 // Byte-for-byte agreement with the reference writer constrains more than the
-// layout: the file version is the highest optional encoding used (2 fixed-width
-// cells, else 1 if anything is shuffled, else 0; not cumulative), and every frame
-// needs the same level AND worker count, since zstd's multi-threaded mode emits
-// different bytes.
+// layout: the file version is the highest optional encoding used (3 if a payload
+// is split into sub-frames, else 2 fixed-width cells, else 1 if anything is
+// shuffled, else 0; not cumulative), and every frame needs the same level AND
+// worker count, since zstd's multi-threaded mode emits different bytes.
+//
+// A payload larger than kSubFrameBytes is written as consecutive zstd frames of
+// that size, each compressed on one thread, so a reader can decompress the
+// pieces in parallel: zstd cannot split one frame across cores on the way back.
 
 #include <zstd.h>
 
@@ -21,6 +25,11 @@
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
 
 namespace {
+
+// Payloads past this are split into sub-frames of this size. Four MiB keeps a
+// large array on every core of a reader while costing zstd's window nothing.
+constexpr uint64_t kSubFrameBytes = 4ull << 20;
+constexpr int kFileVersionSubFrames = 3;
 
 struct PendingArray {
   std::string name;
@@ -84,6 +93,39 @@ pvzstd_status AddArray(pvzstd_writer *writer, const char *name, const char *dtyp
     // std::length_error, which is not a bad_alloc, so the narrower handler let
     // it out of the library.
     return PVZSTD_E_NOMEM;
+  }
+  return PVZSTD_OK;
+}
+
+// Compress `n` bytes as sub-frames of kSubFrameBytes, spread over `workers`
+// threads with one thread per sub-frame, and write them in order. One trailer
+// entry still covers the lot: a reader sees one payload that happens to be
+// several frames, which ZSTD_decompress accepts as it is.
+pvzstd_status WriteSubFrames(std::FILE *fp, const uint8_t *src, uint64_t n, int level, int workers,
+                             uint64_t *offset) {
+  const uint64_t n_sub = (n + kSubFrameBytes - 1) / kSubFrameBytes;
+  if (ExceedsSizeT(n_sub)) return PVZSTD_E_INVALID;
+  std::vector<std::vector<uint8_t>> frames;
+  std::vector<pvzstd_status> status;
+  try {
+    frames.resize(static_cast<size_t>(n_sub));
+    status.assign(static_cast<size_t>(n_sub), PVZSTD_OK);
+  } catch (const std::exception &) {
+    return PVZSTD_E_NOMEM;
+  }
+  int pool = workers > 1 ? workers : 1;
+  if (n_sub < static_cast<uint64_t>(pool)) pool = static_cast<int>(n_sub);
+  ParallelStride(pool, n_sub, [&](uint64_t k) {
+    const uint64_t start = k * kSubFrameBytes;
+    const uint64_t len = n - start < kSubFrameBytes ? n - start : kSubFrameBytes;
+    status[static_cast<size_t>(k)] =
+        CompressFrame(src + start, len, level, 0, &frames[static_cast<size_t>(k)]);
+  });
+  for (uint64_t k = 0; k < n_sub; ++k) {
+    if (status[static_cast<size_t>(k)] != PVZSTD_OK) return status[static_cast<size_t>(k)];
+    const std::vector<uint8_t> &frame = frames[static_cast<size_t>(k)];
+    if (std::fwrite(frame.data(), 1, frame.size(), fp) != frame.size()) return PVZSTD_E_IO;
+    *offset += frame.size();
   }
   return PVZSTD_OK;
 }
@@ -201,8 +243,12 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   }
 
   // 2. File version is the highest optional encoding used, not a generation.
+  bool any_split = false;
+  for (const PendingArray &a : writer->arrays) any_split = any_split || a.size() > kSubFrameBytes;
   int file_version = 0;
-  if (writer->fixed_width_cells) {
+  if (any_split) {
+    file_version = kFileVersionSubFrames;
+  } else if (writer->fixed_width_cells) {
     file_version = 2;
   } else if (any_filtered) {
     file_version = 1;
@@ -286,13 +332,17 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
     const uint8_t *pieces[2] = {header.data(), payload_ptr};
     const uint64_t lengths[2] = {header.size(), payload_len};
     for (int part = 0; part < 2 && st == PVZSTD_OK; ++part) {
-      st = CompressFrame(pieces[part], lengths[part], writer->level, workers, &frame);
-      if (st != PVZSTD_OK) break;
-      if (!frame.empty() && std::fwrite(frame.data(), 1, frame.size(), fp) != frame.size()) {
-        st = PVZSTD_E_IO;
-        break;
+      if (lengths[part] > kSubFrameBytes) {
+        st = WriteSubFrames(fp, pieces[part], lengths[part], writer->level, workers, &offset);
+      } else {
+        st = CompressFrame(pieces[part], lengths[part], writer->level, workers, &frame);
+        if (st != PVZSTD_OK) break;
+        if (!frame.empty() && std::fwrite(frame.data(), 1, frame.size(), fp) != frame.size()) {
+          st = PVZSTD_E_IO;
+        }
+        offset += frame.size();
       }
-      offset += frame.size();
+      if (st != PVZSTD_OK) break;
       ends.push_back(offset);
       sizes.push_back(lengths[part]);
     }

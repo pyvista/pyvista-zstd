@@ -193,7 +193,7 @@ A second, separate number describes the *files* rather than the library:
 
 .. code:: c
 
-   #define PVZSTD_FILE_VERSION_MAX 2u
+   #define PVZSTD_FILE_VERSION_MAX 3u
    PVZSTD_API uint32_t pvzstd_max_file_version(void);
 
 This is the highest container ``file_version`` the build can decode. A container

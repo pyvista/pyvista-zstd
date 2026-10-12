@@ -201,7 +201,7 @@ def test_fixed_width_cells_omits_the_offsets_frame(tmp_path) -> None:
     assert "cells_connectivity" in bare
     assert "cells_offset" not in bare
     assert container.ds_metadata["fixed_cell_sizes"] == {"cells": 8}
-    assert container.file_metadata["file_version"] == pz.FILE_VERSION
+    assert container.file_metadata["file_version"] == pz.pyvista_zstd.FILE_VERSION_FIXED_WIDTH_CELLS
 
 
 def test_file_version_does_not_imply_filter_presence(tmp_path) -> None:

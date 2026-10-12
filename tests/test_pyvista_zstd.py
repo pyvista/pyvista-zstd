@@ -834,6 +834,44 @@ def test_esgrid(esgrid: ExplicitStructuredGrid, tmp_path: Path) -> None:
     assert "Field arrays" not in repr_no_data_str
 
 
+def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
+    """Return an ExplicitStructuredGrid for the round-trip tests."""
+    if kind == "example":
+        return pv.examples.load_explicit_structured()
+    esgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid().cast_to_explicit_structured_grid()
+    if kind == "user_arrays":
+        esgrid.cell_data["cell_ids"] = np.arange(esgrid.n_cells, dtype=np.int64)
+        esgrid.cell_data["centers"] = esgrid.cell_centers().points
+        esgrid.point_data["point_ids"] = np.arange(esgrid.n_points, dtype=np.int32)
+    elif kind == "own_blocking":
+        esgrid = esgrid.cast_to_unstructured_grid().cast_to_explicit_structured_grid()
+    return esgrid
+
+
+@pytest.mark.parametrize("kind", ["example", "cast", "user_arrays", "own_blocking"])
+def test_esgrid_round_trip(kind: str, tmp_path: Path) -> None:
+    """An ExplicitStructuredGrid reads back with its geometry, blocking and data intact."""
+    esgrid = _make_esgrid(kind)
+    filename = tmp_path / "esgrid.pv"
+    pyvista_zstd.write(esgrid, filename)
+
+    assert pyvista_zstd.Reader(filename).available_cell_arrays == set(esgrid.cell_data)
+    out = pv.read(filename)
+
+    assert isinstance(out, ExplicitStructuredGrid)
+    assert out.dimensions == esgrid.dimensions
+    np.testing.assert_array_equal(out.points, esgrid.points)
+    np.testing.assert_array_equal(out.cell_centers().points, esgrid.cell_centers().points)
+    assert set(out.cell_data) == set(esgrid.cell_data)
+    assert set(out.point_data) == set(esgrid.point_data)
+    for name, array in esgrid.cell_data.items():
+        np.testing.assert_array_equal(out.cell_data[name], array)
+    for name, array in esgrid.point_data.items():
+        np.testing.assert_array_equal(out.point_data[name], array)
+    if kind == "user_arrays":
+        np.testing.assert_array_equal(out.cell_data["centers"], out.cell_centers().points)
+
+
 def test_vtk_imports_route_through_pyvista() -> None:
     """
     VTK must be imported through PyVista, never from ``vtkmodules`` or ``vtk``.

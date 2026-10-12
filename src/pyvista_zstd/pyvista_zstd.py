@@ -529,6 +529,9 @@ def _add_arrays_esgrid(
 ) -> None:
     ugrid = ds.cast_to_unstructured_grid()
     _add_arrays_ugrid(ds_id, ugrid, arrays, fixed_cell_sizes, force_int32=force_int32)
+    # The reader needs the i/j/k blocking the cast adds; the grid's own cell data lacks it.
+    for name in ESGRID_BLOCK_KEYS:
+        arrays[f"{ds_id}{name}{CELL_DATA_SUFFIX}"] = ugrid.cell_data[name]
 
 
 def _add_arrays_sgrid(ds_id: str, ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -932,6 +935,15 @@ def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
         rgrid = RectilinearGrid()
 
     return rgrid
+
+
+def _remove_unwritten_esgrid_blocking(ds: DataSet, metadata: DataSetMetadata) -> None:
+    """Remove blocking arrays an ExplicitStructuredGrid did not carry as its own cell data."""
+    if not isinstance(ds, ExplicitStructuredGrid):
+        return
+    for name in ESGRID_BLOCK_KEYS:
+        if name not in metadata.cell_data_keys and name in ds.cell_data:
+            ds.cell_data.remove(name)
 
 
 def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
@@ -1594,6 +1606,7 @@ class Reader:
             raise RuntimeError(msg)
 
         _add_data(ds_id, ds, segments)
+        _remove_unwritten_esgrid_blocking(ds, ds_metadata)
         _apply_metadata(ds, ds_metadata)
         return ds
 

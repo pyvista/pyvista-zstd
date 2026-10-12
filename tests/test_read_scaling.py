@@ -148,3 +148,21 @@ def test_read_arrays_rejects_bad_allocation(tmp_path: Path) -> None:
 
         with pytest.raises(ValueError, match="unusable destination"):
             reader.read_arrays(keep={names[0]}, allocate=wrong)
+
+
+def test_segments_release_empties_vtk_wrappers() -> None:
+    """Allocated VTK arrays are handed back with no Python-side state, so dropping them is free."""
+    from pyvista_zstd.pyvista_zstd import _Segments  # noqa: PLC0415
+
+    segments = _Segments()
+    view = segments.allocate("0000000000000000points", (4, 3), np.dtype(np.float64))
+    view[:] = 1.0
+    (vtk_array,) = segments.vtk.values()
+    np.asarray(vtk_array)  # populates the wrapper's cache, as a read does
+    assert vtk_array.__dict__
+
+    segments.release()
+    assert not vtk_array.__dict__
+    assert not segments.vtk
+    assert np.asarray(vtk_array).shape == (4, 3)
+    assert (view == 1.0).all()

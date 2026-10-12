@@ -269,6 +269,10 @@ Three JSON documents, each stored as a frame:
 - **`DataSetMetadata`** (`:272-300`) under `__ds_metadata` (`:92`).
 - **`MultiBlockMetadata`** (`:239-241`) under `__multiblock__ds_metadata` (`:93`).
 
+Readers ignore metadata members they do not recognise. A writer that adds a
+member older readers must act on promotes `file_version` (section 2), so those
+readers refuse the file instead of misreading it.
+
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /

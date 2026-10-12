@@ -908,7 +908,7 @@ def _with_unknown_key(s: str) -> str:
 @pytest.mark.parametrize(
     "meta",
     [
-        impl.ZstdFileMetadata(frame_names=["a", "b"], compression_level=3),
+        impl.ZstdFileMetadata(frame_names=["a", "b"], compression_level=3, file_version=2),
         impl.MultiBlockMetadata(uid="0", children=["1"], children_keys=["block"]),
         impl.DataSetMetadata(
             ds_type="PolyData",
@@ -925,11 +925,11 @@ def _with_unknown_key(s: str) -> str:
 def test_metadata_from_json_ignores_unknown_keys(
     meta: impl.ZstdFileMetadata | impl.MultiBlockMetadata | impl.DataSetMetadata,
 ) -> None:
-    """Test that a metadata document carrying an unknown key decodes like one without it."""
+    """Test that a metadata document carrying an unknown key decodes to the original metadata."""
     raw = json.loads(_with_unknown_key(meta.to_json()))
     if "point_data_keys" in raw:
         raw["point_data_keys"]["a"]["unknown_future_key"] = 1
-    assert type(meta).from_json(json.dumps(raw)) == type(meta).from_json(meta.to_json())
+    assert type(meta).from_json(json.dumps(raw)).to_json() == meta.to_json()
 
 
 def test_read_ignores_unknown_metadata_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

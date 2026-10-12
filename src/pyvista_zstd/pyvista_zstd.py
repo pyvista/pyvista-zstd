@@ -190,6 +190,8 @@ class MultiBlockMetadata:
 
     # optional and used for ds reader
     children_ds: dict[str, MultiBlockMetadata | DataSetMetadata | None] | None = None
+
+    # the MultiBlock's own field arrays, omitted from the JSON when empty
     field_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
 
     def to_json(self) -> str:

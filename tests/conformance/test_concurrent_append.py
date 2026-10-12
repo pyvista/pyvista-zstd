@@ -148,7 +148,7 @@ def _append_while_replaced(workdir: Path) -> tuple[str | None, bytes, Path]:
     try:
         _wait_for(ready.exists, "the child to finish importing")
         go.touch()
-        # Also ends on the child's exit: an append that committed before this saw it stages nothing.
+        # Also ends on the child's exit: an append can stage and commit between two polls.
         _wait_for(
             lambda: _staging_files(container) or child.poll() is not None,
             "the child's append to open its staging file",
@@ -182,7 +182,7 @@ def test_a_container_replaced_mid_append_is_refused_rather_than_overwritten(tmp_
         if verdict is not None:
             break
     else:
-        pytest.fail(f"every append committed before the replacement landed, in {COLLISION_ATTEMPTS} attempts")
+        pytest.fail(f"the append reported ok and left the replacement in place in all {COLLISION_ATTEMPTS} attempts")
 
     assert verdict == "changed", (
         f"the append reported {verdict!r} for a container that was replaced while it was staging"

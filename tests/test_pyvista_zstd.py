@@ -923,8 +923,9 @@ def test_empty_esgrid_round_trip(tmp_path: Path) -> None:
 
     out = pv.read(filename)
     assert isinstance(out, ExplicitStructuredGrid)
-    assert out.GetExtent() == esgrid.GetExtent()
+    assert out.GetExtent() == (0, -1, 0, -1, 0, -1)
     assert out.n_points == 0
+    assert out.n_cells == 0
 
 
 def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:

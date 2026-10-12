@@ -235,7 +235,7 @@ class DataSetMetadata:
     cell_data_active_texture_coordinates_name: str | None = None
     cell_data_active_normals_name: str | None = None
 
-    # Optional ImageData metadata; dimensions also describes structured grids
+    # Optional grid metadata
     dimensions: tuple[int, int, int] | None = None
     origin: tuple[float, float, float] | None = None
     spacing: tuple[float, float, float] | None = None
@@ -306,7 +306,8 @@ class DataSetMetadata:
                 offset=ds.offset,
             )
         elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
-            kwargs["dimensions"] = ds.dimensions
+            # vtkExplicitStructuredGrid() leaves its extent uninitialised, so a grid without points stores none.
+            kwargs["dimensions"] = ds.dimensions if ds.n_points else (0, 0, 0)
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 

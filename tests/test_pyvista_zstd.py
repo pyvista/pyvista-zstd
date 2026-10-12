@@ -290,7 +290,8 @@ def test_structured_offset_round_trip(
         if has_offset_property:
             patch.setattr(type(grid), "offset", property(lambda self: self.GetExtent()[::2]), raising=False)
         else:
-            patch.delattr(type(grid), "offset", raising=False)
+            # A property without a getter hides offset from hasattr wherever pyvista defines it.
+            patch.setattr(type(grid), "offset", property(), raising=False)
         pyvista_zstd.write(grid, filename)
 
     out = pyvista_zstd.read(filename)

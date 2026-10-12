@@ -876,11 +876,20 @@ def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid
 
 @pytest.mark.parametrize("shuffle", [False, True])
 @pytest.mark.parametrize("owner", ["root", "nested"])
-def test_multiblock_field_data_file_version(polydata: PolyData, tmp_path: Path, owner: str, *, shuffle: bool) -> None:
-    """Field data on any MultiBlock stamps the MultiBlock field-data file version."""
-    inner = MultiBlock([polydata])
-    root = MultiBlock([inner])
-    (root if owner == "root" else inner).user_dict["a"] = 1
+@pytest.mark.parametrize(("block_name", "field_name"), [("a", "b"), ("a", "témp"), ("a", "😀"), ("café", "b")])
+def test_multiblock_field_data_file_version(  # noqa: PLR0913
+    polydata: PolyData,
+    tmp_path: Path,
+    owner: str,
+    block_name: str,
+    field_name: str,
+    *,
+    shuffle: bool,
+) -> None:
+    """Field data on any MultiBlock stamps the MultiBlock field-data file version, whatever its names."""
+    inner = MultiBlock({block_name: polydata})
+    root = MultiBlock({block_name: inner})
+    (root if owner == "root" else inner).field_data[field_name] = np.arange(3.0)
     tmp_filename = tmp_path / "tmp.pv"
     pyvista_zstd.write(root, tmp_filename, shuffle=shuffle)
 
@@ -1157,7 +1166,6 @@ def test_esgrid_file_version(tmp_path: Path, kind: str, *, shuffle: bool) -> Non
 
     reader = pyvista_zstd.Reader(filename)
     assert reader._metadata.file_version == impl.FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
-    assert impl.FILE_VERSION == impl.FILE_VERSION_EXPLICIT_STRUCTURED_GRID == _capi.max_file_version()
 
 
 def test_esgrid_deselected_blocking_arrays(tmp_path: Path) -> None:

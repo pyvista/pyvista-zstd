@@ -144,8 +144,8 @@ A decoder must also have a ceiling. The C core carries one,
 `PVZSTD_E_VERSION` rather than read: a later version may transform payloads in
 a way this build cannot invert, or carry data this build would drop, so reading
 one would hand back plausible-looking wrong values instead of failing. The
-ceiling belongs beside the decoder it describes -- a binding that kept its own copy would refuse files
-the library can read, or accept files it cannot.
+ceiling belongs beside the decoder it describes -- a binding that kept its own
+copy would refuse files the library can read, or accept files it cannot.
 
 The version is promoted by the _writer_ only when it actually uses an optional
 feature — the `ZstdFileMetadata` default is the legacy

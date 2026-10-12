@@ -273,8 +273,9 @@ Three JSON documents, each stored as a frame:
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
 normals, for both point and cell data), and the optional grid fields:
-`dimensions` for ImageData, StructuredGrid and ExplicitStructuredGrid, and
-`origin`, `spacing`, `direction_matrix`, `offset` for ImageData only.
+`dimensions` and `offset` (the extent's start) for ImageData, StructuredGrid
+and ExplicitStructuredGrid, and `origin`, `spacing`, `direction_matrix` for
+ImageData only.
 
 The active-attribute names are easy to overlook and are **observable
 behaviour**: dropping them silently changes which array a downstream plot
@@ -370,16 +371,15 @@ note the spelling in the source, `:111-112`), RectilinearGrid (`_x_rgrid` /
 `_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, StructuredGrid,
 ExplicitStructuredGrid, and MultiBlock.
 
-StructuredGrid stores `points` and `dimensions`. ExplicitStructuredGrid stores
-`points`, the `cells` connectivity, `dimensions`, and a `celltypes` frame of
-hexahedra that only lets older readers decode the file. The reader rebuilds it
-directly from the dimensions and widens the connectivity to `vtkIdType`, the
-only width `vtkExplicitStructuredGrid` reads cell points from correctly. An
+StructuredGrid stores `points`, `dimensions` and `offset`. ExplicitStructuredGrid
+stores `points`, the `cells` connectivity, `dimensions`, `offset`, and a
+`celltypes` frame of hexahedra that only lets older readers decode the file.
+The reader rebuilds it directly from its extent and widens the connectivity to
+`vtkIdType`, the only width `vtkExplicitStructuredGrid` reads cell points from
+correctly. An
 ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
-its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.
-
-Neither grid stores its extent, so one whose extent does not start at 0 reads
-back with the same dimensions and an extent starting at 0.
+its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays. A structured grid file with
+no `offset` reads back with an extent starting at 0.
 
 `EMPTY_DS` (`:121`) is a sentinel for an empty dataset and is 16 characters
 to align with the UID width.

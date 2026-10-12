@@ -250,6 +250,19 @@ def test_sgrid(sgrid: StructuredGrid, tmp_path: Path) -> None:
     assert sgrid.point_data == sgrid_out.point_data
     assert sgrid.cell_data == sgrid_out.cell_data
     assert sgrid.field_data == sgrid_out.field_data
+
+
+def test_sgrid_extent_offset(tmp_path: Path) -> None:
+    """A StructuredGrid whose extent does not start at 0 keeps its extent."""
+    sgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid()
+    sgrid.SetExtent(2, 5, -1, 3, 10, 15)
+
+    filename = tmp_path / "sgrid.pv"
+    pyvista_zstd.write(sgrid, filename)
+    sgrid_out = pyvista_zstd.read(filename)
+
+    assert sgrid_out.GetExtent() == sgrid.GetExtent()
+    np.testing.assert_array_equal(sgrid_out.points, sgrid.points)
     assert sgrid == sgrid_out
 
 
@@ -853,6 +866,8 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
         esgrid.hide_cells([0, 7], inplace=True)
     elif kind == "connectivity_flags":
         esgrid.compute_connectivity(inplace=True)
+    elif kind == "extent_offset":
+        esgrid.SetExtent(2, 5, -1, 3, 10, 15)
     elif kind != "cast":
         msg = f"Unknown ExplicitStructuredGrid kind {kind!r}"
         raise ValueError(msg)
@@ -862,7 +877,7 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
 def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> None:
     """Assert that a read-back grid matches the ExplicitStructuredGrid that was written."""
     assert isinstance(out, ExplicitStructuredGrid)
-    assert out.dimensions == esgrid.dimensions
+    assert out.GetExtent() == esgrid.GetExtent()
     np.testing.assert_array_equal(out.points, esgrid.points)
     np.testing.assert_array_equal(out.cell_centers().points, esgrid.cell_centers().points)
     assert set(out.cell_data) == set(esgrid.cell_data)
@@ -881,7 +896,16 @@ def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> N
 @pytest.mark.parametrize("force_int32", [True, False])
 @pytest.mark.parametrize(
     "kind",
-    ["example", "cast", "user_arrays", "own_blocking", "unrelated_blocking", "hidden_cells", "connectivity_flags"],
+    [
+        "example",
+        "cast",
+        "user_arrays",
+        "own_blocking",
+        "unrelated_blocking",
+        "hidden_cells",
+        "connectivity_flags",
+        "extent_offset",
+    ],
 )
 def test_esgrid_round_trip(kind: str, force_int32: bool, tmp_path: Path) -> None:  # noqa: FBT001
     """An ExplicitStructuredGrid reads back with its geometry, blocking and data intact."""
@@ -943,7 +967,7 @@ def test_read_esgrid_0_5_0_fixtures() -> None:
     out = pyvista_zstd.read(ESGRID_BLOCKING_0_5_0_FIXTURE)
     assert isinstance(out, ExplicitStructuredGrid)
     assert set(out.cell_data) == {"BLOCK_I", "BLOCK_J", "BLOCK_K", "cell_ids"}
-    assert out.dimensions == esgrid.dimensions
+    assert out.GetExtent() == esgrid.GetExtent()
     np.testing.assert_array_equal(out.points, esgrid.points)
     np.testing.assert_array_equal(out.cell_centers().points, esgrid.cell_centers().points)
     np.testing.assert_array_equal(out.cell_data["cell_ids"], np.arange(esgrid.n_cells))

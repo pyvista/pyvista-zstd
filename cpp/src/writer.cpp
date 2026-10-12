@@ -1,10 +1,10 @@
 // Writer half of the .pv container. See doc/format/container-v2.md.
 //
 // Byte-for-byte agreement with the reference writer constrains more than the
-// layout: the file version is the highest optional encoding used (2 fixed-width
-// cells, else 1 if anything is shuffled, else 0; not cumulative), and every frame
-// needs the same level AND worker count, since zstd's multi-threaded mode emits
-// different bytes.
+// layout: the file version is the highest optional feature used (3 MultiBlock
+// field data or an ExplicitStructuredGrid, else 2 fixed-width cells, else 1 if
+// anything is shuffled, else 0; not cumulative), and every frame needs the same
+// level AND worker count, since zstd's multi-threaded mode emits different bytes.
 
 #include <zstd.h>
 
@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "detail.h"
+#include "json_read.h"
 #include "pvzstd/pvzstd.h"
 
 using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
@@ -37,6 +38,39 @@ struct PendingArray {
   const uint8_t *bytes() const { return borrowed != nullptr ? borrowed : owned.data(); }
   uint64_t size() const { return borrowed != nullptr ? borrowed_size : owned.size(); }
 };
+
+constexpr char kDsMetadataSuffix[] = "__ds_metadata";
+constexpr char kMultiblockSuffix[] = "__multiblock__ds_metadata";
+
+bool EndsWith(const std::string &s, const char *suffix) {
+  const size_t n = std::strlen(suffix);
+  return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
+}
+
+// Whether a staged metadata document records MultiBlock field arrays or an
+// ExplicitStructuredGrid, both of which version 2 readers cannot decode.
+bool UsesVersion3Feature(const std::vector<PendingArray> &arrays) {
+  for (const PendingArray &a : arrays) {
+    if (!EndsWith(a.name, kDsMetadataSuffix)) continue;
+    const std::string json(reinterpret_cast<const char *>(a.bytes()), a.size());
+    if (EndsWith(a.name, kMultiblockSuffix)) {
+      size_t open = 0;
+      size_t past = 0;
+      std::vector<std::string> keys;
+      if (pvzstd::json::MemberObjectSpan(json, "field_data_keys", &open, &past) &&
+          pvzstd::json::ObjectKeys(json, open, &keys) && !keys.empty()) {
+        return true;
+      }
+    } else {
+      std::string ds_type;
+      if (pvzstd::json::MemberString(json, "ds_type", &ds_type) &&
+          ds_type == "ExplicitStructuredGrid") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -200,9 +234,11 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
     }
   }
 
-  // 2. File version is the highest optional encoding used, not a generation.
+  // 2. File version is the highest optional feature used, not a generation.
   int file_version = 0;
-  if (writer->fixed_width_cells) {
+  if (UsesVersion3Feature(writer->arrays)) {
+    file_version = 3;
+  } else if (writer->fixed_width_cells) {
     file_version = 2;
   } else if (any_filtered) {
     file_version = 1;

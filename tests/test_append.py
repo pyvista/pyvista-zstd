@@ -29,6 +29,7 @@ from pyvista_zstd.append import AppendReader
 from pyvista_zstd.append import append_arrays
 from pyvista_zstd.append import read_array
 from pyvista_zstd.pyvista_zstd import DS_METADATA_KEY
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_EXPLICIT_STRUCTURED_GRID
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -325,6 +326,17 @@ def test_append_to_multiblock_rejected(tmp_path) -> None:
     pz.write(multi, str(path))
     with pytest.raises(NotImplementedError, match="MultiBlock"):
         append_arrays(path, {"extra": np.arange(5, dtype=np.float64)})
+
+
+def test_append_keeps_file_version_3(tmp_path) -> None:
+    """Appending to an ExplicitStructuredGrid file keeps its version 3 stamp."""
+    esgrid = pv.ImageData(dimensions=(3, 3, 3)).cast_to_structured_grid().cast_to_explicit_structured_grid()
+    path = _write_base(tmp_path / "esgrid.pv", esgrid)
+    assert pz.Reader(path)._metadata.file_version == FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
+    append_arrays(path, {"block0": np.arange(4.0)}, shuffle=True)
+
+    assert pz.Reader(path)._metadata.file_version == FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
+    assert isinstance(pz.read(path), pv.ExplicitStructuredGrid)
 
 
 def test_read_missing_array_raises(tmp_path, base_grid) -> None:

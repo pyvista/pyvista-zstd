@@ -79,7 +79,7 @@ typedef enum pvzstd_status {
  * the decoder it describes, so every caller of this ABI gets the same answer --
  * a language binding that kept its own copy would refuse files the library can
  * read, or accept files it cannot. */
-#define PVZSTD_FILE_VERSION_MAX 2u
+#define PVZSTD_FILE_VERSION_MAX 3u
 PVZSTD_API uint32_t pvzstd_max_file_version(void);
 
 typedef struct pvzstd_reader pvzstd_reader;

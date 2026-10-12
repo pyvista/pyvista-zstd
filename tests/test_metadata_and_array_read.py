@@ -175,6 +175,9 @@ def test_file_metadata(tmp_path: Path, ds: DataSet, level: int, shuffle: bool, f
     assert file_meta.compression == "zstandard"
     assert file_meta.compression_level == level
     assert file_meta.file_version == file_version
+    # The file is its compressed frames plus a 16-byte index entry per frame and an 8-byte count.
+    reader = pyvista_zstd.Reader(path)
+    assert reader.compressed_nbytes + 16 * len(reader.decompressed_sizes) + 8 == path.stat().st_size
 
 
 def test_read_array_after_append(tmp_path: Path) -> None:
@@ -206,23 +209,6 @@ def test_read_array_errors(tmp_path: Path) -> None:
         reader.read_array("vectors", association="point")
 
 
-@pytest.mark.parametrize("from_buffer", [False, True])
-def test_read_metadata(tmp_path: Path, from_buffer: bool) -> None:  # noqa: FBT001
-    """read_metadata reports what a reader does, from a path or from bytes."""
-    path = tmp_path / "mb.pv"
-    level = 5
-    pyvista_zstd.write(pv.MultiBlock({"sphere": _populated(pv.Sphere())}), path, level=level)
-    meta = pyvista_zstd.read_metadata(buffer=path.read_bytes()) if from_buffer else pyvista_zstd.read_metadata(path)
-    assert isinstance(meta, pyvista_zstd.ContainerMetadata)
-    with pyvista_zstd.Reader(path) as reader:
-        assert meta.file == reader.file_metadata
-        assert meta.dataset == reader.dataset_metadata
-        assert meta.nbytes == reader.nbytes
-        assert meta.compressed_nbytes == reader.compressed_nbytes
-    assert meta.file.compression_level == level
-    assert isinstance(meta.dataset, pyvista_zstd.MultiBlockMetadata)
-
-
 def test_read_array_function_association(tmp_path: Path) -> None:
     """The module-level read_array reads point and cell arrays as well as field arrays."""
     ds = _populated(pv.Sphere())
@@ -233,15 +219,3 @@ def test_read_array_function_association(tmp_path: Path) -> None:
     _assert_same_array(pyvista_zstd.read_array(path, "ids", association="cell"), ds.cell_data["ids"])
     with pytest.raises(KeyError, match="cell array 'vectors' not found"):
         pyvista_zstd.read_array(path, "vectors", association="cell")
-
-
-def test_read_metadata_check_extension(tmp_path: Path) -> None:
-    """An application-specific extension is refused unless the check is disabled."""
-    path = tmp_path / "sphere.myext"
-    pyvista_zstd.write(pv.Sphere(), tmp_path / "sphere.pv")
-    (tmp_path / "sphere.pv").rename(path)
-    with pytest.raises(ValueError, match="Filename must end in"):
-        pyvista_zstd.read_metadata(path)
-    assert pyvista_zstd.read_metadata(path, check_extension=False).dataset.ds_type == "PolyData"
-    with pytest.raises(TypeError, match="exactly one of"):
-        pyvista_zstd.read_metadata()

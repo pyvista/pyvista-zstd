@@ -5,14 +5,13 @@ API reference for ``pyvista-zstd``.
 
 Convenience Functions
 ---------------------
-``pyvista-zstd`` exposes three convenience functions to easily read and write compressed
+``pyvista-zstd`` exposes convenience functions to easily read and write compressed
 datasets using `Zstandard <https://github.com/facebook/zstd>`_
 
 :func:`pyvista_zstd.read` and :func:`pyvista_zstd.write` work on files.
 A container that is already in memory, rather than on disk, is read with
-:func:`pyvista_zstd.read_buffer`. :func:`pyvista_zstd.read_metadata` describes a
-container without decompressing its arrays, and :func:`pyvista_zstd.read_array`
-reads a single array.
+:func:`pyvista_zstd.read_buffer`, and a single array with
+:func:`pyvista_zstd.read_array`.
 
 
 .. autosummary::
@@ -20,7 +19,6 @@ reads a single array.
 
    pyvista_zstd.read
    pyvista_zstd.read_buffer
-   pyvista_zstd.read_metadata
    pyvista_zstd.read_array
    pyvista_zstd.write
 
@@ -54,14 +52,12 @@ For a :class:`pyvista.MultiBlock`, index the reader to a block first, as in
 
 Metadata
 --------
-Returned by :func:`pyvista_zstd.read_metadata`,
-:attr:`pyvista_zstd.Reader.dataset_metadata` and
+Returned by :attr:`pyvista_zstd.Reader.dataset_metadata` and
 :attr:`pyvista_zstd.Reader.file_metadata`.
 
 .. autosummary::
    :toctree: _autosummary
 
-   pyvista_zstd.ContainerMetadata
    pyvista_zstd.DataSetMetadata
    pyvista_zstd.MultiBlockMetadata
    pyvista_zstd.ArrayInfo

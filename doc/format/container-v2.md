@@ -272,8 +272,9 @@ Three JSON documents, each stored as a frame:
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
-normals, for both point and cell data), and the optional ImageData block
-(`dimensions`, `origin`, `spacing`, `direction_matrix`, `offset`).
+normals, for both point and cell data), and the optional grid fields:
+`dimensions` for ImageData, StructuredGrid and ExplicitStructuredGrid, and
+`origin`, `spacing`, `direction_matrix`, `offset` for ImageData only.
 
 The active-attribute names are easy to overlook and are **observable
 behaviour**: dropping them silently changes which array a downstream plot
@@ -366,7 +367,19 @@ kernel, the probe, and copy elision.
 PointSet, PolyData (with `polys` / `lines` / `strips` / `verts`, `:115-118`),
 UnstructuredGrid (including `polyhedron` and `polyhedron_locaction` —
 note the spelling in the source, `:111-112`), RectilinearGrid (`_x_rgrid` /
-`_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, and MultiBlock.
+`_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, StructuredGrid,
+ExplicitStructuredGrid, and MultiBlock.
+
+StructuredGrid stores `points` and `dimensions`. ExplicitStructuredGrid stores
+`points`, the `cells` connectivity, `dimensions`, and a `celltypes` frame of
+hexahedra that only lets older readers decode the file. The reader rebuilds it
+directly from the dimensions and widens the connectivity to `vtkIdType`, the
+only width `vtkExplicitStructuredGrid` reads cell points from correctly. An
+ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
+its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.
+
+Neither grid stores its extent, so one whose extent does not start at 0 reads
+back with the same dimensions and an extent starting at 0.
 
 `EMPTY_DS` (`:121`) is a sentinel for an empty dataset and is 16 characters
 to align with the UID width.

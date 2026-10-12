@@ -851,6 +851,11 @@ def _make_esgrid(kind: str) -> ExplicitStructuredGrid:
         esgrid.cell_data["BLOCK_I"] = np.zeros(esgrid.n_cells, dtype=np.int32)
     elif kind == "hidden_cells":
         esgrid.hide_cells([0, 7], inplace=True)
+    elif kind == "connectivity_flags":
+        esgrid.compute_connectivity(inplace=True)
+    elif kind != "cast":
+        msg = f"Unknown ExplicitStructuredGrid kind {kind!r}"
+        raise ValueError(msg)
     return esgrid
 
 
@@ -866,16 +871,23 @@ def _assert_esgrid_round_trip(out: DataSet, esgrid: ExplicitStructuredGrid) -> N
         np.testing.assert_array_equal(out.cell_data[name], array)
     for name, array in esgrid.point_data.items():
         np.testing.assert_array_equal(out.point_data[name], array)
+    assert out.GetFacesConnectivityFlagsArrayName() == esgrid.GetFacesConnectivityFlagsArrayName()
+    np.testing.assert_array_equal(
+        out.compute_connectivity().cell_data[impl.ESGRID_FLAGS_KEY],
+        esgrid.compute_connectivity().cell_data[impl.ESGRID_FLAGS_KEY],
+    )
 
 
+@pytest.mark.parametrize("force_int32", [True, False])
 @pytest.mark.parametrize(
-    "kind", ["example", "cast", "user_arrays", "own_blocking", "unrelated_blocking", "hidden_cells"]
+    "kind",
+    ["example", "cast", "user_arrays", "own_blocking", "unrelated_blocking", "hidden_cells", "connectivity_flags"],
 )
-def test_esgrid_round_trip(kind: str, tmp_path: Path) -> None:
+def test_esgrid_round_trip(kind: str, force_int32: bool, tmp_path: Path) -> None:  # noqa: FBT001
     """An ExplicitStructuredGrid reads back with its geometry, blocking and data intact."""
     esgrid = _make_esgrid(kind)
     filename = tmp_path / "esgrid.pv"
-    pyvista_zstd.write(esgrid, filename)
+    pyvista_zstd.write(esgrid, filename, force_int32=force_int32)
 
     assert pyvista_zstd.Reader(filename).available_cell_arrays == set(esgrid.cell_data)
     _assert_esgrid_round_trip(pv.read(filename), esgrid)
@@ -904,17 +916,44 @@ def test_esgrid_deselected_blocking_arrays(tmp_path: Path) -> None:
     _assert_esgrid_round_trip(reader.read(), esgrid)
 
 
+@pytest.mark.parametrize("id_type_width", [True, False])
+def test_vtk_esgrid_needs_id_type_cell_storage(id_type_width: bool) -> None:  # noqa: FBT001
+    """VTK computes ExplicitStructuredGrid face connectivity only from cell storage as wide as vtkIdType."""
+    esgrid = _make_esgrid("cast")
+    cells = impl.vtkCellArray()
+    cells.DeepCopy(esgrid.GetCells())
+    if id_type_width == (np.dtype(pv.ID_TYPE) == np.int64):
+        cells.ConvertTo64BitStorage()
+    else:
+        cells.ConvertTo32BitStorage()
+    grid = ExplicitStructuredGrid()
+    grid.SetDimensions(*esgrid.dimensions)
+    grid.points = esgrid.points
+    grid.SetCells(cells)
+
+    # Every cell of this grid has a neighbour, so correct flags are all nonzero.
+    flags = grid.compute_connectivity().cell_data[impl.ESGRID_FLAGS_KEY]
+    assert flags.all() if id_type_width else not flags.any()
+
+
 def test_read_esgrid_0_5_0_fixtures() -> None:
     """Read 4x5x6 ExplicitStructuredGrid files written by ``pyvista-zstd==0.5.0``, with and without blocking."""
     esgrid = pv.ImageData(dimensions=(4, 5, 6)).cast_to_structured_grid().cast_to_explicit_structured_grid()
 
     out = pyvista_zstd.read(ESGRID_BLOCKING_0_5_0_FIXTURE)
+    assert isinstance(out, ExplicitStructuredGrid)
+    assert set(out.cell_data) == {"BLOCK_I", "BLOCK_J", "BLOCK_K", "cell_ids"}
     assert out.dimensions == esgrid.dimensions
     np.testing.assert_array_equal(out.points, esgrid.points)
     np.testing.assert_array_equal(out.cell_centers().points, esgrid.cell_centers().points)
     np.testing.assert_array_equal(out.cell_data["cell_ids"], np.arange(esgrid.n_cells))
 
-    with pytest.raises(ValueError, match="must be rewritten from the source grid"):
+    reader = pyvista_zstd.Reader(ESGRID_BLOCKING_0_5_0_FIXTURE)
+    reader.selected_cell_arrays = {"cell_ids"}
+    with pytest.raises(ValueError, match="Select them in selected_cell_arrays"):
+        reader.read()
+
+    with pytest.raises(ValueError, match="does not store them; rewrite it"):
         pyvista_zstd.read(ESGRID_NO_BLOCKING_0_5_0_FIXTURE)
 
 

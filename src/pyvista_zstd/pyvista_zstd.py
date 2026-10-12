@@ -77,8 +77,10 @@ FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
-# The cell arrays an ExplicitStructuredGrid needs to be cast back into one.
+# Cell arrays that rebuild an ExplicitStructuredGrid from a file with no stored dimensions.
 ESGRID_BLOCK_KEYS = ("BLOCK_I", "BLOCK_J", "BLOCK_K")
+# Name VTK gives the face connectivity flags of an ExplicitStructuredGrid.
+ESGRID_FLAGS_KEY = "ConnectivityFlags"
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
 OFFSET_SUFFIX = "_offset"
@@ -528,6 +530,8 @@ def _add_arrays_esgrid(
     force_int32: bool = True,
 ) -> None:
     arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    # Unused on read, but lets older releases read the file as an unstructured grid.
+    arrays[f"{ds_id}{CELL_TYPES_KEY}"] = np.full(ds.n_cells, pv.CellType.HEXAHEDRON, dtype=np.uint8)
     _add_cell_array(
         ds_id,
         arrays,
@@ -831,7 +835,12 @@ def _segments_to_esgrid(
     esgrid = ExplicitStructuredGrid()
     esgrid.SetDimensions(*metadata.dimensions)
     esgrid.points = segments[f"{ds_id}{POINTS_KEY}"]
-    esgrid.SetCells(_extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes))
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
+    if cells is not None:
+        # vtkExplicitStructuredGrid reads cell points correctly only from storage as wide as vtkIdType.
+        cells.ConvertToDefaultStorage()
+        esgrid.SetCells(cells)
+    esgrid.SetFacesConnectivityFlagsArrayName(ESGRID_FLAGS_KEY)
     return esgrid
 
 
@@ -851,11 +860,13 @@ def _segments_to_esgrid_by_blocking(
         else:
             missing.append(name)
     if missing:
+        if set(missing) <= set(metadata.cell_data_keys):
+            reason = "Select them in selected_cell_arrays to read this file."
+        else:
+            reason = "The file does not store them; rewrite it from the source grid with this release."
         msg = (
-            f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
-            "This file stores no grid dimensions, so these cell arrays define the "
-            "i/j/k blocking: either they were excluded via selected_cell_arrays, or "
-            "the file must be rewritten from the source grid with a newer pyvista-zstd."
+            f"Cannot rebuild an ExplicitStructuredGrid without {missing}, which define its "
+            f"i/j/k blocking in a file with no stored dimensions. {reason}"
         )
         raise ValueError(msg)
 

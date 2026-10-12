@@ -89,8 +89,7 @@ def test_dataset_metadata_and_read_array(dataset: DataSet, tmp_path: Path) -> No
     """Metadata and single-array reads agree with a full read for every dataset type."""
     path = tmp_path / "ds.pv"
     pyvista_zstd.write(dataset, path)
-    # A full read of an ExplicitStructuredGrid needs BLOCK_I/J/K cell arrays that
-    # this example may lack, so compare with what was written instead.
+    # Compare an ExplicitStructuredGrid with what was written until #71 fixes its full read; then drop this.
     full = dataset if isinstance(dataset, pv.ExplicitStructuredGrid) else pyvista_zstd.read(path)
 
     with pyvista_zstd.Reader(path) as reader:

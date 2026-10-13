@@ -817,7 +817,11 @@ class CoreReader:
                 name, dtype, shape = entries[index]
                 out = allocate(name, shape, dtype)
                 if out.shape != shape or out.dtype != dtype or not out.flags.c_contiguous or not out.flags.writeable:
-                    msg = f"allocate returned an unusable destination for '{name}'"
+                    msg = (
+                        f"allocate returned an unusable destination for '{name}': need shape {shape}, "
+                        f"dtype {dtype}, C-contiguous and writeable; got shape {out.shape}, dtype {out.dtype}, "
+                        f"contiguous={out.flags.c_contiguous}, writeable={out.flags.writeable}"
+                    )
                     raise ValueError(msg)
                 wanted.append((index, name, out))
 

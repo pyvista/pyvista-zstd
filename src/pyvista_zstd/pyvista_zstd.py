@@ -482,9 +482,12 @@ def _vtk_cells(
         if cell_size <= 0 or n_connectivity % cell_size:
             msg = f"Invalid fixed cell size {cell_size} for connectivity length {n_connectivity}."
             raise ValueError(msg)
-        carr.SetData(cell_size, connectivity)
+        ok = carr.SetData(cell_size, connectivity)
     else:
-        carr.SetData(offset, connectivity)
+        ok = carr.SetData(offset, connectivity)
+    if not ok:
+        msg = "VTK refused the cell arrays; offsets and connectivity must share an int32 or int64 type."
+        raise ValueError(msg)
     return carr
 
 
@@ -936,7 +939,8 @@ def _stage_attributes(
     names: list[str] = []
     info: dict[str, ArrayInfo] = {}
     for index in range(field_data.GetNumberOfArrays()):
-        name = field_data.GetArrayName(index)
+        # Nameless arrays take the name pyvista gives them in ``keys()``.
+        name = field_data.GetArrayName(index) or f"Unnamed_{index}"
         names.append(name)
         vtk_array = field_data.GetAbstractArray(index)
         if name in special or not isinstance(vtk_array, vtkDataArray):
@@ -963,8 +967,9 @@ _DATA_SUFFIXES = (
 
 def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> dict[str, Any]:
     """Attach the arrays of *ds_id* to *ds* and return the VTK attribute sets fetched on the way."""
-    # Fetched once per dataset: on VTK 9.7 every dropped wrapper costs a scan
-    # of all live ones, so repeated lookups are not free.
+    # Optimization: attribute sets are fetched once per dataset (on VTK 9.7 every
+    # dropped wrapper costs a scan of all live ones) and owned arrays go in through
+    # raw ``AddArray``, which skips pyvista's length check for data this reader wrote.
     attributes: dict[str, Any] = {}
     for key, array in segment_dict.items():
         if not key.startswith(ds_id):

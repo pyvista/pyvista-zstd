@@ -187,3 +187,19 @@ def test_empty_cell_frames_are_skipped_only_for_polydata(tmp_path: Path) -> None
         names = {name[UID_N_CHAR:] for name in reader.names()}
     assert "polys_connectivity" in names
     assert not {f"{kind}_connectivity" for kind in ("lines", "verts", "strips")} & names
+
+
+def test_unnamed_vtk_arrays_keep_pyvista_names(tmp_path: Path) -> None:
+    """An array added to the VTK attributes without a name round-trips under pyvista's name for it."""
+    from pyvista._vtk import vtkFloatArray  # noqa: PLC0415
+
+    sphere = pv.Sphere(theta_resolution=6, phi_resolution=6)
+    nameless = vtkFloatArray()
+    nameless.SetNumberOfTuples(sphere.n_points)
+    nameless.Fill(1.0)
+    sphere.GetPointData().AddArray(nameless)
+    path = tmp_path / "sphere.pv"
+    pyvista_zstd.write(sphere, path)
+    out = pyvista_zstd.read(path)
+    assert out.point_data.keys() == sphere.point_data.keys()
+    assert "None" not in out.point_data

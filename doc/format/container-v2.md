@@ -131,11 +131,11 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 `FILE_VERSION = 2` is the highest a writer emits today. Three versions exist
 and a 1:1 reader must accept all three:
 
-| Value | Name                             | Meaning                                                       |
-| ----- | -------------------------------- | ------------------------------------------------------------- |
-| 0     | `FILE_VERSION_UNFILTERED`        | No optional encoding used.                                    |
-| 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter.           |
-| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.                |
+| Value | Name                             | Meaning                                             |
+| ----- | -------------------------------- | --------------------------------------------------- |
+| 0     | `FILE_VERSION_UNFILTERED`        | No optional encoding used.                          |
+| 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter. |
+| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
 
 A decoder must also have a ceiling. The C core carries one,
 `PVZSTD_FILE_VERSION_MAX = 3`, readable at runtime as

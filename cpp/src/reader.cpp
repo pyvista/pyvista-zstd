@@ -137,7 +137,7 @@ bool DeclaredSizeAgrees(const std::vector<uint64_t> &shape, const char *dtype, u
   return n == nbytes;
 }
 
-// Total decompressed bytes below which AUTO stays inline. A floor, not a tuned
+// Optimization: total decompressed bytes below which AUTO stays inline. A floor, not a tuned
 // optimum: below it, spawning a thread per frame costs more than it saves, and
 // the crossover is machine-dependent.
 constexpr uint64_t kParallelDecompressFloor = 4ull << 20;
@@ -864,7 +864,7 @@ pvzstd_status pvzstd_read_arrays(const pvzstd_reader *reader, const uint64_t *in
     // signed count, which is the opposite of what the two share an ABI to say.
     workers = pvzstd::detail::HardwareWorkers();
   }
-  // Fewer arrays than workers leaves cores idle, so each array then gets a
+  // Optimization: fewer arrays than workers leaves cores idle, so each array then gets a
   // share of them for its own sub-frames. In uint64: count is unbounded, and
   // narrowing it to int first could land on a negative and silently drop this
   // call to a single worker.

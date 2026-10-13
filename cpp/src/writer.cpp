@@ -28,7 +28,7 @@ using namespace pvzstd::detail;  // NOLINT(google-build-using-namespace)
 
 namespace {
 
-// Payloads past this are split into sub-frames of this size. Four MiB keeps a
+// Optimization: payloads past this are split into sub-frames of this size. Four MiB keeps a
 // large array on every core of a reader while costing zstd's window nothing.
 constexpr uint64_t kSubFrameBytes = 4ull << 20;
 

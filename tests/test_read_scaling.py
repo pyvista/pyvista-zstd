@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+LINEAR_BOUND = 5.0
+
+
 def _multiblock(n_blocks: int) -> pv.MultiBlock:
     """Return *n_blocks* small spheres, each with a point and a cell array."""
     mb = pv.MultiBlock()
@@ -41,15 +44,14 @@ def _calls_to_read(path: Path) -> int:
 def test_read_call_count_scales_linearly(tmp_path: Path) -> None:
     """Quadrupling the block count must not more than quadruple the work (with slack)."""
     small, large = 20, 80
-    linear, quadratic = 4.0, 16.0
     paths = {}
     for n in (small, large):
         paths[n] = tmp_path / f"{n}.pv"
         pyvista_zstd.write(_multiblock(n), paths[n])
 
     ratio = _calls_to_read(paths[large]) / _calls_to_read(paths[small])
-    # A lookup that walked every frame per dataset scaled with the second bound.
-    assert ratio < (linear + quadratic) / 2, f"read work grew {ratio:.1f}x for {large / small:.0f}x the blocks"
+    # Linear scaling sits near 4x; a lookup that walked every frame per dataset measured 8x.
+    assert ratio < LINEAR_BOUND, f"read work grew {ratio:.1f}x for {large / small:.0f}x the blocks"
 
 
 def test_array_catalog_decoded_once_per_reader(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,6 +128,8 @@ def test_unsupported_vtk_dtypes_fall_back_to_numpy(tmp_path: Path) -> None:
     sphere.point_data["big_endian"] = np.arange(sphere.n_points, dtype=">f8")
     sphere.cell_data["c"] = np.arange(sphere.n_cells, dtype=np.uint16)
     sphere.field_data["txt"] = ["a", "b"]
+    sphere.field_data["bits"] = np.array([True, False, True])
+    sphere.field_data["cplx"] = np.array([1 + 2j, 3 - 4j])
     path = tmp_path / "sphere.pv"
     pyvista_zstd.write(sphere, path)
 
@@ -134,6 +138,8 @@ def test_unsupported_vtk_dtypes_fall_back_to_numpy(tmp_path: Path) -> None:
     assert out.point_data["flag"].dtype == bool
     assert out.cell_data["c"].dtype == np.uint16
     assert list(out.field_data["txt"]) == ["a", "b"]
+    assert out.field_data["bits"].dtype == bool
+    assert out.field_data["cplx"].dtype == np.complex128
 
 
 def test_read_arrays_rejects_bad_allocation(tmp_path: Path) -> None:

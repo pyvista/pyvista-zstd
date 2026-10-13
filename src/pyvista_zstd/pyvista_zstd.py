@@ -70,8 +70,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from pyvista_zstd._capi import CoreReader
 
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The
-# core enforces the ceiling; this constant only publishes it.
+# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The core
+# enforces the ceiling; this constant only publishes it.
 FILE_VERSION = 2
 # Version stamped on files that use neither byte filters nor fixed-width cell
 # arrays. Such files stay byte-identical to the legacy format and remain
@@ -486,6 +486,7 @@ def _vtk_cells(
 
 def _points_of(ds: DataSet) -> NDArray[Any]:
     """Return the dataset's points as the NumPy view of the VTK array, (0, 3) when it has none."""
+    # Optimization: ``ds.points`` wraps a pyvista_ndarray per call; the raw view is enough to stage.
     vtk_points = ds.GetPoints()
     if vtk_points is None:
         return np.empty((0, 3), dtype=np.float64)
@@ -835,6 +836,8 @@ class _Segments(dict[str, Any]):
         vtk_type = _vtk_type_for(name, shape, dtype)
         if vtk_type is None:
             return np.empty(shape, dtype=dtype)
+        # Optimization: decompress straight into a VTK-owned array so attaching it later is a pointer
+        # hand-off instead of numpy_to_vtk's wrapper-per-array cost.
         vtk_array = vtkDataArray.CreateDataArray(vtk_type)
         vtk_array.SetNumberOfComponents(shape[1] if len(shape) == 2 else 1)  # noqa: PLR2004
         vtk_array.SetNumberOfTuples(shape[0])
@@ -845,7 +848,7 @@ class _Segments(dict[str, Any]):
 
     def release(self) -> None:
         """Forget the VTK wrappers once a dataset owns the arrays."""
-        # Before VTK 9.8 (d1489916c5), dropping a wrapper that carries state scans every ghost.
+        # Optimization: before VTK 9.8 (d1489916c5), dropping a wrapper that carries state scans every ghost.
         if pv.vtk_version_info < (9, 8):
             for vtk_array in self.vtk.values():
                 vtk_array.__dict__.clear()
@@ -897,6 +900,8 @@ def _set_points(ds: DataSet, ds_id: str, segments: dict[str, Any]) -> None:
 
 
 _ATTRIBUTE_GETTERS = {"point_data": "GetPointData", "cell_data": "GetCellData", "field_data": "GetFieldData"}
+# Keys of pyvista's per-association bool/complex name sets (FieldAssociation.name).
+_ASSOCIATION_KEYS = {"point_data": "POINT", "cell_data": "CELL", "field_data": "NONE"}
 # vtkDataSetAttributes attribute slots, in the order GetAttributeIndices fills.
 _ACTIVE_SCALARS, _ACTIVE_VECTORS, _ACTIVE_NORMALS, _ACTIVE_TCOORDS = 0, 1, 2, 3
 
@@ -911,12 +916,14 @@ def _stage_attributes(
     """
     Stage one attribute set's arrays and return their info plus the active names.
 
-    Each VTK array is fetched once; the bool, complex and string arrays
-    pyvista types for the caller go through its getter so they stage as the
-    caller sees them.
+    Each VTK array is fetched once; arrays pyvista converts for the caller
+    (bool, complex, string) go through its getter so they stage as the caller
+    sees them.
     """
+    # Optimization: walk the VTK arrays by index. ``ds.point_data.items()`` resolves every name through
+    # ``GetAbstractArray(name)``, an O(n) scan each, so one call is quadratic in the array count.
     field_data = getattr(ds, _ATTRIBUTE_GETTERS[attribute])()
-    association = attribute.split("_", maxsplit=1)[0].upper()
+    association = _ASSOCIATION_KEYS[attribute]
     special: set[str] = set()
     for tracked in ("_association_bitarray_names", "_association_complex_names"):
         special |= getattr(ds, tracked, {}).get(association, set())
@@ -1158,6 +1165,7 @@ def _apply_metadata(ds: DataSet, metadata: DataSetMetadata, attributes: dict[str
         field_data = attributes.get(getter)
         if field_data is None:
             field_data = getattr(ds, getter)()
+        # Optimization: raw ``SetActive*`` calls; pyvista's setters re-fetch and re-wrap the array each time.
         # Only a vtkDataArray can be active scalars; a string array is left as is.
         if scalars is not None and isinstance(field_data.GetAbstractArray(scalars), vtkDataArray):
             field_data.SetActiveScalars(scalars)
@@ -1332,7 +1340,7 @@ class _DataSetReader:
             return built[uid]
         if isinstance(self._meta, MultiBlockMetadata):
             mb = MultiBlock()
-            # ``mb[key] = ...`` searches every existing name, so track them here.
+            # Optimization: ``mb[key] = ...`` searches every existing name, so track them here.
             # A repeated name replaces its first block, as ``mb[key]`` would.
             index_of: dict[str, int] = {}
             for key, child in zip(self._meta.children_keys, self._children, strict=True):

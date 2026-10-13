@@ -482,12 +482,9 @@ def _vtk_cells(
         if cell_size <= 0 or n_connectivity % cell_size:
             msg = f"Invalid fixed cell size {cell_size} for connectivity length {n_connectivity}."
             raise ValueError(msg)
-        ok = carr.SetData(cell_size, connectivity)
+        carr.SetData(cell_size, connectivity)
     else:
-        ok = carr.SetData(offset, connectivity)
-    if not ok:
-        msg = "VTK refused the cell arrays; offsets and connectivity must share an int32 or int64 type."
-        raise ValueError(msg)
+        carr.SetData(offset, connectivity)
     return carr
 
 

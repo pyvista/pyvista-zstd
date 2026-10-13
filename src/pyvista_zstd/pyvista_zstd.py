@@ -409,9 +409,13 @@ def _add_cell_array(  # noqa: PLR0913
     *,
     force_int32: bool = False,
     max_entry: int | None = None,
+    skip_empty: bool = False,
 ) -> None:
     """
     Stage a cell array's connectivity, and its offsets when the cells vary in size.
+
+    *skip_empty* leaves an empty array out of the file; only PolyData readers
+    treat a missing cell frame as empty.
 
     *max_entry* is the largest value the connectivity can hold, where the caller
     knows it: entries are ids into some other array, so that array's extent
@@ -419,7 +423,7 @@ def _add_cell_array(  # noqa: PLR0913
     only ever governs the int32 narrowing -- see :func:`_narrowed_to_int32`.
     """
     # A vtkCellArray is truthy even when empty, so the count is what decides.
-    if cell_array is None or cell_array.GetNumberOfCells() == 0:
+    if cell_array is None or (skip_empty and cell_array.GetNumberOfCells() == 0):
         return
 
     connectivity = vtk_to_numpy(cell_array.GetConnectivityArray())
@@ -529,6 +533,7 @@ def _add_arrays_polydata(
             fixed_cell_sizes,
             force_int32=force_int32,
             max_entry=max_point_id,
+            skip_empty=True,
         )
 
 

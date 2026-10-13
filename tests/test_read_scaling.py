@@ -13,6 +13,7 @@ import pyvista as pv
 
 import pyvista_zstd
 from pyvista_zstd import _capi
+from pyvista_zstd.pyvista_zstd import UID_N_CHAR
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -173,3 +174,16 @@ def test_segments_release_empties_vtk_wrappers() -> None:
     assert not segments.vtk
     assert np.asarray(vtk_array).shape == (4, 3)
     assert (view == 1.0).all()
+
+
+def test_empty_cell_frames_are_skipped_only_for_polydata(tmp_path: Path) -> None:
+    """A cell-less UnstructuredGrid keeps its cell frames, which older readers require."""
+    pyvista_zstd.write(pv.UnstructuredGrid(), tmp_path / "ugrid.pv")
+    pyvista_zstd.write(pv.Sphere(), tmp_path / "sphere.pv")
+    with _capi.CoreReader(tmp_path / "ugrid.pv") as reader:
+        names = {name[UID_N_CHAR:] for name in reader.names()}
+    assert {"cells_offset", "cells_connectivity"} <= names
+    with _capi.CoreReader(tmp_path / "sphere.pv") as reader:
+        names = {name[UID_N_CHAR:] for name in reader.names()}
+    assert "polys_connectivity" in names
+    assert not {f"{kind}_connectivity" for kind in ("lines", "verts", "strips")} & names

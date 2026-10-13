@@ -128,15 +128,14 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 
 ## 2. File versions
 
-`FILE_VERSION = 3` is the highest a writer emits today. Four versions exist
-and a 1:1 reader must accept all four:
+`FILE_VERSION = 2` is the highest a writer emits today. Three versions exist
+and a 1:1 reader must accept all three:
 
 | Value | Name                             | Meaning                                                       |
 | ----- | -------------------------------- | ------------------------------------------------------------- |
-| 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                               |
+| 0     | `FILE_VERSION_UNFILTERED`        | No optional encoding used.                                    |
 | 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter.           |
 | 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.                |
-| 3     | `FILE_VERSION_SUB_FRAMES`        | At least one payload is stored as several zstd frames (§3.3). |
 
 A decoder must also have a ceiling. The C core carries one,
 `PVZSTD_FILE_VERSION_MAX = 3`, readable at runtime as
@@ -258,18 +257,22 @@ Three rules, all implemented in `cpp/src/reader.cpp` and exercised by
   refused. Relying on the allocation to throw instead is not enough: a build
   with exceptions compiled out cannot answer a throw.
 
-### 3.3 Payload sub-frames (version 3)
+### 3.3 Payload sub-frames
 
 A payload index entry still names one byte range and one decompressed size,
 but the range may hold **several zstd frames back to back**. The writer splits
 any payload larger than 4 MiB into consecutive frames of 4 MiB (the last one
-shorter), each compressed on its own, and stamps the file version 3 when it has
-done so for any array. The index does not record the split: the frames' own
+shorter), each compressed on its own. The split does not change the file
+version: every reader of this format already consumes the frames back to back.
+The index does not record the split: the frames' own
 headers do, since every one of them declares its content size, and the content
 sizes add up to the entry's decompressed size.
 
 A reader that hands the whole range to `ZSTD_decompress` gets the whole payload,
-because that call consumes every frame in the range. A reader that wants the
+because that call consumes every frame in the range. Binding helpers often do
+not: python-zstandard's one-shot `decompress()` stops after the first frame, so
+a reader built on one must decode across frames (`read_across_frames=True`, or a
+`decompressobj()` loop). A reader that wants the
 pieces walks them with `ZSTD_findFrameCompressedSize` and
 `ZSTD_getFrameContentSize`, places each one's output after the previous one's,
 and may decompress them in parallel; that is what `pvzstd_read_array_at` and

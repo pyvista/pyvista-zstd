@@ -1,14 +1,16 @@
 // Writer half of the .pv container. See doc/format/container-v2.md.
 //
 // Byte-for-byte agreement with the reference writer constrains more than the
-// layout: the file version is the highest optional encoding used (3 if a payload
-// is split into sub-frames, else 2 fixed-width cells, else 1 if anything is
-// shuffled, else 0; not cumulative), and every frame needs the same level AND
-// worker count, since zstd's multi-threaded mode emits different bytes.
+// layout: the file version is the highest optional encoding used (2 fixed-width
+// cells, else 1 if anything is shuffled, else 0; not cumulative), and every
+// unsplit frame needs the same level AND worker count, since zstd's
+// multi-threaded mode emits different bytes.
 //
 // A payload larger than kSubFrameBytes is written as consecutive zstd frames of
 // that size, each compressed on one thread, so a reader can decompress the
 // pieces in parallel: zstd cannot split one frame across cores on the way back.
+// One-shot decoders consume the frames back to back, so the split needs no
+// file version of its own.
 
 #include <zstd.h>
 
@@ -29,7 +31,6 @@ namespace {
 // Payloads past this are split into sub-frames of this size. Four MiB keeps a
 // large array on every core of a reader while costing zstd's window nothing.
 constexpr uint64_t kSubFrameBytes = 4ull << 20;
-constexpr int kFileVersionSubFrames = 3;
 
 struct PendingArray {
   std::string name;
@@ -243,12 +244,8 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
   }
 
   // 2. File version is the highest optional encoding used, not a generation.
-  bool any_split = false;
-  for (const PendingArray &a : writer->arrays) any_split = any_split || a.size() > kSubFrameBytes;
   int file_version = 0;
-  if (any_split) {
-    file_version = kFileVersionSubFrames;
-  } else if (writer->fixed_width_cells) {
+  if (writer->fixed_width_cells) {
     file_version = 2;
   } else if (any_filtered) {
     file_version = 1;

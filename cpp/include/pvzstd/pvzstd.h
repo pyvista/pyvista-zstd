@@ -79,7 +79,7 @@ typedef enum pvzstd_status {
  * the decoder it describes, so every caller of this ABI gets the same answer --
  * a language binding that kept its own copy would refuse files the library can
  * read, or accept files it cannot. */
-#define PVZSTD_FILE_VERSION_MAX 3u
+#define PVZSTD_FILE_VERSION_MAX 2u
 PVZSTD_API uint32_t pvzstd_max_file_version(void);
 
 typedef struct pvzstd_reader pvzstd_reader;
@@ -154,7 +154,10 @@ PVZSTD_API int64_t pvzstd_find_array(const pvzstd_reader *reader, const char *na
 
 /* Decompress array `index` into `dst`, reversing any filter. `dst_size` must
  * be at least the `nbytes` reported by pvzstd_array_info_at, or PVZSTD_E_RANGE is
- * returned and nothing is written. */
+ * returned and nothing is written. A payload stored as several zstd frames is
+ * decompressed on one worker per logical CPU once it passes the
+ * PVZSTD_THREADS_AUTO floor; route through pvzstd_read_arrays with count 1 and
+ * n_threads 0 to keep it inline. */
 PVZSTD_API pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint64_t index,
                                               void *dst, uint64_t dst_size);
 
@@ -162,8 +165,9 @@ PVZSTD_API pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint6
  * `dsts[i]`, at least `dst_sizes[i]` bytes. Frames are independent, so this is a
  * pure fan-out. 0 or 1 runs inline; negative means one worker per logical CPU,
  * the same sign convention pvzstd_writer_set_threads uses; PVZSTD_THREADS_AUTO picks
- * from the total size. Every count is capped at `count`, and the work and its
- * order do not depend on the setting. Returns the first non-OK status, by slot
+ * from the total size. Workers beyond `count` are shared out over each array's
+ * zstd frames and its shuffle inverse, so one large array still uses every core;
+ * the work and its order do not depend on the setting. Returns the first non-OK status, by slot
  * rather than by which worker finished first.
  *
  * `failed_slot` (optional) receives the index into `indices` that status is

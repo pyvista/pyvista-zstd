@@ -12,7 +12,7 @@ import zstandard
 
 import pyvista_zstd
 from pyvista_zstd import _capi
-from pyvista_zstd.pyvista_zstd import FILE_VERSION_SUB_FRAMES
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_SHUFFLE
 from pyvista_zstd.pyvista_zstd import FILE_VERSION_UNFILTERED
 
 if TYPE_CHECKING:
@@ -43,13 +43,15 @@ def _large_image() -> pv.ImageData:
 
 @pytest.mark.parametrize("shuffle", [False, True])
 def test_large_payload_is_split_and_round_trips(tmp_path: Path, shuffle: bool) -> None:  # noqa: FBT001
-    """A 10 MiB array becomes three frames in one index entry, stamps version 3, and reads back exactly."""
+    """A 10 MiB array becomes three frames in one index entry, keeps its version, and reads back exactly."""
     image = _large_image()
     path = tmp_path / "image.pv"
     pyvista_zstd.write(image, path, shuffle=shuffle)
 
     with pyvista_zstd.Reader(path) as reader:
-        assert reader._metadata.file_version == FILE_VERSION_SUB_FRAMES  # noqa: SLF001
+        # The split is a layout every reader of the format accepts, so it needs no version.
+        expected = FILE_VERSION_SHUFFLE if shuffle else FILE_VERSION_UNFILTERED
+        assert reader._metadata.file_version == expected  # noqa: SLF001
         decompressed, _ = reader._core_reader().frame_sizes()  # noqa: SLF001
     # Still one (header, payload) pair per array: the split is inside the payload.
     assert len(decompressed) == 2 * 3
@@ -90,7 +92,7 @@ def test_single_array_read_uses_sub_frames(tmp_path: Path) -> None:
 
 
 def test_split_payload_survives_append(tmp_path: Path) -> None:
-    """An append keeps the split frames byte for byte and the version at 3."""
+    """An append keeps the split frames byte for byte and the version unchanged."""
     image = _large_image()
     path = tmp_path / "image.pv"
     pyvista_zstd.write(image, path)
@@ -99,7 +101,7 @@ def test_split_payload_survives_append(tmp_path: Path) -> None:
     pyvista_zstd.append_arrays(path, {"extra": np.arange(10.0)})
     assert _payload_bytes(path, "0000000000000000values__point_data") == before
     with pyvista_zstd.Reader(path) as reader:
-        assert reader._metadata.file_version == FILE_VERSION_SUB_FRAMES  # noqa: SLF001
+        assert reader._metadata.file_version == FILE_VERSION_UNFILTERED  # noqa: SLF001
     out = pyvista_zstd.read(path)
     assert np.array_equal(out.point_data["values"], image.point_data["values"])
     assert np.array_equal(out.field_data["extra"], np.arange(10.0))

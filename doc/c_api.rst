@@ -316,16 +316,17 @@ filtered bytes as-is would silently corrupt the array.
 
 ``pvzstd_read_array_at`` decompresses one array; a payload stored as several
 zstd frames (§3.3 of the format document) is decompressed on one worker per
-logical CPU once it passes the ``PVZSTD_THREADS_AUTO`` floor. To keep such a
-read inline, call ``pvzstd_read_arrays`` with ``count`` 1 and ``n_threads`` 0.
+logical CPU once it exceeds 4 MiB, the size at which ``PVZSTD_THREADS_AUTO``
+spawns workers for a batch. To keep such a read inline, call
+``pvzstd_read_arrays`` with ``count`` 1 and ``n_threads`` 0.
 
 ``pvzstd_read_arrays`` decompresses several arrays over ``n_threads`` workers,
 ``indices[i]`` into ``dsts[i]``. Frames are independent, so this is a pure
 fan-out: the work and its order do not depend on the thread setting. ``0`` or
 ``1`` runs inline, a negative value means one worker per logical CPU, and
-``PVZSTD_THREADS_AUTO`` picks from the total size. Workers beyond ``count`` are
-shared out over each array's zstd frames and its shuffle inverse, so one large
-array still uses every core. It returns the first non-OK
+``PVZSTD_THREADS_AUTO`` picks from the total size. When there are fewer arrays
+than workers, the spare workers are shared out over each array's zstd frames and
+its shuffle inverse, so one large array still uses every core. It returns the first non-OK
 status *by slot*, not by whichever worker failed first, so the result is
 deterministic. ``failed_slot`` is optional and receives the index into
 ``indices`` that the status is about, or ``PVZSTD_SLOT_NONE``; without it a

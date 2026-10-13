@@ -787,7 +787,7 @@ namespace {
 // Read one array into `dst`, using up to `workers` threads for a payload stored
 // as several frames and for reversing its filter.
 pvzstd_status ReadArrayInto(const pvzstd_reader *reader, uint64_t index, void *dst,
-                            uint64_t dst_size, int workers) {
+                            uint64_t dst_size, int workers) try {
   if (index >= reader->arrays.size()) return PVZSTD_E_RANGE;
   const ArrayEntry &e = reader->arrays[static_cast<size_t>(index)];
   if (dst_size < e.nbytes) return PVZSTD_E_RANGE;
@@ -806,17 +806,16 @@ pvzstd_status ReadArrayInto(const pvzstd_reader *reader, uint64_t index, void *d
   const uint64_t itemsize = DtypeItemsize(e.dtype);
   if (itemsize == 0 || (e.nbytes % itemsize) != 0) return PVZSTD_E_FORMAT;
 
-  std::vector<uint8_t> filtered;
-  try {
-    filtered.resize(static_cast<size_t>(e.nbytes));
-  } catch (const std::exception &) {
-    // See DecompressFrame: std::length_error is not a std::bad_alloc.
-    return PVZSTD_E_NOMEM;
-  }
+  // See DecompressFrame: the size is refused here, where the allocation is made.
+  if (ExceedsSizeT(e.nbytes)) return PVZSTD_E_FORMAT;
+  std::vector<uint8_t> filtered(static_cast<size_t>(e.nbytes));
   const pvzstd_status st = DecompressPayload(src, src_size, filtered.data(), e.nbytes, workers);
   if (st != PVZSTD_OK) return st;
   Unshuffle(filtered.data(), static_cast<uint8_t *>(dst), e.nbytes, itemsize, workers);
   return PVZSTD_OK;
+} catch (...) {
+  // Runs on ParallelStride workers, which cannot answer a throw.
+  return PVZSTD_E_NOMEM;
 }
 
 // Threads for one array read on its own: every core once the payload is large

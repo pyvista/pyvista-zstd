@@ -138,7 +138,7 @@ and a 1:1 reader must accept all three:
 | 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
 
 A decoder must also have a ceiling. The C core carries one,
-`PVZSTD_FILE_VERSION_MAX = 3`, readable at runtime as
+`PVZSTD_FILE_VERSION_MAX = 2`, readable at runtime as
 `pvzstd_max_file_version()`, and a container stamped higher is refused with
 `PVZSTD_E_VERSION` rather than read: a later version may transform payloads in
 a way this build cannot invert, so reading one would hand back
@@ -263,10 +263,13 @@ A payload index entry still names one byte range and one decompressed size,
 but the range may hold **several zstd frames back to back**. The writer splits
 any payload larger than 4 MiB into consecutive frames of 4 MiB (the last one
 shorter), each compressed on its own. The split does not change the file
-version: every reader of this format already consumes the frames back to back.
-The index does not record the split: the frames' own
-headers do, since every one of them declares its content size, and the content
-sizes add up to the entry's decompressed size.
+version. A conforming reader must decode **every** frame in `[start, end)` and
+must size its output from the index entry's decompressed size, never from the
+first frame's header: `ZSTD_getFrameContentSize` on the range reports only the
+first frame, and a `ZSTD_decompressStream` loop that stops at its first
+end-of-frame return has the same trap. The index does not record the split: the
+frames' own headers do, since every one of them declares its content size, and
+the content sizes add up to the entry's decompressed size.
 
 A reader that hands the whole range to `ZSTD_decompress` gets the whole payload,
 because that call consumes every frame in the range. Binding helpers often do

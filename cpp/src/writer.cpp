@@ -329,7 +329,7 @@ pvzstd_status pvzstd_writer_write(pvzstd_writer *writer, const char *path) try {
     const uint8_t *pieces[2] = {header.data(), payload_ptr};
     const uint64_t lengths[2] = {header.size(), payload_len};
     for (int part = 0; part < 2 && st == PVZSTD_OK; ++part) {
-      if (lengths[part] > kSubFrameBytes) {
+      if (part == 1 && lengths[part] > kSubFrameBytes) {
         st = WriteSubFrames(fp, pieces[part], lengths[part], writer->level, workers, &offset);
       } else {
         st = CompressFrame(pieces[part], lengths[part], writer->level, workers, &frame);

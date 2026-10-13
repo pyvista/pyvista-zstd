@@ -155,9 +155,9 @@ PVZSTD_API int64_t pvzstd_find_array(const pvzstd_reader *reader, const char *na
 /* Decompress array `index` into `dst`, reversing any filter. `dst_size` must
  * be at least the `nbytes` reported by pvzstd_array_info_at, or PVZSTD_E_RANGE is
  * returned and nothing is written. A payload stored as several zstd frames is
- * decompressed on one worker per logical CPU once it passes the
- * PVZSTD_THREADS_AUTO floor; route through pvzstd_read_arrays with count 1 and
- * n_threads 0 to keep it inline. */
+ * decompressed on one worker per logical CPU once it exceeds 4 MiB, the size
+ * at which PVZSTD_THREADS_AUTO spawns workers for a batch; route through
+ * pvzstd_read_arrays with count 1 and n_threads 0 to keep it inline. */
 PVZSTD_API pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint64_t index,
                                               void *dst, uint64_t dst_size);
 
@@ -165,10 +165,11 @@ PVZSTD_API pvzstd_status pvzstd_read_array_at(const pvzstd_reader *reader, uint6
  * `dsts[i]`, at least `dst_sizes[i]` bytes. Frames are independent, so this is a
  * pure fan-out. 0 or 1 runs inline; negative means one worker per logical CPU,
  * the same sign convention pvzstd_writer_set_threads uses; PVZSTD_THREADS_AUTO picks
- * from the total size. Workers beyond `count` are shared out over each array's
- * zstd frames and its shuffle inverse, so one large array still uses every core;
- * the work and its order do not depend on the setting. Returns the first non-OK status, by slot
- * rather than by which worker finished first.
+ * from the total size. When there are fewer arrays than workers, the spare
+ * workers are shared out over each array's zstd frames and its shuffle inverse,
+ * so one large array still uses every core; the work and its order do not
+ * depend on the setting. Returns the first non-OK status, by slot rather than
+ * by which worker finished first.
  *
  * `failed_slot` (optional) receives the index into `indices` that status is
  * about, or PVZSTD_SLOT_NONE. Without it a caller can only learn that one of the

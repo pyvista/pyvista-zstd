@@ -107,16 +107,33 @@ def test_split_payload_survives_append(tmp_path: Path) -> None:
     assert np.array_equal(out.field_data["extra"], np.arange(10.0))
 
 
-def test_corrupt_sub_frame_is_refused(tmp_path: Path) -> None:
-    """Damage inside one sub-frame is reported, not read around."""
+ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+@pytest.mark.parametrize("n_threads", [0, 2])
+def test_damaged_sub_frame_header_is_refused(tmp_path: Path, n_threads: int) -> None:
+    """A second sub-frame without a valid frame header is refused, whatever the thread count."""
     image = _large_image()
     path = tmp_path / "image.pv"
     pyvista_zstd.write(image, path)
     raw = bytearray(path.read_bytes())
     payload = _payload_bytes(path, "0000000000000000values__point_data")
     start = raw.find(payload)
-    # Well inside the second sub-frame.
-    raw[start + len(payload) // 2] ^= 0xFF
+    second = payload.find(ZSTD_MAGIC, 1)
+    assert second > 0
+    raw[start + second : start + second + len(ZSTD_MAGIC)] = bytes(len(ZSTD_MAGIC))
     path.write_bytes(raw)
     with pytest.raises(_capi.PvzstdError):
-        pyvista_zstd.read(path)
+        pyvista_zstd.read(path, n_threads=n_threads)
+
+
+def test_two_split_arrays_share_spare_workers(tmp_path: Path) -> None:
+    """Two split arrays read back exactly when the workers are split between them."""
+    image = _large_image()
+    image.point_data["other"] = -image.point_data["values"]
+    path = tmp_path / "image.pv"
+    pyvista_zstd.write(image, path, shuffle=True)
+    for n_threads in (3, -1):
+        out = pyvista_zstd.read(path, n_threads=n_threads)
+        assert np.array_equal(out.point_data["values"], image.point_data["values"])
+        assert np.array_equal(out.point_data["other"], image.point_data["other"])

@@ -1141,7 +1141,21 @@ def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> dict[str
             name = key[UID_N_CHAR : -len(suffix)]
             vtk_array = _owned(segment_dict, key)
             if vtk_array is None:
-                getattr(ds, pyvista_name).set_array(array, name)
+                data = getattr(ds, pyvista_name)
+                if (
+                    suffix == FIELD_DATA_SUFFIX
+                    and array.ndim > 1
+                    and array.shape[0] == 0
+                    and math.prod(array.shape[1:]) > 0
+                ):
+                    # VTK supports empty tuples; PyVista only admits their scalar view.
+                    # Let PyVista retain its bool/complex conventions before restoring
+                    # the component count on the same zero-tuple VTK array.
+                    data.set_array(array.reshape(-1), name)
+                    components = math.prod(array.shape[1:]) * (2 if np.iscomplexobj(array) else 1)
+                    data.VTKObject.GetAbstractArray(name).SetNumberOfComponents(components)
+                else:
+                    data.set_array(array, name)
             else:
                 target = attributes.get(vtk_getter)
                 if target is None:

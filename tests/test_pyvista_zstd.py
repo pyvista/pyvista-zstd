@@ -971,7 +971,7 @@ def test_esgrid_round_trip(
     reader = pyvista_zstd.Reader(filename)
     assert reader.available_cell_arrays == set(esgrid.cell_data)
     assert not [name for name in reader._metadata.frame_names if name.endswith(impl.CELL_TYPES_KEY)]  # noqa: SLF001
-    _assert_esgrid_round_trip(pv.read(filename), esgrid)
+    _assert_esgrid_round_trip(pyvista_zstd.read(filename), esgrid)
 
 
 @pytest.mark.parametrize(
@@ -1002,7 +1002,7 @@ def test_empty_structured_grid_round_trip(
     assert document["offset"] == [0, 0, 0]
     assert document["n_cells"] == 0
 
-    out = pv.read(filename)
+    out = pyvista_zstd.read(filename)
     assert isinstance(out, grid_type)
     assert out.GetExtent() == (0, -1, 0, -1, 0, -1)
     assert out.n_points == 0
@@ -1036,7 +1036,7 @@ def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:
     filename = tmp_path / "esgrid_multiblock.pv"
     pyvista_zstd.write(MultiBlock({"esgrid": esgrid, "sphere": pv.Sphere()}), filename)
 
-    out = pv.read(filename)
+    out = pyvista_zstd.read(filename)
     _assert_esgrid_round_trip(out["esgrid"], esgrid)
     assert isinstance(out["sphere"], PolyData)
 

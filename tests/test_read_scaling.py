@@ -191,7 +191,10 @@ def test_empty_cell_frames_are_skipped_only_for_polydata(tmp_path: Path) -> None
 
 def test_unnamed_vtk_arrays_keep_pyvista_names(tmp_path: Path) -> None:
     """An array added to the VTK attributes without a name round-trips under pyvista's name for it."""
-    from pyvista._vtk import vtkFloatArray  # noqa: PLC0415
+    try:  # pyvista >= 0.48
+        from pyvista._vtk import vtkFloatArray  # noqa: PLC0415
+    except ModuleNotFoundError:  # pyvista < 0.48
+        from pyvista.core._vtk_core import vtkFloatArray  # noqa: PLC0415
 
     sphere = pv.Sphere(theta_resolution=6, phi_resolution=6)
     nameless = vtkFloatArray()

@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import fields
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -159,6 +160,12 @@ def _shuffle_mode(shuffle: ShuffleSpec) -> int:
     }[shuffle]
 
 
+def _known_fields(cls: type, raw: dict[str, Any]) -> dict[str, Any]:
+    """Return ``raw`` without the keys that are not fields of dataclass ``cls``."""
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in raw.items() if k in names}
+
+
 @dataclass(slots=True, frozen=True)
 class ArrayInfo:
     """
@@ -215,7 +222,7 @@ class ZstdFileMetadata:
     @classmethod
     def from_json(cls, s: str) -> ZstdFileMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        return cls(**_known_fields(cls, json.loads(s)))
 
     def to_array(self) -> NDArray[np.uint8]:
         """Output as a numpy uint8 array."""
@@ -264,7 +271,7 @@ class MultiBlockMetadata:
     @classmethod
     def from_json(cls, s: str) -> MultiBlockMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        return cls(**_known_fields(cls, json.loads(s)))
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> MultiBlockMetadata:
@@ -467,7 +474,7 @@ class DataSetMetadata:
         for key in ("dimensions", "origin", "spacing", "offset"):
             if raw.get(key) is not None:
                 raw[key] = tuple(raw[key])
-        return cls(**raw)
+        return cls(**_known_fields(cls, raw))
 
     def to_array(self) -> NDArray[np.uint8]:
         """Output as a numpy uint8 array."""

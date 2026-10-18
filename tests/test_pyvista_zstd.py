@@ -1255,7 +1255,7 @@ def test_structured_extent_offset_file_version(
     promoted = any(extent_start) and ds_type != "ImageData"
     expected = impl.FILE_VERSION_STRUCTURED_EXTENT_OFFSET if promoted else impl.FILE_VERSION_UNFILTERED
     assert pyvista_zstd.Reader(filename)._metadata.file_version == expected  # noqa: SLF001
-    out = pv.read(filename)
+    out = pyvista_zstd.read(filename)
     assert (out[0] if container else out).GetExtent() == grid.GetExtent()
 
 

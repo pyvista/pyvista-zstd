@@ -31,7 +31,7 @@ extern "C" {
 
 /* Bumped on any change below, additions included -- callers check equality, not
  * a floor, because they bind every symbol up front. */
-#define PVZSTD_ABI_VERSION 12u
+#define PVZSTD_ABI_VERSION 13u
 
 /* Dtype-field width and dataset-UID prefix width. They coincide in the format. */
 #define PVZSTD_DTYPE_LEN 16

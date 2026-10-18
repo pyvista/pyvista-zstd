@@ -128,12 +128,12 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 
 ## 2. File versions
 
-`FILE_VERSION = 2` is what writers emit today (`:74`). Three versions exist
-(`:78-80`) and a 1:1 reader must accept all three:
+`FILE_VERSION = 2` is the highest a writer emits today. Three versions exist
+and a 1:1 reader must accept all three:
 
 | Value | Name                             | Meaning                                             |
 | ----- | -------------------------------- | --------------------------------------------------- |
-| 0     | `FILE_VERSION_UNFILTERED`        | Neither optional encoding used.                     |
+| 0     | `FILE_VERSION_UNFILTERED`        | No optional encoding used.                          |
 | 1     | `FILE_VERSION_SHUFFLE`           | At least one array carries the byte-shuffle filter. |
 | 2     | `FILE_VERSION_FIXED_WIDTH_CELLS` | Cell topology stored without an offsets array.      |
 
@@ -147,7 +147,8 @@ the decoder it describes -- a binding that kept its own copy would refuse files
 the library can read, or accept files it cannot.
 
 The version is promoted by the _writer_ only when it actually uses an optional
-encoding — the `ZstdFileMetadata` default is the legacy
+encoding or a metadata member older readers must act on (§4) — the
+`ZstdFileMetadata` default is the legacy
 `FILE_VERSION_UNFILTERED` (`:220-222`). **A file's version therefore describes
 the features it uses, not the version of the library that wrote it.**
 
@@ -257,6 +258,35 @@ Three rules, all implemented in `cpp/src/reader.cpp` and exercised by
   refused. Relying on the allocation to throw instead is not enough: a build
   with exceptions compiled out cannot answer a throw.
 
+### 3.3 Payload sub-frames
+
+A payload index entry still names one byte range and one decompressed size,
+but the range may hold **several zstd frames back to back**. The writer splits
+any payload larger than 4 MiB into consecutive frames of 4 MiB (the last one
+shorter), each compressed on its own. The split does not change the file
+version. A conforming reader must decode **every** frame in `[start, end)` and
+must size its output from the index entry's decompressed size, never from the
+first frame's header: `ZSTD_getFrameContentSize` on the range reports only the
+first frame, and a `ZSTD_decompressStream` loop that stops at its first
+end-of-frame return has the same trap. The index does not record the split: the
+frames' own headers do, since every one of them declares its content size, and
+the content sizes add up to the entry's decompressed size.
+
+A reader that hands the whole range to `ZSTD_decompress` gets the whole payload,
+because that call consumes every frame in the range. Binding helpers often do
+not: python-zstandard's one-shot `decompress()` stops after the first frame, so
+a reader built on one must decode across frames (`read_across_frames=True`, or a
+`decompressobj()` loop). A reader that wants the
+pieces walks them with `ZSTD_findFrameCompressedSize` and
+`ZSTD_getFrameContentSize`, places each one's output after the previous one's,
+and may decompress them in parallel; that is what `pvzstd_read_array_at` and
+`pvzstd_read_arrays` do. The shuffle filter, when present, was applied to the
+payload as a whole before it was split, so it is reversed after every piece
+is in place.
+
+Header frames and the metadata documents are never split. Appended and
+streamed arrays are not split either; only `pvzstd_writer_write` does it.
+
 ## 4. Metadata
 
 Three JSON documents, each stored as a frame:
@@ -277,6 +307,13 @@ A MultiBlock's own field arrays are stored like a dataset's, as
 `field_data_keys` with the same `{"shape": [...], "dtype": "..."}` entries as
 `DataSetMetadata`. The member is omitted when the MultiBlock has no field
 arrays, because earlier readers reject an unknown member.
+
+Readers ignore metadata members they do not recognise; releases up to 0.5.0
+refuse them with a `TypeError`. A writer that adds a member older readers must
+act on promotes `file_version` (§2), so those readers refuse the file instead
+of misreading it. The two append paths keep unrecognised `DataSetMetadata`
+members, which they splice rather than regenerate, but rebuild
+`ZstdFileMetadata` from its four known members and drop any others.
 
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,

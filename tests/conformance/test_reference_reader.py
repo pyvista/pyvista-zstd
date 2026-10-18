@@ -67,11 +67,20 @@ def _structured() -> pv.DataSet:
     return pv.StructuredGrid(x, y, z)
 
 
+def _split() -> pv.DataSet:
+    """Large enough that one payload is stored as several zstd frames (spec 3.3)."""
+    rng = np.random.default_rng(22)
+    ds = pv.ImageData(dimensions=(128, 128, 96))
+    ds.point_data["split_f64"] = rng.random(ds.n_points)
+    return ds
+
+
 DATASETS = {
     "polydata": _sphere,
     "unstructured": _unstructured,
     "image": _image,
     "structured": _structured,
+    "split": _split,
 }
 
 
@@ -201,7 +210,7 @@ def test_fixed_width_cells_omits_the_offsets_frame(tmp_path) -> None:
     assert "cells_connectivity" in bare
     assert "cells_offset" not in bare
     assert container.ds_metadata["fixed_cell_sizes"] == {"cells": 8}
-    assert container.file_metadata["file_version"] == pz.FILE_VERSION
+    assert container.file_metadata["file_version"] == pz.pyvista_zstd.FILE_VERSION_FIXED_WIDTH_CELLS
 
 
 def test_file_version_does_not_imply_filter_presence(tmp_path) -> None:

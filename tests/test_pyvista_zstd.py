@@ -8,7 +8,6 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import TYPE_CHECKING
-from typing import Any
 import warnings
 
 import numpy as np
@@ -749,25 +748,18 @@ def one_value_strings(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     pyvista < 0.50 returns a string array set from a scalar, such as the user_dict,
     as ``str``; the ``"scalar"`` mode applies that to every one-value string array.
     """
-    items = DataSetAttributes.items
+    getitem = DataSetAttributes.__getitem__
 
-    def patched(self: DataSetAttributes) -> list[tuple[str, Any]]:
+    def patched(self: DataSetAttributes, key: str) -> np.ndarray | str:
         """Return the field arrays with one-value string arrays in the selected form."""
-        out = []
-        for key, value in items(self):
-            if (
-                request.param == "scalar"
-                and isinstance(value, np.ndarray)
-                and value.dtype.kind == "U"
-                and value.size == 1
-            ):
-                value = str(value.item())  # noqa: PLW2901
-            elif request.param == "array" and isinstance(value, str):
-                value = np.array([value])  # noqa: PLW2901
-            out.append((key, value))
-        return out
+        value = getitem(self, key)
+        if request.param == "scalar" and isinstance(value, np.ndarray) and value.dtype.kind == "U" and value.size == 1:
+            return str(value.item())
+        if request.param == "array" and isinstance(value, str):
+            return pv.pyvista_ndarray(np.array([value]))
+        return value
 
-    monkeypatch.setattr(DataSetAttributes, "items", patched)
+    monkeypatch.setattr(DataSetAttributes, "__getitem__", patched)
     return request.param
 
 
@@ -1040,3 +1032,58 @@ def test_declared_int32_bounds_hold_over_the_corpus(
     for values, bound in declared:
         if values.size:
             assert int(values.max()) <= bound, f"declared bound {bound} is below the largest entry {int(values.max())}"
+
+
+def _with_unknown_key(s: str) -> str:
+    """Return the JSON document ``s`` with an extra key no release declares."""
+    raw = json.loads(s)
+    raw["unknown_future_key"] = 1
+    return json.dumps(raw)
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [
+        impl.ZstdFileMetadata(frame_names=["a", "b"], compression_level=3, file_version=2),
+        impl.MultiBlockMetadata(uid="0", children=["1"], children_keys=["block"]),
+        impl.MultiBlockMetadata(
+            uid="0",
+            children=["1"],
+            children_keys=["block"],
+            field_data_keys={"a": impl.ArrayInfo(shape=(1,), dtype="float32")},
+        ),
+        impl.DataSetMetadata(
+            ds_type="PolyData",
+            uid="0",
+            n_points=1,
+            points_dtype="float32",
+            n_cells=0,
+            celltypes_dtype=None,
+            point_data_keys={"a": impl.ArrayInfo(shape=(1,), dtype="float32")},
+        ),
+    ],
+    ids=lambda meta: type(meta).__name__,
+)
+def test_metadata_from_json_ignores_unknown_keys(
+    meta: impl.ZstdFileMetadata | impl.MultiBlockMetadata | impl.DataSetMetadata,
+) -> None:
+    """Test that a metadata document carrying an unknown key decodes to the original metadata."""
+    raw = json.loads(_with_unknown_key(meta.to_json()))
+    if "point_data_keys" in raw:
+        raw["point_data_keys"]["a"]["unknown_future_key"] = 1
+    if "field_data_keys" in raw and "a" in raw["field_data_keys"]:
+        raw["field_data_keys"]["a"]["unknown_future_key"] = 1
+    assert type(meta).from_json(json.dumps(raw)).to_json() == meta.to_json()
+
+
+def test_read_ignores_unknown_metadata_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that a file whose dataset metadata carries unknown keys reads back."""
+    for cls in (impl.DataSetMetadata, impl.MultiBlockMetadata):
+        to_json = cls.to_json
+        monkeypatch.setattr(cls, "to_json", lambda self, to_json=to_json: _with_unknown_key(to_json(self)))
+    mesh = pv.Sphere()
+    mesh["values"] = np.arange(mesh.n_points)
+    pyvista_zstd.write(pv.MultiBlock({"sphere": mesh}), tmp_path / "unknown.pv")
+    monkeypatch.undo()
+
+    assert pyvista_zstd.read(tmp_path / "unknown.pv")["sphere"] == mesh

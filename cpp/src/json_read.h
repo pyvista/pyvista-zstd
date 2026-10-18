@@ -1,6 +1,6 @@
 // A reader for the two JSON metadata documents this format carries -- members of
-// a compact json.dumps, not a general JSON parser. In a header because the append
-// and read paths must agree on what a member of those documents is.
+// a compact json.dumps, not a general JSON parser. In a header because the write,
+// append and read paths must agree on what a member of those documents is.
 
 #ifndef PVZSTD_JSON_READ_H
 #define PVZSTD_JSON_READ_H
@@ -15,6 +15,44 @@ namespace pvzstd::json {
 inline bool SkipWs(const std::string &s, size_t *i) {
   while (*i < s.size() && (s[*i] == ' ' || s[*i] == '\n' || s[*i] == '\t' || s[*i] == '\r')) ++*i;
   return *i < s.size();
+}
+
+// Reads the four hex digits at s[at]; false if any is missing or not hex.
+inline bool ReadHex4(const std::string &s, size_t at, unsigned *code) {
+  if (at + 4 > s.size()) return false;
+  *code = 0;
+  for (size_t k = 0; k < 4; ++k) {
+    const char h = s[at + k];
+    *code <<= 4;
+    if (h >= '0' && h <= '9')
+      *code |= static_cast<unsigned>(h - '0');
+    else if (h >= 'a' && h <= 'f')
+      *code |= static_cast<unsigned>(h - 'a' + 10);
+    else if (h >= 'A' && h <= 'F')
+      *code |= static_cast<unsigned>(h - 'A' + 10);
+    else
+      return false;
+  }
+  return true;
+}
+
+// Appends a code point to *out as UTF-8.
+inline void AppendUtf8(std::string *out, unsigned code) {
+  if (code < 0x80) {
+    out->push_back(static_cast<char>(code));
+  } else if (code < 0x800) {
+    out->push_back(static_cast<char>(0xC0 | (code >> 6)));
+    out->push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  } else if (code < 0x10000) {
+    out->push_back(static_cast<char>(0xE0 | (code >> 12)));
+    out->push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+    out->push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  } else {
+    out->push_back(static_cast<char>(0xF0 | (code >> 18)));
+    out->push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F)));
+    out->push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+    out->push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  }
 }
 
 // Reads a string starting at the opening quote; leaves *i past the close.
@@ -57,25 +95,20 @@ inline bool ReadJsonString(const std::string &s, size_t *i, std::string *out) {
           out->push_back('\f');
           break;
         case 'u': {
-          // Only the escapes json.dumps emits for these identifiers; a code point
-          // outside Latin-1 would need UTF-8 re-encoding, which none use.
-          if (*i + 5 >= s.size()) return false;
           unsigned code = 0;
-          for (int k = 0; k < 4; ++k) {
-            const char h = s[*i + 2 + k];
-            code <<= 4;
-            if (h >= '0' && h <= '9')
-              code |= static_cast<unsigned>(h - '0');
-            else if (h >= 'a' && h <= 'f')
-              code |= static_cast<unsigned>(h - 'a' + 10);
-            else if (h >= 'A' && h <= 'F')
-              code |= static_cast<unsigned>(h - 'A' + 10);
-            else
-              return false;
-          }
-          if (code > 0x7F) return false;
-          out->push_back(static_cast<char>(code));
+          if (!ReadHex4(s, *i + 2, &code)) return false;
           *i += 4;
+          // json.dumps writes a code point above U+FFFF as a surrogate pair; a lone
+          // surrogate is kept as its own three-byte sequence, as surrogatepass would.
+          if (code >= 0xD800 && code <= 0xDBFF && *i + 7 < s.size() && s[*i + 2] == '\\' &&
+              s[*i + 3] == 'u') {
+            unsigned low = 0;
+            if (ReadHex4(s, *i + 4, &low) && low >= 0xDC00 && low <= 0xDFFF) {
+              code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+              *i += 6;
+            }
+          }
+          AppendUtf8(out, code);
           break;
         }
         default:

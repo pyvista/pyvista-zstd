@@ -77,15 +77,20 @@ if TYPE_CHECKING:  # pragma: no cover
     from pyvista_zstd._capi import CoreReader
 
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The core
-# enforces the ceiling; this constant only publishes it.
-FILE_VERSION = 2
-# Version stamped on files that use neither byte filters nor fixed-width cell
-# arrays. Such files stay byte-identical to the legacy format and remain
-# readable by older releases.
+# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays, version 3
+# MultiBlock field data, ExplicitStructuredGrid without celltypes, and the
+# extent offset of a StructuredGrid or RectilinearGrid. The core enforces the
+# ceiling; this constant only publishes it.
+FILE_VERSION = 3
+# Version stamped on files that use no optional feature. Such files stay
+# byte-identical to the legacy format and remain readable by older releases.
 FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
+# These features share version 3.
+FILE_VERSION_MULTIBLOCK_FIELD_DATA = 3
+FILE_VERSION_EXPLICIT_STRUCTURED_GRID = 3
+FILE_VERSION_STRUCTURED_EXTENT_OFFSET = 3
 FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
@@ -216,8 +221,8 @@ class ZstdFileMetadata:
     frame_names: list[str]
     compression_level: int
     compression: Compression = "zstandard"
-    # Defaults to the legacy version; writers promote this when they use an
-    # optional encoding such as byte shuffle or fixed-width cell topology.
+    # Defaults to the legacy version; the core writer promotes it when the file
+    # uses an optional feature.
     file_version: int = FILE_VERSION_UNFILTERED
 
     def to_json(self) -> str:
@@ -277,7 +282,7 @@ class MultiBlockMetadata:
     def to_json(self) -> str:
         """Convert to JSON."""
         raw = asdict(self)
-        # Omitted when empty: pyvista-zstd 0.5.0 and earlier reject unknown members.
+        # Omitted when empty, since its presence stamps file version 3.
         if not raw["field_data_keys"]:
             del raw["field_data_keys"]
         return json.dumps(raw, separators=(",", ":"))
@@ -818,9 +823,9 @@ def write(  # noqa: PLR0913
         by default. ``"auto"`` shuffles a multibyte floating-point array only
         when a quick trial compression shows it shrinks the data (so it never
         enlarges a file); ``True`` shuffles every multibyte array. Files that
-        use the filter are written at format version 1 and can only be read by
-        this release or newer; unfiltered files (the default) stay backward
-        compatible unless they use fixed-width cell arrays.
+        use the filter are written at format version 1 or higher and can only
+        be read by this release or newer; unfiltered files (the default) stay
+        backward compatible unless they use a feature listed in the Notes.
     thumbnail : bytes | bool, optional
         Embed a PNG preview image that viewers can show without reading the
         dataset. Pass the PNG bytes, or ``True`` to render a 512 x 512 image
@@ -835,7 +840,12 @@ def write(  # noqa: PLR0913
     Cell arrays whose cells all contain the same number of points are stored
     without their redundant offsets array. Their common width is recorded in
     dataset metadata and VTK reconstructs the offsets when the file is read.
-    Files using this encoding are written at format version 2.
+    Files using this encoding are written at format version 2 or higher.
+
+    Files containing a :class:`pyvista.ExplicitStructuredGrid`,
+    :class:`pyvista.MultiBlock` field data, or a :class:`pyvista.StructuredGrid`
+    or :class:`pyvista.RectilinearGrid` whose extent does not start at 0 are
+    written at format version 3.
 
     """
     writer = Writer(ds, filename)

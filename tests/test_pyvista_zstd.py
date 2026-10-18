@@ -918,6 +918,64 @@ def test_user_dict_nested_multiblock(polydata: PolyData, ugrid: UnstructuredGrid
     assert reader[0][1].read().user_dict == innermost.user_dict
 
 
+@pytest.mark.parametrize("shuffle", [False, True])
+@pytest.mark.parametrize("owner", ["root", "nested"])
+@pytest.mark.parametrize(("block_name", "field_name"), [("a", "b"), ("a", "témp"), ("a", "😀"), ("café", "b")])
+def test_multiblock_field_data_file_version(  # noqa: PLR0913
+    polydata: PolyData,
+    tmp_path: Path,
+    owner: str,
+    block_name: str,
+    field_name: str,
+    *,
+    shuffle: bool,
+) -> None:
+    """Field data on any MultiBlock stamps the MultiBlock field-data file version, whatever its names."""
+    inner = MultiBlock({block_name: polydata})
+    root = MultiBlock({block_name: inner})
+    (root if owner == "root" else inner).field_data[field_name] = np.arange(3.0)
+    tmp_filename = tmp_path / "tmp.pv"
+    pyvista_zstd.write(root, tmp_filename, shuffle=shuffle)
+
+    reader = pyvista_zstd.Reader(tmp_filename)
+    assert reader._metadata.file_version == impl.FILE_VERSION_MULTIBLOCK_FIELD_DATA  # noqa: SLF001
+
+
+@pytest.mark.parametrize(("member", "expected"), [("", 0), (',"field_data_keys":{}', 3)])
+def test_multiblock_field_data_member_presence_sets_file_version(tmp_path: Path, member: str, expected: int) -> None:
+    """The field_data_keys member stamps version 3 by its presence, even when empty."""
+    doc = f'{{"uid":"{"0" * 16}","children":[],"children_keys":[],"children_ds":null{member}}}'
+    filename = tmp_path / "tmp.pv"
+    with _capi.CoreWriter() as writer:
+        writer.add_array(f"{'0' * 16}{impl.MULTIBLOCK_METADATA_KEY}", np.frombuffer(doc.encode(), dtype=np.uint8))
+        writer.write(filename)
+
+    assert pyvista_zstd.Reader(filename)._metadata.file_version == expected  # noqa: SLF001
+
+
+@pytest.mark.parametrize("suffix", [impl.DS_METADATA_KEY, impl.MULTIBLOCK_METADATA_KEY])
+@pytest.mark.parametrize("doc", ["", " \n\t", '{"ds_type":', "[]", '{"uid":"x"} trailing'])
+def test_non_object_staged_metadata_is_refused(tmp_path: Path, suffix: str, doc: str) -> None:
+    """A staged metadata document that is not a JSON object is refused, and nothing is written."""
+    filename = tmp_path / "tmp.pv"
+    with _capi.CoreWriter() as writer:
+        writer.add_array(f"{'0' * 16}{suffix}", np.frombuffer(doc.encode(), dtype=np.uint8))
+        with pytest.raises(_capi.PvzstdError, match="invalid argument"):
+            writer.write(filename)
+    assert not filename.exists()
+
+
+def test_multiblock_block_field_data_keeps_file_version(polydata: PolyData, tmp_path: Path) -> None:
+    """Field data only on a MultiBlock's datasets leaves the file version unchanged."""
+    polydata.user_dict["a"] = 1
+    pyvista_zstd.write(polydata, tmp_path / "alone.pv")
+    pyvista_zstd.write(MultiBlock([MultiBlock([polydata])]), tmp_path / "nested.pv")
+
+    alone = pyvista_zstd.Reader(tmp_path / "alone.pv")._metadata.file_version  # noqa: SLF001
+    nested = pyvista_zstd.Reader(tmp_path / "nested.pv")._metadata.file_version  # noqa: SLF001
+    assert nested == alone != impl.FILE_VERSION_MULTIBLOCK_FIELD_DATA
+
+
 def test_multiblock_metadata_without_field_data(multi_block: MultiBlock, tmp_path: Path) -> None:
     """MultiBlock metadata without field data has no field-data entry."""
     tmp_filename = tmp_path / "tmp.pv"
@@ -1175,6 +1233,43 @@ def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:
     out = pyvista_zstd.read(filename)
     _assert_esgrid_round_trip(out["esgrid"], esgrid)
     assert isinstance(out["sphere"], PolyData)
+
+
+@pytest.mark.parametrize("container", [False, True])
+@pytest.mark.parametrize("extent_start", [(2, -1, 10), (0, 0, -6), (0, 0, 0)])
+@pytest.mark.parametrize("ds_type", ["ImageData", "RectilinearGrid", "StructuredGrid"])
+def test_structured_extent_offset_file_version(
+    tmp_path: Path,
+    ds_type: str,
+    extent_start: tuple[int, int, int],
+    *,
+    container: bool,
+) -> None:
+    """A StructuredGrid or RectilinearGrid extent away from 0 on any axis stamps version 3; ImageData's does not."""
+    grid = _make_offset_grid(ds_type)
+    (i, j, k), (ni, nj, nk) = extent_start, grid.dimensions
+    grid.SetExtent(i, i + ni - 1, j, j + nj - 1, k, k + nk - 1)
+    filename = tmp_path / "grid.pv"
+    pyvista_zstd.write(MultiBlock([grid]) if container else grid, filename)
+
+    promoted = any(extent_start) and ds_type != "ImageData"
+    expected = impl.FILE_VERSION_STRUCTURED_EXTENT_OFFSET if promoted else impl.FILE_VERSION_UNFILTERED
+    assert pyvista_zstd.Reader(filename)._metadata.file_version == expected  # noqa: SLF001
+    out = pyvista_zstd.read(filename)
+    assert (out[0] if container else out).GetExtent() == grid.GetExtent()
+
+
+@pytest.mark.parametrize("shuffle", [False, True])
+@pytest.mark.parametrize("kind", ["grid", "empty", "multiblock"])
+def test_esgrid_file_version(tmp_path: Path, kind: str, *, shuffle: bool) -> None:
+    """Any ExplicitStructuredGrid stamps the ExplicitStructuredGrid file version."""
+    esgrid = ExplicitStructuredGrid() if kind == "empty" else _make_esgrid("cast")
+    ds = MultiBlock([pv.Sphere(), esgrid]) if kind == "multiblock" else esgrid
+    filename = tmp_path / "esgrid.pv"
+    pyvista_zstd.write(ds, filename, shuffle=shuffle)
+
+    reader = pyvista_zstd.Reader(filename)
+    assert reader._metadata.file_version == impl.FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
 
 
 def test_esgrid_deselected_blocking_arrays(tmp_path: Path) -> None:

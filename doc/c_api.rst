@@ -163,7 +163,7 @@ The ABI version
 
 .. code:: c
 
-   #define PVZSTD_ABI_VERSION 12u
+   #define PVZSTD_ABI_VERSION 13u
    PVZSTD_API uint32_t pvzstd_abi_version(void);
 
 The macro is the version the caller compiled against; the function is the
@@ -193,13 +193,14 @@ A second, separate number describes the *files* rather than the library:
 
 .. code:: c
 
-   #define PVZSTD_FILE_VERSION_MAX 2u
+   #define PVZSTD_FILE_VERSION_MAX 3u
    PVZSTD_API uint32_t pvzstd_max_file_version(void);
 
 This is the highest container ``file_version`` the build can decode. A container
 stamped higher is refused with ``PVZSTD_E_VERSION`` rather than read, because a
-newer format may transform payloads in a way this build cannot invert, and
-reading one would hand back plausible-looking corrupt values instead of failing.
+newer format may transform payloads in a way this build cannot invert, or carry
+data this build would drop, and reading one would hand back plausible-looking
+wrong values instead of failing.
 The ceiling lives beside the decoder it describes so that every caller of the
 ABI gets the same answer; a binding keeping its own copy would refuse files the
 library can read, or accept files it cannot.
@@ -406,7 +407,8 @@ a static, human-readable string and is never ``NULL``.
    * - ``PVZSTD_E_FILTER``
      - A per-array filter id this build cannot reverse.
    * - ``PVZSTD_E_INVALID``
-     - ``NULL`` argument or misuse.
+     - ``NULL`` argument or misuse, including a staged metadata document that is
+       not a single brace-balanced JSON object.
    * - ``PVZSTD_E_UNSUPPORTED``
      - The container is a shape this operation cannot serve.
    * - ``PVZSTD_E_EXISTS``

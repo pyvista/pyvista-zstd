@@ -111,7 +111,7 @@ def append_arrays(
         blocks (see :func:`pyvista_zstd.write`). Disabled by default; ``"auto"``
         shuffles a multibyte floating-point array only when a trial compression
         shows it shrinks the data. When any appended block is shuffled the file
-        is promoted to format version 1; already-written frames are untouched
+        is promoted to at least format version 1; already-written frames are untouched
         and keep their own per-block encoding.
 
     Raises

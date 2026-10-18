@@ -24,6 +24,9 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 import pyvista_zstd as pz
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_EXPLICIT_STRUCTURED_GRID
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_FIXED_WIDTH_CELLS
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_MULTIBLOCK_FIELD_DATA
 
 UID_N_CHAR = 16
 
@@ -210,7 +213,36 @@ def test_fixed_width_cells_omits_the_offsets_frame(tmp_path) -> None:
     assert "cells_connectivity" in bare
     assert "cells_offset" not in bare
     assert container.ds_metadata["fixed_cell_sizes"] == {"cells": 8}
-    assert container.file_metadata["file_version"] == pz.pyvista_zstd.FILE_VERSION_FIXED_WIDTH_CELLS
+    assert container.file_metadata["file_version"] == FILE_VERSION_FIXED_WIDTH_CELLS
+
+
+def _non_ascii_version_3_dataset(kind: str) -> pv.DataSet:
+    """Return a version 3 dataset carrying non-ASCII array names."""
+    if kind == "esgrid":
+        grid = pv.ImageData(dimensions=(3, 3, 3)).cast_to_structured_grid().cast_to_explicit_structured_grid()
+        grid.point_data["témp😀"] = np.arange(grid.n_points, dtype=np.float64)
+        return grid
+    multi = pv.MultiBlock({"a": pv.Sphere()})
+    multi.field_data["témp😀"] = np.arange(3.0)
+    return multi
+
+
+@pytest.mark.parametrize("kind", ["esgrid", "multiblock"])
+def test_version_3_file_metadata_keeps_non_ascii_names_raw(tmp_path, kind) -> None:
+    """
+    The file-metadata frame stores non-ASCII names as raw UTF-8, not as JSON escapes.
+
+    Cores up to pyvista-zstd 0.6.0 cannot parse such an escape, so they would not
+    find ``file_version`` past one and would read a version 3 file they must refuse.
+    """
+    path = tmp_path / "non_ascii.pv"
+    pz.write(_non_ascii_version_3_dataset(kind), path, progress_bar=False)
+
+    payload = ref_reader.read_frames(path)[-1].data
+    assert "témp😀".encode() in payload
+    assert b"\\u" not in payload
+    expected = FILE_VERSION_EXPLICIT_STRUCTURED_GRID if kind == "esgrid" else FILE_VERSION_MULTIBLOCK_FIELD_DATA
+    assert ref_reader.read(path).file_metadata["file_version"] == expected
 
 
 def test_file_version_does_not_imply_filter_presence(tmp_path) -> None:

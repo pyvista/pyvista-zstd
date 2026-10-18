@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import fields
 import json
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -84,7 +85,7 @@ FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
-# The cell arrays an ExplicitStructuredGrid needs to be cast back into one.
+# Cell arrays that rebuild an ExplicitStructuredGrid from a file with no stored dimensions.
 ESGRID_BLOCK_KEYS = ("BLOCK_I", "BLOCK_J", "BLOCK_K")
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
@@ -248,15 +249,16 @@ class DataSetMetadata:
     cell_data_active_texture_coordinates_name: str | None = None
     cell_data_active_normals_name: str | None = None
 
-    # Optional ImageData metadata
+    # Optional grid metadata
     dimensions: tuple[int, int, int] | None = None
     origin: tuple[float, float, float] | None = None
     spacing: tuple[float, float, float] | None = None
     direction_matrix: list[list[float]] | None = None
     offset: int | None = None
+    faces_connectivity_flags_array_name: str | None = None
 
     @classmethod
-    def from_dataset(  # noqa: PLR0913
+    def from_dataset(  # noqa: C901, PLR0913
         cls,
         ds: pv.DataSet,
         point_info: dict[str, ArrayInfo],
@@ -341,14 +343,23 @@ class DataSetMetadata:
                 direction_matrix=ds.direction_matrix.tolist(),
                 offset=ds.offset,
             )
-        elif isinstance(ds, pv.StructuredGrid):
+        elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
             kwargs["dimensions"] = ds.dimensions
+            if not ds.n_points:
+                # Store either grid without points as empty; a default ExplicitStructuredGrid's extent is uninitialised.
+                kwargs.update(dimensions=(0, 0, 0), n_cells=0)
+            if isinstance(ds, ExplicitStructuredGrid):
+                kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
         return cls(**kwargs)
 
     def to_json(self) -> str:
-        """Convert to JSON."""
-        return json.dumps(asdict(self), separators=(",", ":"))
+        """Convert to JSON, leaving out an unset ExplicitStructuredGrid flags array name."""
+        fields = asdict(self)
+        # pyvista-zstd 0.5.0 rejects metadata keys it does not know.
+        if fields["faces_connectivity_flags_array_name"] is None:
+            del fields["faces_connectivity_flags_array_name"]
+        return json.dumps(fields, separators=(",", ":"))
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> DataSetMetadata:
@@ -605,8 +616,17 @@ def _add_arrays_esgrid(
     *,
     force_int32: bool = True,
 ) -> None:
-    ugrid = ds.cast_to_unstructured_grid()
-    _add_arrays_ugrid(ds_id, ugrid, arrays, fixed_cell_sizes, force_int32=force_int32)
+    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    _add_cell_array(
+        ds_id,
+        arrays,
+        CELLS,
+        # A grid without points is stored empty, so drop the cells its extent allocated.
+        ds.GetCells() if ds.n_points else vtkCellArray(),
+        fixed_cell_sizes,
+        force_int32=force_int32,
+        max_entry=ds.n_points - 1,
+    )
 
 
 def _add_arrays_sgrid(ds_id: str, ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -722,7 +742,7 @@ class Writer:
             self._ids[key] = f"{len(self._ids):0{UID_N_CHAR}x}"
         return self._ids[key]
 
-    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901
+    def _add_ds_arrays(self, ds: DataSet, *, force_int32: bool) -> None:  # noqa: C901, PLR0912
         """Extract dataset data as arrays."""
         ds_id = self._make_ds_id(ds)
         fixed_cell_sizes: dict[str, int] = {}
@@ -769,7 +789,13 @@ class Writer:
             raise TypeError(msg)
 
         point_info, point_active = _stage_attributes(ds_id, ds, "point_data", POINT_DATA_SUFFIX, self._arrays)
-        cell_info, cell_active = _stage_attributes(ds_id, ds, "cell_data", CELL_DATA_SUFFIX, self._arrays)
+        # A structured grid without points is stored with no cells, so it keeps no cell data either.
+        stored_empty = isinstance(ds, (StructuredGrid, ExplicitStructuredGrid)) and not ds.GetNumberOfPoints()
+        if stored_empty:
+            cell_info: dict[str, ArrayInfo] = {}
+            cell_active: tuple[str | None, str | None, str | None, str | None] = (None, None, None, None)
+        else:
+            cell_info, cell_active = _stage_attributes(ds_id, ds, "cell_data", CELL_DATA_SUFFIX, self._arrays)
         field_info, _ = _stage_attributes(ds_id, ds, "field_data", FIELD_DATA_SUFFIX, self._arrays)
 
         # supply dataset metadata
@@ -1038,15 +1064,41 @@ def _segments_to_esgrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> ExplicitStructuredGrid:
-    """
-    Rebuild an explicit structured grid from its frames.
+    """Rebuild an explicit structured grid from its dimensions, points and cells."""
+    if metadata.dimensions is None:
+        return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
-    The cast is driven by the ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` cell arrays,
-    so they have to be on the grid before it happens. The caller attaches cell
-    data only after this returns, which is why they are pulled from the
-    segments here rather than left to the general path -- without this the
-    cast sees a grid with no cell data at all and refuses every file.
-    """
+    points = segments[f"{ds_id}{POINTS_KEY}"]
+    # SetDimensions allocates a cell for every i/j/k position, so check the size first.
+    if math.prod(metadata.dimensions) != len(points):
+        msg = (
+            f"ExplicitStructuredGrid dimensions {tuple(metadata.dimensions)} do not match its "
+            f"{len(points)} points; the file is corrupt or was written from an inconsistent grid."
+        )
+        raise ValueError(msg)
+
+    esgrid = ExplicitStructuredGrid()
+    esgrid.SetDimensions(*metadata.dimensions)
+    esgrid.points = points
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
+    if cells is not None:
+        # VTK misreads ESG cells narrower than vtkIdType: https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
+        if cells.IsHomogeneous() > 0 and hasattr(cells, "ConvertToFixedSizeDefaultStorage"):
+            cells.ConvertToFixedSizeDefaultStorage()
+        else:
+            cells.ConvertToDefaultStorage()
+        esgrid.SetCells(cells)
+    if metadata.faces_connectivity_flags_array_name is not None:
+        esgrid.SetFacesConnectivityFlagsArrayName(metadata.faces_connectivity_flags_array_name)
+    return esgrid
+
+
+def _segments_to_esgrid_by_blocking(
+    ds_id: str,
+    segments: dict[str, Any],
+    metadata: DataSetMetadata,
+) -> ExplicitStructuredGrid:
+    """Rebuild an explicit structured grid with no stored dimensions from its blocking cell arrays."""
     ugrid = _segments_to_ugrid(ds_id, segments, metadata)
 
     missing = []
@@ -1057,10 +1109,14 @@ def _segments_to_esgrid(
         else:
             missing.append(name)
     if missing:
+        absent = [name for name in missing if name not in metadata.cell_data_keys]
+        if absent:
+            advice = f"The file does not store {absent}; rewrite it from the source grid with a current pyvista-zstd."
+        else:
+            advice = f"Select {missing} in selected_cell_arrays to read this file."
         msg = (
-            f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
-            "These cell arrays define the i/j/k blocking and are required by "
-            "the cast; do not exclude them via selected_cell_arrays."
+            f"Cannot rebuild an ExplicitStructuredGrid without {missing}, which define its "
+            f"i/j/k blocking in a file with no stored dimensions. {advice}"
         )
         raise ValueError(msg)
 

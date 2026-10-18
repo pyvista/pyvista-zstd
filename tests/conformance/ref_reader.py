@@ -18,6 +18,7 @@ properties are easy to get wrong and are asserted here rather than assumed:
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 import struct
@@ -110,7 +111,8 @@ def read_frames(path: Path | str) -> list[Frame]:
     dctx = zstd.ZstdDecompressor()
     frames: list[Frame] = []
     for start, end, size in zip(starts, ends, sizes, strict=True):
-        data = dctx.decompress(raw[start:end], max_output_size=max(size, 1) + 4096)
+        # A payload may hold several frames back to back (spec 3.3); one-shot decompress stops at the first.
+        data = dctx.stream_reader(io.BytesIO(raw[start:end]), read_across_frames=True).read()
         if len(data) != size:
             msg = f"frame at [{start}, {end}) yielded {len(data)} bytes, index declares {size}"
             raise ValueError(msg)

@@ -30,6 +30,11 @@
       
       
         
+          Reader.read_array
+        
+      
+      
+        
           Reader.show_frame_compression
         
       
@@ -60,7 +65,22 @@
       
       
         
+          Reader.compressed_nbytes
+        
+      
+      
+        
+          Reader.dataset_metadata
+        
+      
+      
+        
           Reader.decompressed_sizes
+        
+      
+      
+        
+          Reader.file_metadata
         
       
       

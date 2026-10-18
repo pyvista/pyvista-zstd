@@ -298,6 +298,15 @@ Three JSON documents, each stored as a frame:
   `separators=(",", ":")`, i.e. no whitespace (`:226`).
 - **`DataSetMetadata`** (`:272-300`) under `__ds_metadata` (`:92`).
 - **`MultiBlockMetadata`** (`:239-241`) under `__multiblock__ds_metadata` (`:93`).
+  Fields: `uid`, `children` (child UIDs in block order, `EMPTY_DS` for a
+  `None` block), `children_keys` (block names), `children_ds` (always `null`
+  on disk), and the optional `field_data_keys`.
+
+A MultiBlock's own field arrays are stored like a dataset's, as
+`<uid><name>__field_data` frames under the MultiBlock's UID, and listed in its
+`field_data_keys` with the same `{"shape": [...], "dtype": "..."}` entries as
+`DataSetMetadata`. The member is omitted when the MultiBlock has no field
+arrays, because earlier readers reject an unknown member.
 
 Readers ignore metadata members they do not recognise; releases up to 0.5.0
 refuse them with a `TypeError`. A writer that adds a member older readers must

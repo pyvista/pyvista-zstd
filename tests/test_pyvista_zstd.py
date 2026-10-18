@@ -1209,19 +1209,62 @@ def test_empty_structured_grid_round_trip(
         assert out.n_cells == 0
 
 
-@pytest.mark.parametrize("dimensions", [(10, 10, 10), (2, 2, 2)])
-def test_esgrid_dimensions_must_match_points(
+@pytest.mark.parametrize("dimensions", [(10, 10, 10), (2, 2, 2), (2, 6, 10)])
+def test_esgrid_dimensions_must_match_cells(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dimensions: tuple[int, int, int]
 ) -> None:
-    """Reading an ExplicitStructuredGrid whose stored dimensions disagree with its points raises."""
+    """An ExplicitStructuredGrid's dimensions must describe its stored cells."""
     esgrid = _make_esgrid("cast")
     filename = tmp_path / "esgrid.pv"
     with monkeypatch.context() as patch:
         patch.setattr(ExplicitStructuredGrid, "dimensions", property(lambda _: dimensions))
         pyvista_zstd.write(esgrid, filename)
 
-    with pytest.raises(ValueError, match=rf"dimensions {re.escape(str(dimensions))} do not match its 120 points"):
+    with pytest.raises(ValueError, match=rf"dimensions {re.escape(str(dimensions))} do not match its 60 cells"):
         pyvista_zstd.read(filename)
+
+
+@pytest.mark.parametrize("dimensions", [(0, 0, 10), (-1, -1, 2), (1, 1)])
+def test_esgrid_invalid_dimensions_without_cells(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dimensions: tuple[int, ...]
+) -> None:
+    """Only three positive dimensions or the canonical empty extent are accepted."""
+    esgrid = ExplicitStructuredGrid()
+    esgrid.SetExtent(0, 0, 0, 0, 0, 0)
+    esgrid.points = np.zeros((1, 3))
+    filename = tmp_path / "esgrid.pv"
+    with monkeypatch.context() as patch:
+        patch.setattr(ExplicitStructuredGrid, "dimensions", property(lambda _: dimensions))
+        pyvista_zstd.write(esgrid, filename)
+
+    with pytest.raises(ValueError, match=rf"dimensions {re.escape(str(dimensions))} do not match its 0 cells"):
+        pyvista_zstd.read(filename)
+
+
+@pytest.mark.parametrize("source", ["file", "buffer"])
+@pytest.mark.parametrize("force_int32", [True, False])
+def test_esgrid_independent_points_round_trip(tmp_path: Path, source: str, *, force_int32: bool) -> None:
+    """Explicit cells can have independent corners with point and cell data."""
+    esgrid = (
+        pv.ImageData(dimensions=(3, 2, 2))
+        .cast_to_structured_grid()
+        .cast_to_explicit_structured_grid()
+        .cast_to_unstructured_grid()
+        .explode(0.1)
+        .cast_to_explicit_structured_grid()
+    )
+    esgrid.point_data["point_ids"] = np.arange(esgrid.n_points, dtype=np.int32)
+    esgrid.cell_data["values"] = np.array([10.0, 20.0])
+    esgrid.field_data["label"] = np.array(["independent corners"])
+    assert esgrid.dimensions == (3, 2, 2)
+    assert esgrid.n_points > np.prod(esgrid.dimensions)
+    filename = tmp_path / "independent_points.pv"
+    pyvista_zstd.write(esgrid, filename, force_int32=force_int32)
+
+    out = pyvista_zstd.read(filename) if source == "file" else pyvista_zstd.read_buffer(filename.read_bytes())
+
+    assert out == esgrid
+    _assert_esgrid_round_trip(out, esgrid)
 
 
 def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:

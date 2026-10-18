@@ -66,6 +66,8 @@ from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Sequence
+
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
@@ -260,16 +262,16 @@ class DataSetMetadata:
     cell_data_active_texture_coordinates_name: str | None = None
     cell_data_active_normals_name: str | None = None
 
-    # Optional grid metadata
+    # Optional grid metadata; dimensions and offset describe every structured dataset
     dimensions: tuple[int, int, int] | None = None
     origin: tuple[float, float, float] | None = None
     spacing: tuple[float, float, float] | None = None
     direction_matrix: list[list[float]] | None = None
-    offset: int | None = None
+    offset: tuple[int, int, int] | None = None
     faces_connectivity_flags_array_name: str | None = None
 
     @classmethod
-    def from_dataset(  # noqa: C901, PLR0913
+    def from_dataset(  # noqa: C901, PLR0912, PLR0913
         cls,
         ds: pv.DataSet,
         point_info: dict[str, ArrayInfo],
@@ -346,19 +348,20 @@ class DataSetMetadata:
             "cell_data_active_normals_name": cell_active[_ACTIVE_NORMALS],
         }
 
+        # Only structured datasets have dimensions; older pyvista lacks offset on some, so read the extent.
+        if hasattr(ds, "dimensions"):
+            kwargs["dimensions"] = ds.dimensions
+            kwargs["offset"] = tuple(ds.offset) if hasattr(ds, "offset") else ds.GetExtent()[::2]
         if isinstance(ds, pv.ImageData):
             kwargs.update(
-                dimensions=ds.dimensions,
                 origin=ds.origin,
                 spacing=ds.spacing,
                 direction_matrix=ds.direction_matrix.tolist(),
-                offset=ds.offset,
             )
         elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
-            kwargs["dimensions"] = ds.dimensions
             if not ds.n_points:
                 # Store either grid without points as empty; a default ExplicitStructuredGrid's extent is uninitialised.
-                kwargs.update(dimensions=(0, 0, 0), n_cells=0)
+                kwargs.update(dimensions=(0, 0, 0), offset=(0, 0, 0), n_cells=0)
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
@@ -1087,7 +1090,7 @@ def _segments_to_esgrid(
         return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
     points = segments[f"{ds_id}{POINTS_KEY}"]
-    # SetDimensions allocates a cell for every i/j/k position, so check the size first.
+    # SetExtent allocates a cell for every i/j/k position, so check the size first.
     if math.prod(metadata.dimensions) != len(points):
         msg = (
             f"ExplicitStructuredGrid dimensions {tuple(metadata.dimensions)} do not match its "
@@ -1096,7 +1099,8 @@ def _segments_to_esgrid(
         raise ValueError(msg)
 
     esgrid = ExplicitStructuredGrid()
-    esgrid.SetDimensions(*metadata.dimensions)
+    # Set before the cells, which vtkExplicitStructuredGrid.SetExtent replaces.
+    esgrid.SetExtent(*_extent(metadata.dimensions, metadata.offset))
     esgrid.points = points
     cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
     if cells is not None:
@@ -1141,9 +1145,22 @@ def _segments_to_esgrid_by_blocking(
     return ugrid.cast_to_explicit_structured_grid()
 
 
+def _extent(dimensions: Sequence[int], offset: Sequence[int] | None) -> tuple[int, ...]:
+    """Return the extent of a grid with these dimensions starting at offset, which defaults to 0."""
+    starts = (0, 0, 0) if offset is None else offset
+    return tuple(bound for start, dim in zip(starts, dimensions, strict=True) for bound in (start, start + dim - 1))
+
+
+def _apply_offset(ds: StructuredGrid | RectilinearGrid, metadata: DataSetMetadata) -> None:
+    """Shift a structured grid's extent to start at its stored offset."""
+    if metadata.offset is not None and any(metadata.offset):
+        ds.SetExtent(*_extent(ds.dimensions, metadata.offset))
+
+
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:
     sgrid = StructuredGrid(segments[f"{ds_id}{POINTS_KEY}"])
     sgrid.dimensions = metadata.dimensions
+    _apply_offset(sgrid, metadata)
     return sgrid
 
 
@@ -1217,7 +1234,7 @@ def _metadata_to_imagedata(metadata: DataSetMetadata) -> ImageData:
     )
 
 
-def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
+def _segments_to_rgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> RectilinearGrid:
     if f"{ds_id}{RGRID_X_SUFFIX}" in segments:
         rgrid = RectilinearGrid(
             segments.get(f"{ds_id}{RGRID_X_SUFFIX}"),
@@ -1227,6 +1244,7 @@ def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
     else:
         rgrid = RectilinearGrid()
 
+    _apply_offset(rgrid, metadata)
     return rgrid
 
 
@@ -1935,7 +1953,7 @@ class Reader:
         elif ds_type == "PointSet":
             ds = _segments_to_pointset(ds_id, segments)
         elif ds_type == "RectilinearGrid":
-            ds = _segments_to_rgrid(ds_id, segments)
+            ds = _segments_to_rgrid(ds_id, segments, ds_metadata)
         elif ds_type == "StructuredGrid":
             ds = _segments_to_sgrid(ds_id, segments, ds_metadata)
         elif ds_type == "ExplicitStructuredGrid":

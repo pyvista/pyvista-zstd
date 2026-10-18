@@ -319,8 +319,9 @@ members, which they splice rather than regenerate, but rebuild
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
 normals, for both point and cell data), and the optional grid fields:
-`dimensions` for ImageData, StructuredGrid and ExplicitStructuredGrid,
-`origin`, `spacing`, `direction_matrix`, `offset` for ImageData only, and
+`dimensions` and `offset` (the extent's start) for every structured dataset
+(ImageData, RectilinearGrid, StructuredGrid and ExplicitStructuredGrid),
+`origin`, `spacing`, `direction_matrix` for ImageData only, and
 `faces_connectivity_flags_array_name` for ExplicitStructuredGrid only.
 
 The active-attribute names are easy to overlook and are **observable
@@ -420,11 +421,13 @@ ExplicitStructuredGrid, and MultiBlock.
 StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
 and the `cells_connectivity` frame with a fixed cell size of 8 (with
 `cells_offset` instead when the grid has no cells), and records
-`faces_connectivity_flags_array_name` when the grid has one. Both record
-`dimensions` in `__ds_metadata`, stored as `(0, 0, 0)` with no cells for a grid
-without points. The reader converts ExplicitStructuredGrid
-connectivity to storage as wide as `vtkIdType` (fixed-size where VTK supports
-it), the only width `vtkExplicitStructuredGrid` reads cell points from correctly
+`faces_connectivity_flags_array_name` when the grid has one. Either grid without
+points is stored with zero `dimensions` and `offset` and no cells. The reader
+sets the extent of every structured dataset from its dimensions (its coordinate
+arrays, for RectilinearGrid) and the stored `offset`; a file with no `offset` reads back with an extent starting at 0. The
+reader converts ExplicitStructuredGrid connectivity to storage as wide as
+`vtkIdType` (fixed-size where VTK supports it), the only width
+`vtkExplicitStructuredGrid` reads cell points from correctly
 ([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An
 ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
 its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.

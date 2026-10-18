@@ -148,7 +148,8 @@ ceiling belongs beside the decoder it describes -- a binding that kept its own
 copy would refuse files the library can read, or accept files it cannot.
 
 The version is promoted by the _writer_ only when it actually uses an optional
-feature — the `ZstdFileMetadata` default is the legacy
+feature or a metadata member older readers must act on (§4) — the
+`ZstdFileMetadata` default is the legacy
 `FILE_VERSION_UNFILTERED` (`:220-222`). **A file's version therefore describes
 the features it uses, not the version of the library that wrote it.**
 
@@ -262,6 +263,35 @@ Three rules, all implemented in `cpp/src/reader.cpp` and exercised by
   refused. Relying on the allocation to throw instead is not enough: a build
   with exceptions compiled out cannot answer a throw.
 
+### 3.3 Payload sub-frames
+
+A payload index entry still names one byte range and one decompressed size,
+but the range may hold **several zstd frames back to back**. The writer splits
+any payload larger than 4 MiB into consecutive frames of 4 MiB (the last one
+shorter), each compressed on its own. The split does not change the file
+version. A conforming reader must decode **every** frame in `[start, end)` and
+must size its output from the index entry's decompressed size, never from the
+first frame's header: `ZSTD_getFrameContentSize` on the range reports only the
+first frame, and a `ZSTD_decompressStream` loop that stops at its first
+end-of-frame return has the same trap. The index does not record the split: the
+frames' own headers do, since every one of them declares its content size, and
+the content sizes add up to the entry's decompressed size.
+
+A reader that hands the whole range to `ZSTD_decompress` gets the whole payload,
+because that call consumes every frame in the range. Binding helpers often do
+not: python-zstandard's one-shot `decompress()` stops after the first frame, so
+a reader built on one must decode across frames (`read_across_frames=True`, or a
+`decompressobj()` loop). A reader that wants the
+pieces walks them with `ZSTD_findFrameCompressedSize` and
+`ZSTD_getFrameContentSize`, places each one's output after the previous one's,
+and may decompress them in parallel; that is what `pvzstd_read_array_at` and
+`pvzstd_read_arrays` do. The shuffle filter, when present, was applied to the
+payload as a whole before it was split, so it is reversed after every piece
+is in place.
+
+Header frames and the metadata documents are never split. Appended and
+streamed arrays are not split either; only `pvzstd_writer_write` does it.
+
 ## 4. Metadata
 
 Three JSON documents, each stored as a frame:
@@ -286,12 +316,20 @@ earlier) reject an unknown member; when any MultiBlock document carries it, the
 writer stamps `file_version` 3 so those readers refuse the file with
 `PVZSTD_E_VERSION` first.
 
+Readers ignore metadata members they do not recognise; releases up to 0.5.0
+refuse them with a `TypeError`. A writer that adds a member older readers must
+act on promotes `file_version` (§2), so those readers refuse the file instead
+of misreading it. The two append paths keep unrecognised `DataSetMetadata`
+members, which they splice rather than regenerate, but rebuild
+`ZstdFileMetadata` from its four known members and drop any others.
+
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
 normals, for both point and cell data), and the optional grid fields:
-`dimensions` for ImageData, StructuredGrid and ExplicitStructuredGrid,
-`origin`, `spacing`, `direction_matrix`, `offset` for ImageData only, and
+`dimensions` and `offset` (the extent's start) for every structured dataset
+(ImageData, RectilinearGrid, StructuredGrid and ExplicitStructuredGrid),
+`origin`, `spacing`, `direction_matrix` for ImageData only, and
 `faces_connectivity_flags_array_name` for ExplicitStructuredGrid only.
 
 The active-attribute names are easy to overlook and are **observable
@@ -391,13 +429,15 @@ ExplicitStructuredGrid, and MultiBlock.
 StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
 and the `cells_connectivity` frame with a fixed cell size of 8 (with
 `cells_offset` instead when the grid has no cells), and records
-`faces_connectivity_flags_array_name` when the grid has one. Both record
-`dimensions` in `__ds_metadata`, stored as `(0, 0, 0)` with no cells for a grid
-without points. An ExplicitStructuredGrid has no `celltypes` frame, and any file
+`faces_connectivity_flags_array_name` when the grid has one. Either grid without
+points is stored with zero `dimensions` and `offset` and no cells. The reader
+sets the extent of every structured dataset from its dimensions (its coordinate
+arrays, for RectilinearGrid) and the stored `offset`; a file with no `offset` reads back with an extent
+starting at 0. An ExplicitStructuredGrid has no `celltypes` frame, and any file
 holding one is stamped `file_version` 3, since earlier readers expect that
-frame. The reader converts ExplicitStructuredGrid
-connectivity to storage as wide as `vtkIdType` (fixed-size where VTK supports
-it), the only width `vtkExplicitStructuredGrid` reads cell points from correctly
+frame. The reader converts ExplicitStructuredGrid connectivity to storage as wide as
+`vtkIdType` (fixed-size where VTK supports it), the only width
+`vtkExplicitStructuredGrid` reads cell points from correctly
 ([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An
 ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
 its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.

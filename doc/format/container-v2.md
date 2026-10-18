@@ -298,6 +298,15 @@ Three JSON documents, each stored as a frame:
   `separators=(",", ":")`, i.e. no whitespace (`:226`).
 - **`DataSetMetadata`** (`:272-300`) under `__ds_metadata` (`:92`).
 - **`MultiBlockMetadata`** (`:239-241`) under `__multiblock__ds_metadata` (`:93`).
+  Fields: `uid`, `children` (child UIDs in block order, `EMPTY_DS` for a
+  `None` block), `children_keys` (block names), `children_ds` (always `null`
+  on disk), and the optional `field_data_keys`.
+
+A MultiBlock's own field arrays are stored like a dataset's, as
+`<uid><name>__field_data` frames under the MultiBlock's UID, and listed in its
+`field_data_keys` with the same `{"shape": [...], "dtype": "..."}` entries as
+`DataSetMetadata`. The member is omitted when the MultiBlock has no field
+arrays, because earlier readers reject an unknown member.
 
 Readers ignore metadata members they do not recognise; releases up to 0.5.0
 refuse them with a `TypeError`. A writer that adds a member older readers must
@@ -309,8 +318,11 @@ members, which they splice rather than regenerate, but rebuild
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,
 the eight **active-attribute** names (scalars / vectors / texture coordinates /
-normals, for both point and cell data), and the optional ImageData block
-(`dimensions`, `origin`, `spacing`, `direction_matrix`, `offset`).
+normals, for both point and cell data), and the optional grid fields:
+`dimensions` and `offset` (the extent's start) for every structured dataset
+(ImageData, RectilinearGrid, StructuredGrid and ExplicitStructuredGrid),
+`origin`, `spacing`, `direction_matrix` for ImageData only, and
+`faces_connectivity_flags_array_name` for ExplicitStructuredGrid only.
 
 The active-attribute names are easy to overlook and are **observable
 behaviour**: dropping them silently changes which array a downstream plot
@@ -403,7 +415,22 @@ kernel, the probe, and copy elision.
 PointSet, PolyData (with `polys` / `lines` / `strips` / `verts`, `:115-118`),
 UnstructuredGrid (including `polyhedron` and `polyhedron_locaction` —
 note the spelling in the source, `:111-112`), RectilinearGrid (`_x_rgrid` /
-`_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, and MultiBlock.
+`_y_rgrid` / `_z_rgrid`, `:100-102`), ImageData, StructuredGrid,
+ExplicitStructuredGrid, and MultiBlock.
+
+StructuredGrid stores the `points` frame; ExplicitStructuredGrid stores `points`
+and the `cells_connectivity` frame with a fixed cell size of 8 (with
+`cells_offset` instead when the grid has no cells), and records
+`faces_connectivity_flags_array_name` when the grid has one. Either grid without
+points is stored with zero `dimensions` and `offset` and no cells. The reader
+sets the extent of every structured dataset from its dimensions (its coordinate
+arrays, for RectilinearGrid) and the stored `offset`; a file with no `offset` reads back with an extent starting at 0. The
+reader converts ExplicitStructuredGrid connectivity to storage as wide as
+`vtkIdType` (fixed-size where VTK supports it), the only width
+`vtkExplicitStructuredGrid` reads cell points from correctly
+([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An
+ExplicitStructuredGrid file with no `dimensions` is rebuilt by casting through
+its `BLOCK_I` / `BLOCK_J` / `BLOCK_K` cell arrays.
 
 `EMPTY_DS` (`:121`) is a sentinel for an empty dataset and is 16 characters
 to align with the UID width.

@@ -1148,3 +1148,50 @@ def test_declared_int32_bounds_hold_over_the_corpus(
     for values, bound in declared:
         if values.size:
             assert int(values.max()) <= bound, f"declared bound {bound} is below the largest entry {int(values.max())}"
+
+
+def _with_unknown_key(s: str) -> str:
+    """Return the JSON document ``s`` with an extra key no release declares."""
+    raw = json.loads(s)
+    raw["unknown_future_key"] = 1
+    return json.dumps(raw)
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [
+        impl.ZstdFileMetadata(frame_names=["a", "b"], compression_level=3, file_version=2),
+        impl.MultiBlockMetadata(uid="0", children=["1"], children_keys=["block"]),
+        impl.DataSetMetadata(
+            ds_type="PolyData",
+            uid="0",
+            n_points=1,
+            points_dtype="float32",
+            n_cells=0,
+            celltypes_dtype=None,
+            point_data_keys={"a": impl.ArrayInfo(shape=(1,), dtype="float32")},
+        ),
+    ],
+    ids=lambda meta: type(meta).__name__,
+)
+def test_metadata_from_json_ignores_unknown_keys(
+    meta: impl.ZstdFileMetadata | impl.MultiBlockMetadata | impl.DataSetMetadata,
+) -> None:
+    """Test that a metadata document carrying an unknown key decodes to the original metadata."""
+    raw = json.loads(_with_unknown_key(meta.to_json()))
+    if "point_data_keys" in raw:
+        raw["point_data_keys"]["a"]["unknown_future_key"] = 1
+    assert type(meta).from_json(json.dumps(raw)).to_json() == meta.to_json()
+
+
+def test_read_ignores_unknown_metadata_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that a file whose dataset metadata carries unknown keys reads back."""
+    for cls in (impl.DataSetMetadata, impl.MultiBlockMetadata):
+        to_json = cls.to_json
+        monkeypatch.setattr(cls, "to_json", lambda self, to_json=to_json: _with_unknown_key(to_json(self)))
+    mesh = pv.Sphere()
+    mesh["values"] = np.arange(mesh.n_points)
+    pyvista_zstd.write(pv.MultiBlock({"sphere": mesh}), tmp_path / "unknown.pv")
+    monkeypatch.undo()
+
+    assert pyvista_zstd.read(tmp_path / "unknown.pv")["sphere"] == mesh

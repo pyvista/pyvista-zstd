@@ -147,7 +147,8 @@ the decoder it describes -- a binding that kept its own copy would refuse files
 the library can read, or accept files it cannot.
 
 The version is promoted by the _writer_ only when it actually uses an optional
-encoding — the `ZstdFileMetadata` default is the legacy
+encoding or a metadata member older readers must act on (§4) — the
+`ZstdFileMetadata` default is the legacy
 `FILE_VERSION_UNFILTERED` (`:220-222`). **A file's version therefore describes
 the features it uses, not the version of the library that wrote it.**
 
@@ -297,6 +298,13 @@ Three JSON documents, each stored as a frame:
   `separators=(",", ":")`, i.e. no whitespace (`:226`).
 - **`DataSetMetadata`** (`:272-300`) under `__ds_metadata` (`:92`).
 - **`MultiBlockMetadata`** (`:239-241`) under `__multiblock__ds_metadata` (`:93`).
+
+Readers ignore metadata members they do not recognise; releases up to 0.5.0
+refuse them with a `TypeError`. A writer that adds a member older readers must
+act on promotes `file_version` (§2), so those readers refuse the file instead
+of misreading it. The two append paths keep unrecognised `DataSetMetadata`
+members, which they splice rather than regenerate, but rebuild
+`ZstdFileMetadata` from its four known members and drop any others.
 
 `DataSetMetadata` carries, besides shape/dtype: per-association key maps
 (`point_data_keys`, `cell_data_keys`, `field_data_keys`), `fixed_cell_sizes`,

@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import fields
 import json
 import math
 from pathlib import Path
@@ -154,6 +155,12 @@ def _shuffle_mode(shuffle: ShuffleSpec) -> int:
     }[shuffle]
 
 
+def _known_fields(cls: type, raw: dict[str, Any]) -> dict[str, Any]:
+    """Return ``raw`` without the keys that are not fields of dataclass ``cls``."""
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in raw.items() if k in names}
+
+
 @dataclass(slots=True, frozen=True)
 class ArrayInfo:
     """Array metadata."""
@@ -180,7 +187,7 @@ class ZstdFileMetadata:
     @classmethod
     def from_json(cls, s: str) -> ZstdFileMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        return cls(**_known_fields(cls, json.loads(s)))
 
     def to_array(self) -> NDArray[np.uint8]:
         """Output as a numpy uint8 array."""
@@ -207,7 +214,7 @@ class MultiBlockMetadata:
     @classmethod
     def from_json(cls, s: str) -> MultiBlockMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        return cls(**_known_fields(cls, json.loads(s)))
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> MultiBlockMetadata:
@@ -369,13 +376,13 @@ class DataSetMetadata:
         raw = json.loads(s)
 
         def decode_mapping(m: dict[str, Any]) -> dict[str, ArrayInfo]:
-            return {k: ArrayInfo(**v) for k, v in m.items()}
+            return {k: ArrayInfo(**_known_fields(ArrayInfo, v)) for k, v in m.items()}
 
         raw["point_data_keys"] = decode_mapping(raw.get("point_data_keys", {}))
         raw["cell_data_keys"] = decode_mapping(raw.get("cell_data_keys", {}))
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
         raw["fixed_cell_sizes"] = raw.get("fixed_cell_sizes", {})
-        return cls(**raw)
+        return cls(**_known_fields(cls, raw))
 
     def to_array(self) -> NDArray[np.uint8]:
         """Output as a numpy uint8 array."""

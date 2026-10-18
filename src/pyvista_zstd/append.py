@@ -49,7 +49,6 @@ from typing import TYPE_CHECKING
 from pyvista_zstd import _capi
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import ArrayInfo
-from pyvista_zstd.pyvista_zstd import MultiBlockMetadata
 from pyvista_zstd.pyvista_zstd import Reader
 from pyvista_zstd.pyvista_zstd import _check_association
 from pyvista_zstd.pyvista_zstd import _shuffle_mode
@@ -155,6 +154,7 @@ def read_array(
     the file is never decompressed, so this stays cheap even on a
     multi-gigabyte container. Arrays of a MultiBlock's blocks are read with
     :meth:`pyvista_zstd.Reader.read_array` after indexing to the block.
+    A MultiBlock's own field arrays can be read directly.
 
     Parameters
     ----------
@@ -176,8 +176,7 @@ def read_array(
     Raises
     ------
     KeyError
-        The file has no such array, including a field array of a MultiBlock
-        file, which has no root arrays.
+        The file has no such array.
     TypeError
         The file is a MultiBlock and *association* is ``"point"`` or ``"cell"``.
     ValueError
@@ -192,14 +191,6 @@ def read_array(
             if name in append_reader:
                 return append_reader.read_array(name)
     with Reader(_checked_path(filename)) as reader:
-        if isinstance(reader.dataset_metadata, MultiBlockMetadata):
-            msg = (
-                f"'{filename}' is a MultiBlock file, which has no root arrays; "
-                "read a block's arrays with Reader(path)[i].read_array(...)."
-            )
-            if association == "field":
-                raise KeyError(msg)
-            raise TypeError(msg)
         return reader.read_array(name, association=association)
 
 

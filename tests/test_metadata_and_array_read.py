@@ -89,8 +89,7 @@ def test_dataset_metadata_and_read_array(dataset: DataSet, tmp_path: Path) -> No
     """Metadata and single-array reads agree with a full read for every dataset type."""
     path = tmp_path / "ds.pv"
     pyvista_zstd.write(dataset, path)
-    # Compare an ExplicitStructuredGrid with what was written until #71 fixes its full read; then drop this.
-    full = dataset if isinstance(dataset, pv.ExplicitStructuredGrid) else pyvista_zstd.read(path)
+    full = pyvista_zstd.read(path)
 
     with pyvista_zstd.Reader(path) as reader:
         meta = reader.dataset_metadata
@@ -156,6 +155,28 @@ def test_multiblock_metadata_and_read_array(tmp_path: Path) -> None:
             reader[1].read_array("float32", association="point")
         with pytest.raises(TypeError, match="Only dataset blocks"):
             reader[2].read_array("float32", association="point")
+
+
+def test_multiblock_field_metadata_and_read_array(tmp_path: Path) -> None:
+    """Root and nested MultiBlock fields use their own metadata and array frames."""
+    nested = pv.MultiBlock({"sphere": _populated(pv.Sphere())})
+    root = pv.MultiBlock({"nested": nested})
+    root.field_data["table"] = np.arange(6, dtype=np.int16).reshape(2, 3)
+    nested.field_data["table"] = np.arange(8, dtype=np.float32).reshape(4, 2)
+    path = tmp_path / "mb-fields.pv"
+    pyvista_zstd.write(root, path)
+
+    with pyvista_zstd.Reader(path) as reader:
+        for block_reader, block in ((reader, root), (reader[0], nested)):
+            expected = block.field_data["table"]
+            info = block_reader.dataset_metadata.field_data_keys["table"]
+            assert info == pyvista_zstd.ArrayInfo(expected.shape, str(expected.dtype))
+            _assert_same_array(block_reader.read_array("table", association="field"), expected)
+        with pytest.raises(KeyError, match="field array 'missing' not found"):
+            reader[0].read_array("missing", association="field")
+        with pytest.raises(TypeError, match="Only dataset blocks"):
+            reader[0].read_array("table", association="cell")
+    _assert_same_array(pyvista_zstd.read_array(path, "table"), root.field_data["table"])
 
 
 @pytest.mark.parametrize(
@@ -252,10 +273,11 @@ def test_points_dtype_of_older_files() -> None:
 
 @pytest.mark.parametrize(("association", "error"), [("field", KeyError), ("point", TypeError), ("cell", TypeError)])
 def test_read_array_function_multiblock(tmp_path: Path, association: str, error: type[Exception]) -> None:
-    """The module-level read_array says a MultiBlock file has no root arrays."""
+    """A MultiBlock's child arrays must be read by indexing to the child."""
     path = tmp_path / "mb.pv"
     pyvista_zstd.write(pv.MultiBlock({"sphere": _populated(pv.Sphere())}), path)
-    with pytest.raises(error, match="is a MultiBlock file"):
+    message = "field array 'time' not found" if association == "field" else "A MultiBlock file"
+    with pytest.raises(error, match=message):
         pyvista_zstd.read_array(path, "time", association=association)
 
 

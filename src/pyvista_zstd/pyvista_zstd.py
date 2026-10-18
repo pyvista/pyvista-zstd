@@ -256,6 +256,8 @@ class MultiBlockMetadata:
     children_ds : dict[str, MultiBlockMetadata | DataSetMetadata | None] | None
         Metadata of each child keyed by identifier. ``None`` values are empty
         blocks.
+    field_data_keys : dict[str, ArrayInfo]
+        Shape and dtype of this MultiBlock's own field arrays.
 
     """
 
@@ -283,7 +285,7 @@ class MultiBlockMetadata:
         """Create from JSON."""
         raw = json.loads(s)
         raw["field_data_keys"] = {
-            k: ArrayInfo(**_known_fields(ArrayInfo, v)) for k, v in raw.get("field_data_keys", {}).items()
+            k: ArrayInfo(shape=tuple(v["shape"]), dtype=v["dtype"]) for k, v in raw.get("field_data_keys", {}).items()
         }
         return cls(**_known_fields(cls, raw))
 
@@ -335,13 +337,15 @@ class DataSetMetadata:
     cell_data_active_texture_coordinates_name, cell_data_active_normals_name : str | None
         Active cell texture coordinates and normals.
     dimensions : tuple[int, int, int] | None
-        Dimensions of an :class:`pyvista.ImageData` or :class:`pyvista.StructuredGrid`.
+        Dimensions of a structured dataset.
     origin, spacing : tuple[float, float, float] | None
         Origin and spacing of an :class:`pyvista.ImageData`.
     direction_matrix : list[list[float]] | None
         Direction matrix of an :class:`pyvista.ImageData`.
     offset : tuple[int, int, int] | None
-        Index offset of an :class:`pyvista.ImageData`.
+        Extent offset of a structured dataset.
+    faces_connectivity_flags_array_name : str | None
+        Connectivity flags array name of an :class:`pyvista.ExplicitStructuredGrid`.
 
     """
 
@@ -1503,9 +1507,11 @@ def _check_association(association: str) -> None:
         raise ValueError(msg)
 
 
-def _association_arrays(meta: DataSetMetadata, association: str) -> dict[str, ArrayInfo]:
+def _association_arrays(meta: DataSetMetadata | MultiBlockMetadata, association: str) -> dict[str, ArrayInfo]:
     """Return the arrays of *meta* that belong to *association*."""
     _check_association(association)
+    if isinstance(meta, MultiBlockMetadata) and association != "field":
+        return {}
     return getattr(meta, f"{association}_data_keys")
 
 
@@ -1555,8 +1561,8 @@ class _DataSetReader:
     def read_array(self, name: str, *, association: Association) -> NDArray[Any]:
         """Decompress one named array of this block; see :meth:`Reader.read_array`."""
         _check_association(association)
-        if not isinstance(self._meta, DataSetMetadata):
-            msg = "Only dataset blocks have arrays; index a MultiBlock node further."
+        if self._meta is None or (isinstance(self._meta, MultiBlockMetadata) and association != "field"):
+            msg = "Only dataset blocks have point and cell arrays; index a MultiBlock node further."
             raise TypeError(msg)
         return self._parent._read_array(self._meta, name, association)  # noqa: SLF001
 
@@ -1892,6 +1898,7 @@ class Reader:
 
         A block of a MultiBlock file is read the same way after indexing to it,
         as in ``reader[0].read_array(name, association="point")``.
+        A MultiBlock node's own field arrays use ``association="field"``.
 
         Parameters
         ----------
@@ -1910,7 +1917,8 @@ class Reader:
         KeyError
             The dataset has no such array.
         TypeError
-            The file is a MultiBlock; index it to a block first.
+            The file is a MultiBlock and the association is point or cell;
+            index it to a dataset block first.
         ValueError
             *association* is not one of the three above.
 
@@ -1925,12 +1933,12 @@ class Reader:
 
         """
         _check_association(association)
-        if isinstance(self._ds_metadata, MultiBlockMetadata):
-            msg = "A MultiBlock file has no root arrays; read a block's arrays with reader[i].read_array(...)."
+        if isinstance(self._ds_metadata, MultiBlockMetadata) and association != "field":
+            msg = "A MultiBlock file has no point or cell arrays; read a block's arrays with reader[i].read_array(...)."
             raise TypeError(msg)
         return self._read_array(self._ds_metadata, name, association)
 
-    def _read_array(self, meta: DataSetMetadata, name: str, association: str) -> NDArray[Any]:
+    def _read_array(self, meta: DataSetMetadata | MultiBlockMetadata, name: str, association: str) -> NDArray[Any]:
         """Decompress the named array of the dataset *meta* describes."""
         arrays = _association_arrays(meta, association)
         if name not in arrays:

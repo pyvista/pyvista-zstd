@@ -197,10 +197,11 @@ inline pvzstd_status CompressFrame(const uint8_t *src, uint64_t n, int level, in
   return PVZSTD_OK;
 }
 
-// Matches json.dumps' default escaping, except that non-ASCII is written as raw
-// UTF-8: the pyvista-zstd 0.5.0 core cannot parse a \u escape above ASCII, so it
-// would not find file_version past such a name and would skip its version ceiling
-// instead of refusing a version 3 file.
+// Escapes '"', '\\', \n, \r and \t as json.dumps does and other control
+// characters as \u00XX, and writes everything else raw, non-ASCII included:
+// pyvista-zstd cores up to 0.6.0 cannot parse a \u escape above ASCII, so they
+// would not find file_version past such a name and would skip their version
+// ceiling instead of refusing a version 3 file.
 inline void AppendJsonString(std::string *out, const std::string &s) {
   out->push_back('"');
   for (const char c : s) {

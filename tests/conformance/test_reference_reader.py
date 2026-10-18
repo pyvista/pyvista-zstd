@@ -232,8 +232,8 @@ def test_version_3_file_metadata_keeps_non_ascii_names_raw(tmp_path, kind) -> No
     """
     The file-metadata frame stores non-ASCII names as raw UTF-8, not as JSON escapes.
 
-    The pyvista-zstd 0.5.0 core cannot parse such an escape, so it would not
-    find ``file_version`` past one and would read a version 3 file it must refuse.
+    Cores up to pyvista-zstd 0.6.0 cannot parse such an escape, so they would not
+    find ``file_version`` past one and would read a version 3 file they must refuse.
     """
     path = tmp_path / "non_ascii.pv"
     pz.write(_non_ascii_version_3_dataset(kind), path, progress_bar=False)

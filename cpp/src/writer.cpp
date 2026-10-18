@@ -60,7 +60,8 @@ bool IsJsonObject(const std::string &json) {
   return !pvzstd::json::SkipWs(json, &i);
 }
 
-// Whether the member `key` is an array holding a non-zero number.
+// Whether the member `key` is an array with a digit 1-9 before its first ']',
+// which for the flat integer arrays json.dumps writes means a non-zero entry.
 bool MemberArrayHasNonZero(const std::string &json, const char *key) {
   size_t i = pvzstd::json::FindMember(json, key);
   if (i == std::string::npos || i >= json.size() || json[i] != '[') return false;

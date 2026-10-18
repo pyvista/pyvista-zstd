@@ -311,10 +311,10 @@ A MultiBlock's own field arrays are stored like a dataset's, as
 `<uid><name>__field_data` frames under the MultiBlock's UID, and listed in its
 `field_data_keys` with the same `{"shape": [...], "dtype": "..."}` entries as
 `DataSetMetadata`. The member is omitted when the MultiBlock has no field
-arrays, because readers whose ceiling is below 3 (pyvista-zstd 0.5.0 and
-earlier) reject an unknown member; when any MultiBlock document carries it, the
-writer stamps `file_version` 3 so those readers refuse the file with
-`PVZSTD_E_VERSION` first.
+arrays, so such a file keeps its version and older releases still read it. When
+any MultiBlock document carries it, the writer stamps `file_version` 3, and
+readers with a lower ceiling refuse the file with `PVZSTD_E_VERSION`
+(pyvista-zstd 0.5.0 would otherwise fail on the member with a `TypeError`).
 
 Readers ignore metadata members they do not recognise; releases up to 0.5.0
 refuse them with a `TypeError`. A writer that adds a member older readers must

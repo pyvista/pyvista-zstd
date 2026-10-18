@@ -24,7 +24,7 @@ On-disk layout
 Appended arrays are recorded so they round-trip through an ordinary read: their
 frames join the body and index, their names join the file metadata, and they are
 registered as ``field_data`` on the root dataset (under the ``…__field_data``
-suffix) so :pyattr:`Reader.available_field_arrays` and :meth:`Reader.read`
+suffix) so :attr:`Reader.available_field_arrays` and :meth:`Reader.read`
 surface them with no reader change.
 
 Crash safety
@@ -46,11 +46,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from pyvista_zstd import _capi
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import ArrayInfo
+from pyvista_zstd.pyvista_zstd import Reader
+from pyvista_zstd.pyvista_zstd import _check_association
 from pyvista_zstd.pyvista_zstd import _shuffle_mode
 from pyvista_zstd.pyvista_zstd import _warn_backend_deprecated
 
@@ -60,6 +60,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from numpy.typing import NDArray
 
     from pyvista_zstd._capi import CoreReader
+    from pyvista_zstd.pyvista_zstd import Association
     from pyvista_zstd.pyvista_zstd import ShuffleSpec
 
 __all__ = [
@@ -125,7 +126,7 @@ def append_arrays(
     -----
     The appended blocks become visible as ``field_data`` arrays:
     :meth:`pyvista_zstd.Reader.read` returns them in ``grid.field_data`` and
-    :pyattr:`pyvista_zstd.Reader.available_field_arrays` lists them. Use
+    :attr:`pyvista_zstd.Reader.available_field_arrays` lists them. Use
     :func:`read_array` / :class:`AppendReader` to read one block back without
     decompressing the rest of the file.
 
@@ -143,22 +144,27 @@ def read_array(
     filename: Path | str,
     name: str,
     *,
+    association: Association = "field",
     backend: str | None = None,
 ) -> NDArray:
     """
-    Read a single appended (field) array back without full decompression.
+    Read a single array back without full decompression.
 
     Decompresses exactly the two frames of the named block - the rest of
     the file is never decompressed, so this stays cheap even on a
-    multi-gigabyte container.
+    multi-gigabyte container. Arrays of a MultiBlock's blocks are read with
+    :meth:`pyvista_zstd.Reader.read_array` after indexing to the block.
+    A MultiBlock's own field arrays can be read directly.
 
     Parameters
     ----------
     filename : pathlib.Path | str
         Path to a ``.pv`` file.
     name : str
-        Field-array name (the key passed to :func:`append_arrays`, or any
-        field-data key present in the file).
+        Array name. For field data this is the key passed to
+        :func:`append_arrays` or any field-data key in the file.
+    association : {"field", "point", "cell"}, default: "field"
+        Data the array belongs to.
     backend : str, optional
         Deprecated and ignored; passing it raises a :class:`DeprecationWarning`.
 
@@ -167,9 +173,25 @@ def read_array(
     numpy.ndarray
         The stored array, bit-exact.
 
+    Raises
+    ------
+    KeyError
+        The file has no such array.
+    TypeError
+        The file is a MultiBlock and *association* is ``"point"`` or ``"cell"``.
+    ValueError
+        *association* is not ``"field"``, ``"point"`` or ``"cell"``.
+
     """
     _warn_backend_deprecated(backend)
-    return AppendReader(filename).read_array(name)
+    _check_association(association)
+    # AppendReader serves field arrays without the legacy-format FutureWarning that Reader raises on .zvtk files.
+    if association == "field":
+        with AppendReader(filename) as append_reader:
+            if name in append_reader:
+                return append_reader.read_array(name)
+    with Reader(_checked_path(filename)) as reader:
+        return reader.read_array(name, association=association)
 
 
 class AppendReader:
@@ -246,19 +268,19 @@ class AppendReader:
         Taken from the frame header, which is what the payload is read against.
         """
         reader = self._core_reader
+        entries = reader._array_catalog()[0]  # noqa: SLF001
         info: dict[str, ArrayInfo] = {}
         for name in reader.field_array_names():
             index = reader.find_field(name)
             if index is None:  # pragma: no cover - metadata and index disagree
                 continue
-            header = reader._info(index)  # noqa: SLF001
-            shape = tuple(int(header.shape[i]) for i in range(header.ndim))
-            info[name] = ArrayInfo(shape=shape, dtype=str(np.dtype(header.dtype.decode("utf-8"))))
+            _, dtype, shape = entries[index]
+            info[name] = ArrayInfo(shape=shape, dtype=str(dtype))
         return info
 
     def __contains__(self, name: str) -> bool:
         """Return whether field array ``name`` is present."""
-        return name in self._core_reader.field_array_names()
+        return self._core_reader.find_field(name) is not None
 
     def read_array(self, name: str) -> NDArray:
         """Decompress and return the single field array ``name``."""
@@ -270,8 +292,19 @@ class AppendReader:
         return self._core_reader.read_at(index)
 
     def read_arrays(self, names: Iterable[str]) -> dict[str, NDArray]:
-        """Decompress and return several field arrays by name."""
-        return {n: self.read_array(n) for n in names}
+        """Decompress and return several field arrays by name, in one parallel pass."""
+        reader = self._core_reader
+        entries = reader._array_catalog()[0]  # noqa: SLF001
+        frame_of: dict[str, str] = {}
+        for name in names:
+            index = reader.find_field(name)
+            if index is None:
+                available = sorted(reader.field_array_names())
+                msg = f"field array {name!r} not found; available: {available}"
+                raise KeyError(msg)
+            frame_of[name] = entries[index][0]
+        arrays = reader.read_arrays(keep=set(frame_of.values()))
+        return {name: arrays[frame] for name, frame in frame_of.items()}
 
     def close(self) -> None:
         """Release the file. Further reads reopen it."""

@@ -11,11 +11,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import fields
 import json
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
+from typing import cast
 import warnings
 
 import numpy as np
@@ -37,16 +40,22 @@ from pyvista_zstd.thumbnail import _thumbnail_png
 # on a stock install and correct on the others.  That module was added in
 # pyvista 0.48; before then the same names lived in ``pyvista.core._vtk_core``.
 try:  # pyvista >= 0.48
+    from pyvista._vtk import get_vtk_array_type
     from pyvista._vtk import numpy_to_vtk
     from pyvista._vtk import vtk_to_numpy
     from pyvista._vtk import vtkCellArray
+    from pyvista._vtk import vtkDataArray
+    from pyvista._vtk import vtkPoints
     from pyvista._vtk import vtkPointSet
     from pyvista._vtk import vtkTypeInt32Array
     from pyvista._vtk import vtkTypeInt64Array
 except ModuleNotFoundError:  # pyvista < 0.48
+    from pyvista.core._vtk_core import get_vtk_array_type
     from pyvista.core._vtk_core import numpy_to_vtk
     from pyvista.core._vtk_core import vtk_to_numpy
     from pyvista.core._vtk_core import vtkCellArray
+    from pyvista.core._vtk_core import vtkDataArray
+    from pyvista.core._vtk_core import vtkPoints
     from pyvista.core._vtk_core import vtkPointSet
     from pyvista.core._vtk_core import vtkTypeInt32Array
     from pyvista.core._vtk_core import vtkTypeInt64Array
@@ -60,14 +69,16 @@ from pyvista.core.pointset import StructuredGrid
 from pyvista.core.pointset import UnstructuredGrid
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Sequence
+
     from numpy.typing import NDArray
     from pyvista.core.dataset import DataSet
 
     from pyvista_zstd._capi import CoreReader
 
 # Highest on-disk format version this library can READ. Version 1 added the
-# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The
-# core enforces the ceiling; this constant only publishes it.
+# optional byte-shuffle pre-filter, version 2 fixed-width cell arrays. The core
+# enforces the ceiling; this constant only publishes it.
 FILE_VERSION = 2
 # Version stamped on files that use neither byte filters nor fixed-width cell
 # arrays. Such files stay byte-identical to the legacy format and remain
@@ -79,7 +90,7 @@ FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"
 CELL_DATA_SUFFIX = "__cell_data"
-# The cell arrays an ExplicitStructuredGrid needs to be cast back into one.
+# Cell arrays that rebuild an ExplicitStructuredGrid from a file with no stored dimensions.
 ESGRID_BLOCK_KEYS = ("BLOCK_I", "BLOCK_J", "BLOCK_K")
 FIELD_DATA_SUFFIX = "__field_data"
 IMAGE_DATA_SUFFIX = "__image_data"
@@ -137,6 +148,13 @@ _FILTER_SHUFFLE = 1
 
 ShuffleSpec = Literal["auto", True, False]
 
+Association = Literal["point", "cell", "field"]
+_ASSOCIATION_SUFFIXES: dict[str, str] = {
+    "point": POINT_DATA_SUFFIX,
+    "cell": CELL_DATA_SUFFIX,
+    "field": FIELD_DATA_SUFFIX,
+}
+
 
 def _shuffle_mode(shuffle: ShuffleSpec) -> int:
     """Translate the API spelling to the core's policy enum."""
@@ -147,9 +165,25 @@ def _shuffle_mode(shuffle: ShuffleSpec) -> int:
     }[shuffle]
 
 
+def _known_fields(cls: type, raw: dict[str, Any]) -> dict[str, Any]:
+    """Return ``raw`` without the keys that are not fields of dataclass ``cls``."""
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in raw.items() if k in names}
+
+
 @dataclass(slots=True, frozen=True)
 class ArrayInfo:
-    """Array metadata."""
+    """
+    Shape and dtype of one stored array, known without decompressing it.
+
+    Attributes
+    ----------
+    shape : tuple[int, ...]
+        Array shape.
+    dtype : str
+        NumPy dtype name, such as ``"float32"``.
+
+    """
 
     shape: tuple[int, ...]
     dtype: str
@@ -157,7 +191,27 @@ class ArrayInfo:
 
 @dataclass(slots=True, frozen=True)
 class ZstdFileMetadata:
-    """pyvista-zstd file metadata."""
+    """
+    File-level facts of a pyvista-zstd container.
+
+    Returned by :attr:`pyvista_zstd.Reader.file_metadata`. The attributes are
+    the supported interface; the JSON and array conversions serve the file
+    format.
+
+    Attributes
+    ----------
+    frame_names : list[str]
+        Stored name of every array and dataset-metadata document, in file
+        order; the file-metadata document itself is not listed. Each name
+        starts with the 16-character identifier of its dataset.
+    compression_level : int
+        Zstandard level the file was written with.
+    compression : str
+        Compression algorithm, ``"zstandard"``.
+    file_version : int
+        On-disk format version.
+
+    """
 
     frame_names: list[str]
     compression_level: int
@@ -173,7 +227,7 @@ class ZstdFileMetadata:
     @classmethod
     def from_json(cls, s: str) -> ZstdFileMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        return cls(**_known_fields(cls, json.loads(s)))
 
     def to_array(self) -> NDArray[np.uint8]:
         """Output as a numpy uint8 array."""
@@ -183,7 +237,31 @@ class ZstdFileMetadata:
 
 @dataclass
 class MultiBlockMetadata:
-    """MultiBlock metadata."""
+    """
+    Metadata of a stored :class:`pyvista.MultiBlock`.
+
+    Returned by :attr:`pyvista_zstd.Reader.dataset_metadata` for a MultiBlock
+    file, with :attr:`children_ds` filled in down the whole tree. The
+    attributes are the supported interface; the JSON and array conversions
+    serve the file format.
+
+    Attributes
+    ----------
+    ds_type : str
+        ``"MultiBlock"``.
+    uid : str
+        Identifier of this block within the file.
+    children : list[str]
+        Identifier of each child, in block order.
+    children_keys : list[str]
+        Name of each child, in block order.
+    children_ds : dict[str, MultiBlockMetadata | DataSetMetadata | None] | None
+        Metadata of each child keyed by identifier. ``None`` values are empty
+        blocks.
+    field_data_keys : dict[str, ArrayInfo]
+        Shape and dtype of this MultiBlock's own field arrays.
+
+    """
 
     uid: str
     children: list[str]
@@ -193,14 +271,25 @@ class MultiBlockMetadata:
     # optional and used for ds reader
     children_ds: dict[str, MultiBlockMetadata | DataSetMetadata | None] | None = None
 
+    # the MultiBlock's own field arrays, omitted from the JSON when empty
+    field_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
+
     def to_json(self) -> str:
         """Convert to JSON."""
-        return json.dumps(asdict(self), separators=(",", ":"))
+        raw = asdict(self)
+        # Omitted when empty: pyvista-zstd 0.5.0 and earlier reject unknown members.
+        if not raw["field_data_keys"]:
+            del raw["field_data_keys"]
+        return json.dumps(raw, separators=(",", ":"))
 
     @classmethod
     def from_json(cls, s: str) -> MultiBlockMetadata:
         """Create from JSON."""
-        return cls(**json.loads(s))
+        raw = json.loads(s)
+        raw["field_data_keys"] = {
+            k: ArrayInfo(shape=tuple(v["shape"]), dtype=v["dtype"]) for k, v in raw.get("field_data_keys", {}).items()
+        }
+        return cls(**_known_fields(cls, raw))
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> MultiBlockMetadata:
@@ -214,9 +303,53 @@ class MultiBlockMetadata:
         return np.frombuffer(meta_bytes, dtype=np.uint8)
 
 
+# Files written before 0.6 store the points dtype as the repr of its NumPy type.
+_LEGACY_POINTS_DTYPES = {"<class 'numpy.float32'>": "float32", "<class 'numpy.float64'>": "float64"}
+
+
 @dataclass(slots=True, frozen=True)
 class DataSetMetadata:
-    """DataSet metadata."""
+    """
+    Metadata of one stored dataset, known without decompressing its arrays.
+
+    Returned by :attr:`pyvista_zstd.Reader.dataset_metadata`. The attributes
+    are the supported interface; the JSON and array conversions serve the
+    file format.
+
+    Attributes
+    ----------
+    ds_type : str
+        Dataset class name, such as ``"UnstructuredGrid"``.
+    uid : str
+        Identifier of this dataset within the file.
+    n_points, n_cells : int
+        Number of points and cells.
+    points_dtype, celltypes_dtype : str | None
+        Dtype of the points and cell types, when the dataset stores them.
+    point_data_keys, cell_data_keys, field_data_keys : dict[str, ArrayInfo]
+        Shape and dtype of each point, cell and field array, by name.
+    fixed_cell_sizes : dict[str, int]
+        Common cell width of each fixed-width cell array.
+    point_data_active_scalars_name, point_data_active_vectors_name : str | None
+        Active point scalars and vectors.
+    point_data_active_texture_coordinates_name, point_data_active_normals_name : str | None
+        Active point texture coordinates and normals.
+    cell_data_active_scalars_name, cell_data_active_vectors_name : str | None
+        Active cell scalars and vectors.
+    cell_data_active_texture_coordinates_name, cell_data_active_normals_name : str | None
+        Active cell texture coordinates and normals.
+    dimensions : tuple[int, int, int] | None
+        Dimensions of a structured dataset.
+    origin, spacing : tuple[float, float, float] | None
+        Origin and spacing of an :class:`pyvista.ImageData`.
+    direction_matrix : list[list[float]] | None
+        Direction matrix of an :class:`pyvista.ImageData`.
+    offset : tuple[int, int, int] | None
+        Extent offset of a structured dataset.
+    faces_connectivity_flags_array_name : str | None
+        Connectivity flags array name of an :class:`pyvista.ExplicitStructuredGrid`.
+
+    """
 
     ds_type: str
     uid: str
@@ -237,15 +370,16 @@ class DataSetMetadata:
     cell_data_active_texture_coordinates_name: str | None = None
     cell_data_active_normals_name: str | None = None
 
-    # Optional ImageData metadata
+    # Optional grid metadata; dimensions and offset describe every structured dataset
     dimensions: tuple[int, int, int] | None = None
     origin: tuple[float, float, float] | None = None
     spacing: tuple[float, float, float] | None = None
     direction_matrix: list[list[float]] | None = None
-    offset: int | None = None
+    offset: tuple[int, int, int] | None = None
+    faces_connectivity_flags_array_name: str | None = None
 
     @classmethod
-    def from_dataset(  # noqa: PLR0913
+    def from_dataset(  # noqa: C901, PLR0912, PLR0913
         cls,
         ds: pv.DataSet,
         point_info: dict[str, ArrayInfo],
@@ -254,8 +388,16 @@ class DataSetMetadata:
         fixed_cell_sizes: dict[str, int],
         *,
         uid: str,
+        point_active: tuple[str | None, str | None, str | None, str | None] | None = None,
+        cell_active: tuple[str | None, str | None, str | None, str | None] | None = None,
+        celltypes_dtype: str | None = None,
     ) -> DataSetMetadata:
-        """Create metadata from a dataset."""
+        """
+        Create metadata from a dataset.
+
+        *point_active* and *cell_active* name the active scalars, vectors,
+        normals and texture coordinates; left out, they are read from *ds*.
+        """
         # Many pyvista calls require intermediate object assembly, side step or
         # do once when possible.
 
@@ -275,45 +417,71 @@ class DataSetMetadata:
         else:
             points_dtype = None
 
-        pd = ds.point_data
-        cd = ds.cell_data
+        if point_active is None:
+            pd = ds.point_data
+            point_active = (
+                pd.active_scalars_name,
+                pd.active_vectors_name,
+                pd.active_normals_name,
+                pd.active_texture_coordinates_name,
+            )
+        if cell_active is None:
+            cd = ds.cell_data
+            cell_active = (
+                cd.active_scalars_name,
+                cd.active_vectors_name,
+                cd.active_normals_name,
+                cd.active_texture_coordinates_name,
+            )
+        if celltypes_dtype is None and isinstance(ds, UnstructuredGrid):
+            celltypes_dtype = str(ds.celltypes.dtype)
         kwargs: dict[str, Any] = {
             "ds_type": type(ds).__name__,
             "uid": uid,
-            "n_points": ds.n_points,
-            "points_dtype": str(points_dtype) if points_dtype is not None else None,
-            "n_cells": ds.n_cells,
-            "celltypes_dtype": str(ds.celltypes.dtype) if hasattr(ds, "celltypes") else None,
+            "n_points": ds.GetNumberOfPoints(),
+            "points_dtype": np.dtype(points_dtype).name if points_dtype is not None else None,
+            "n_cells": ds.GetNumberOfCells(),
+            "celltypes_dtype": celltypes_dtype,
             "point_data_keys": point_info,
             "cell_data_keys": cell_info,
             "field_data_keys": field_info,
             "fixed_cell_sizes": fixed_cell_sizes,
-            "point_data_active_scalars_name": pd.active_scalars_name,
-            "point_data_active_vectors_name": pd.active_vectors_name,
-            "point_data_active_texture_coordinates_name": pd.active_texture_coordinates_name,
-            "point_data_active_normals_name": pd.active_normals_name,
-            "cell_data_active_scalars_name": cd.active_scalars_name,
-            "cell_data_active_vectors_name": cd.active_vectors_name,
-            "cell_data_active_texture_coordinates_name": cd.active_texture_coordinates_name,
-            "cell_data_active_normals_name": cd.active_normals_name,
+            "point_data_active_scalars_name": point_active[_ACTIVE_SCALARS],
+            "point_data_active_vectors_name": point_active[_ACTIVE_VECTORS],
+            "point_data_active_texture_coordinates_name": point_active[_ACTIVE_TCOORDS],
+            "point_data_active_normals_name": point_active[_ACTIVE_NORMALS],
+            "cell_data_active_scalars_name": cell_active[_ACTIVE_SCALARS],
+            "cell_data_active_vectors_name": cell_active[_ACTIVE_VECTORS],
+            "cell_data_active_texture_coordinates_name": cell_active[_ACTIVE_TCOORDS],
+            "cell_data_active_normals_name": cell_active[_ACTIVE_NORMALS],
         }
 
+        # Only structured datasets have dimensions; older pyvista lacks offset on some, so read the extent.
+        if hasattr(ds, "dimensions"):
+            kwargs["dimensions"] = ds.dimensions
+            kwargs["offset"] = tuple(ds.offset) if hasattr(ds, "offset") else ds.GetExtent()[::2]
         if isinstance(ds, pv.ImageData):
             kwargs.update(
-                dimensions=ds.dimensions,
                 origin=ds.origin,
                 spacing=ds.spacing,
                 direction_matrix=ds.direction_matrix.tolist(),
-                offset=ds.offset,
             )
-        elif isinstance(ds, pv.StructuredGrid):
-            kwargs["dimensions"] = ds.dimensions
+        elif isinstance(ds, (pv.StructuredGrid, ExplicitStructuredGrid)):
+            if not ds.n_points:
+                # Store either grid without points as empty; a default ExplicitStructuredGrid's extent is uninitialised.
+                kwargs.update(dimensions=(0, 0, 0), offset=(0, 0, 0), n_cells=0)
+            if isinstance(ds, ExplicitStructuredGrid):
+                kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
         return cls(**kwargs)
 
     def to_json(self) -> str:
-        """Convert to JSON."""
-        return json.dumps(asdict(self), separators=(",", ":"))
+        """Convert to JSON, leaving out an unset ExplicitStructuredGrid flags array name."""
+        fields = asdict(self)
+        # pyvista-zstd 0.5.0 rejects metadata keys it does not know.
+        if fields["faces_connectivity_flags_array_name"] is None:
+            del fields["faces_connectivity_flags_array_name"]
+        return json.dumps(fields, separators=(",", ":"))
 
     @classmethod
     def from_array(cls, arr: NDArray[np.uint8]) -> DataSetMetadata:
@@ -327,13 +495,17 @@ class DataSetMetadata:
         raw = json.loads(s)
 
         def decode_mapping(m: dict[str, Any]) -> dict[str, ArrayInfo]:
-            return {k: ArrayInfo(**v) for k, v in m.items()}
+            return {k: ArrayInfo(shape=tuple(v["shape"]), dtype=v["dtype"]) for k, v in m.items()}
 
         raw["point_data_keys"] = decode_mapping(raw.get("point_data_keys", {}))
         raw["cell_data_keys"] = decode_mapping(raw.get("cell_data_keys", {}))
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
         raw["fixed_cell_sizes"] = raw.get("fixed_cell_sizes", {})
-        return cls(**raw)
+        raw["points_dtype"] = _LEGACY_POINTS_DTYPES.get(raw.get("points_dtype"), raw.get("points_dtype"))
+        for key in ("dimensions", "origin", "spacing", "offset"):
+            if raw.get(key) is not None:
+                raw[key] = tuple(raw[key])
+        return cls(**_known_fields(cls, raw))
 
     def to_array(self) -> NDArray[np.uint8]:
         """Output as a numpy uint8 array."""
@@ -381,16 +553,21 @@ def _add_cell_array(  # noqa: PLR0913
     *,
     force_int32: bool = False,
     max_entry: int | None = None,
+    skip_empty: bool = False,
 ) -> None:
     """
     Stage a cell array's connectivity, and its offsets when the cells vary in size.
+
+    *skip_empty* leaves an empty array out of the file; only PolyData readers
+    treat a missing cell frame as empty.
 
     *max_entry* is the largest value the connectivity can hold, where the caller
     knows it: entries are ids into some other array, so that array's extent
     bounds them without looking. Leave it None to have the values scanned. It
     only ever governs the int32 narrowing -- see :func:`_narrowed_to_int32`.
     """
-    if not cell_array:
+    # A vtkCellArray is truthy even when empty, so the count is what decides.
+    if cell_array is None or (skip_empty and cell_array.GetNumberOfCells() == 0):
         return
 
     connectivity = vtk_to_numpy(cell_array.GetConnectivityArray())
@@ -422,16 +599,50 @@ def _extract_cell_array(
         return None
 
     offset_key = f"{ds_id}{name}{OFFSET_SUFFIX}"
+    connectivity = _owned(segments, conn_key)
     if name in fixed_cell_sizes:
+        if connectivity is not None:
+            return _vtk_cells(None, connectivity, segments[conn_key].size, cell_size=fixed_cell_sizes[name])
         return _numpy_to_vtk_cells(None, segments[conn_key], cell_size=fixed_cell_sizes[name])
     if offset_key not in segments:
         msg = f"Cell array '{name}' has neither offsets nor a fixed cell size."
         raise ValueError(msg)
+    offset = _owned(segments, offset_key)
+    if connectivity is not None and offset is not None and offset.GetDataType() == connectivity.GetDataType():
+        return _vtk_cells(offset, connectivity, segments[conn_key].size)
     return _numpy_to_vtk_cells(segments[offset_key], segments[conn_key])
 
 
+def _vtk_cells(
+    offset: vtkDataArray | None,
+    connectivity: vtkDataArray,
+    n_connectivity: int,
+    *,
+    cell_size: int | None = None,
+) -> vtkCellArray:
+    """Build a cell array around VTK-owned offsets and connectivity without copying."""
+    carr = vtkCellArray()
+    if cell_size is not None:
+        if cell_size <= 0 or n_connectivity % cell_size:
+            msg = f"Invalid fixed cell size {cell_size} for connectivity length {n_connectivity}."
+            raise ValueError(msg)
+        carr.SetData(cell_size, connectivity)
+    else:
+        carr.SetData(offset, connectivity)
+    return carr
+
+
+def _points_of(ds: DataSet) -> NDArray[Any]:
+    """Return the dataset's points as the NumPy view of the VTK array, (0, 3) when it has none."""
+    # Optimization: ``ds.points`` wraps a pyvista_ndarray per call; the raw view is enough to stage.
+    vtk_points = ds.GetPoints()
+    if vtk_points is None:
+        return np.empty((0, 3), dtype=np.float64)
+    return vtk_to_numpy(vtk_points.GetData())
+
+
 def _add_arrays_pointset(ds_id: str, ds: PointSet, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
 
 
 def _add_arrays_rgrid(ds_id: str, ds: RectilinearGrid, arrays: dict[str, NDArray[Any]]) -> None:
@@ -449,9 +660,9 @@ def _add_arrays_polydata(
     *,
     force_int32: bool = True,
 ) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
     # Every one of these holds point ids, so the point count bounds them all.
-    max_point_id = ds.n_points - 1
+    max_point_id = ds.GetNumberOfPoints() - 1
     for name, cells in (
         (POLYS, ds.GetPolys()),
         (LINES, ds.GetLines()),
@@ -466,6 +677,7 @@ def _add_arrays_polydata(
             fixed_cell_sizes,
             force_int32=force_int32,
             max_entry=max_point_id,
+            skip_empty=True,
         )
 
 
@@ -477,10 +689,11 @@ def _add_arrays_ugrid(
     *,
     force_int32: bool = True,
 ) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
-    arrays[f"{ds_id}{CELL_TYPES_KEY}"] = ds.celltypes
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
+    celltypes = ds.celltypes
+    arrays[f"{ds_id}{CELL_TYPES_KEY}"] = celltypes
 
-    max_point_id = ds.n_points - 1
+    max_point_id = ds.GetNumberOfPoints() - 1
     _add_cell_array(
         ds_id,
         arrays,
@@ -491,7 +704,7 @@ def _add_arrays_ugrid(
         max_entry=max_point_id,
     )
 
-    has_polyhedra = bool(np.any(ds.celltypes == pv.CellType.POLYHEDRON))
+    has_polyhedra = bool(np.any(celltypes == pv.CellType.POLYHEDRON))
     if has_polyhedra:
         if pv.vtk_version_info < (9, 4):
             msg = (
@@ -529,12 +742,21 @@ def _add_arrays_esgrid(
     *,
     force_int32: bool = True,
 ) -> None:
-    ugrid = ds.cast_to_unstructured_grid()
-    _add_arrays_ugrid(ds_id, ugrid, arrays, fixed_cell_sizes, force_int32=force_int32)
+    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    _add_cell_array(
+        ds_id,
+        arrays,
+        CELLS,
+        # A grid without points is stored empty, so drop the cells its extent allocated.
+        ds.GetCells() if ds.n_points else vtkCellArray(),
+        fixed_cell_sizes,
+        force_int32=force_int32,
+        max_entry=ds.n_points - 1,
+    )
 
 
 def _add_arrays_sgrid(ds_id: str, ds: StructuredGrid, arrays: dict[str, NDArray[Any]]) -> None:
-    arrays[f"{ds_id}{POINTS_KEY}"] = ds.points
+    arrays[f"{ds_id}{POINTS_KEY}"] = _points_of(ds)
 
 
 # eventually add: compression: Compression = "zstandard",
@@ -694,6 +916,7 @@ class Writer:
                 uid=ds_id,
                 children=child_ids,
                 children_keys=children_keys,
+                field_data_keys=self._add_field_arrays(ds_id, ds),
             )
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = multi_meta.to_array()
 
@@ -702,25 +925,37 @@ class Writer:
             msg = f"Unsupported type {type(ds)}"
             raise TypeError(msg)
 
-        point_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.point_data.items():
-            self._arrays[f"{ds_id}{key}{POINT_DATA_SUFFIX}"] = array
-            point_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
-
-        cell_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.cell_data.items():
-            self._arrays[f"{ds_id}{key}{CELL_DATA_SUFFIX}"] = array
-            cell_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
-
-        field_info: dict[str, ArrayInfo] = {}
-        for key, array in ds.field_data.items():
-            self._arrays[f"{ds_id}{key}{FIELD_DATA_SUFFIX}"] = array
-            field_info[key] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+        point_info, point_active = _stage_attributes(ds_id, ds, "point_data", POINT_DATA_SUFFIX, self._arrays)
+        # A structured grid without points is stored with no cells, so it keeps no cell data either.
+        stored_empty = isinstance(ds, (StructuredGrid, ExplicitStructuredGrid)) and not ds.GetNumberOfPoints()
+        if stored_empty:
+            cell_info: dict[str, ArrayInfo] = {}
+            cell_active: tuple[str | None, str | None, str | None, str | None] = (None, None, None, None)
+        else:
+            cell_info, cell_active = _stage_attributes(ds_id, ds, "cell_data", CELL_DATA_SUFFIX, self._arrays)
+        field_info = self._add_field_arrays(ds_id, ds)
 
         # supply dataset metadata
-        ds_meta = DataSetMetadata.from_dataset(ds, point_info, cell_info, field_info, fixed_cell_sizes, uid=ds_id)
+        ds_meta = DataSetMetadata.from_dataset(
+            ds,
+            point_info,
+            cell_info,
+            field_info,
+            fixed_cell_sizes,
+            uid=ds_id,
+            point_active=point_active,
+            cell_active=cell_active,
+            celltypes_dtype=str(self._arrays[f"{ds_id}{CELL_TYPES_KEY}"].dtype)
+            if f"{ds_id}{CELL_TYPES_KEY}" in self._arrays
+            else None,
+        )
         self._arrays[f"{ds_id}{DS_METADATA_KEY}"] = ds_meta.to_array()
         self._uses_fixed_width_cells = self._uses_fixed_width_cells or bool(fixed_cell_sizes)
+
+    def _add_field_arrays(self, ds_id: str, ds: DataSet | MultiBlock) -> dict[str, ArrayInfo]:
+        """Stage the field arrays of a dataset or MultiBlock and return their metadata."""
+        field_info, _ = _stage_attributes(ds_id, ds, "field_data", FIELD_DATA_SUFFIX, self._arrays)
+        return field_info
 
     def write(  # noqa: PLR0913
         self,
@@ -773,22 +1008,177 @@ class Writer:
         self._ids = {}
 
 
-def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> None:
-    # add point and cell data
-    point_data = ds.point_data
-    cell_data = ds.cell_data
-    field_data = ds.field_data
+class _Segments(dict[str, Any]):
+    """Decompressed frames by name, plus the VTK arrays that own the ones decompressed in place."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.vtk: dict[str, vtkDataArray] = {}
+
+    def allocate(self, name: str, shape: tuple[int, ...], dtype: np.dtype[Any]) -> NDArray[Any]:
+        """Return the destination for frame *name*, VTK-owned where possible."""
+        vtk_type = _vtk_type_for(name, shape, dtype)
+        if vtk_type is None:
+            return np.empty(shape, dtype=dtype)
+        # Optimization: decompress straight into a VTK-owned array so attaching it later is a pointer
+        # hand-off instead of numpy_to_vtk's wrapper-per-array cost.
+        vtk_array = vtkDataArray.CreateDataArray(vtk_type)
+        vtk_array.SetNumberOfComponents(shape[1] if len(shape) == 2 else 1)  # noqa: PLR2004
+        vtk_array.SetNumberOfTuples(shape[0])
+        self.vtk[name] = vtk_array
+        if not vtk_array.GetNumberOfValues():
+            return np.empty(shape, dtype=dtype)
+        return vtk_to_numpy(vtk_array).reshape(shape)
+
+    def release(self) -> None:
+        """Forget the VTK wrappers once a dataset owns the arrays."""
+        # Optimization: before VTK 9.8 (d1489916c5), dropping a wrapper that carries state scans every ghost.
+        if pv.vtk_version_info < (9, 8):
+            for vtk_array in self.vtk.values():
+                vtk_array.__dict__.clear()
+        self.vtk.clear()
+
+
+def _vtk_type_for(name: str, shape: tuple[int, ...], dtype: np.dtype[Any]) -> int | None:
+    """Return the VTK type to decompress frame *name* into, or None to keep it in NumPy."""
+    if dtype.kind not in "iuf" or not dtype.isnative or len(shape) not in (1, 2) or 0 in shape[1:]:
+        return None
+    if name.endswith((CONNECTIVITY_SUFFIX, OFFSET_SUFFIX)):
+        # vtkCellArray stores only these two types without converting.
+        if dtype == np.int32:
+            return _VTK_INT32
+        if dtype == np.int64:
+            return _VTK_INT64
+        return None
+    try:
+        return int(get_vtk_array_type(dtype))
+    except TypeError:
+        return None
+
+
+_VTK_INT32 = vtkTypeInt32Array().GetDataType()
+_VTK_INT64 = vtkTypeInt64Array().GetDataType()
+
+
+def _owned(segments: dict[str, Any], key: str, vtk_type: int | None = None) -> vtkDataArray | None:
+    """Return the VTK array that owns frame *key*, when it has one of *vtk_type*."""
+    if not isinstance(segments, _Segments):
+        return None
+    vtk_array = segments.vtk.get(key)
+    if vtk_array is None or (vtk_type is not None and vtk_array.GetDataType() != vtk_type):
+        return None
+    return vtk_array
+
+
+def _set_points(ds: DataSet, ds_id: str, segments: dict[str, Any]) -> None:
+    """Give *ds* its points, without a copy when VTK owns them."""
+    key = f"{ds_id}{POINTS_KEY}"
+    vtk_array = _owned(segments, key)
+    points = segments[key]
+    if vtk_array is None or points.ndim != 2 or points.shape[1] != 3:  # noqa: PLR2004
+        ds.points = points
+        return
+    vtk_points = vtkPoints()
+    vtk_points.SetData(vtk_array)
+    ds.SetPoints(vtk_points)
+
+
+_ATTRIBUTE_GETTERS = {"point_data": "GetPointData", "cell_data": "GetCellData", "field_data": "GetFieldData"}
+# Keys of pyvista's per-association bool/complex name sets (FieldAssociation.name).
+_ASSOCIATION_KEYS = {"point_data": "POINT", "cell_data": "CELL", "field_data": "NONE"}
+# vtkDataSetAttributes attribute slots, in the order GetAttributeIndices fills.
+_ACTIVE_SCALARS, _ACTIVE_VECTORS, _ACTIVE_NORMALS, _ACTIVE_TCOORDS = 0, 1, 2, 3
+
+
+def _stage_attributes(
+    ds_id: str,
+    ds: DataSet | MultiBlock,
+    attribute: str,
+    suffix: str,
+    arrays: dict[str, NDArray[Any]],
+) -> tuple[dict[str, ArrayInfo], tuple[str | None, str | None, str | None, str | None]]:
+    """
+    Stage one attribute set's arrays and return their info plus the active names.
+
+    Each VTK array is fetched once; arrays pyvista converts for the caller
+    (bool, complex, string) go through its getter so they stage as the caller
+    sees them.
+    """
+    # Optimization: walk the VTK arrays by index. ``ds.point_data.items()`` resolves every name through
+    # ``GetAbstractArray(name)``, an O(n) scan each, so one call is quadratic in the array count.
+    field_data = getattr(ds, _ATTRIBUTE_GETTERS[attribute])()
+    association = _ASSOCIATION_KEYS[attribute]
+    special: set[str] = set()
+    for tracked in ("_association_bitarray_names", "_association_complex_names"):
+        special |= getattr(ds, tracked, {}).get(association, set())
+
+    names: list[str] = []
+    info: dict[str, ArrayInfo] = {}
+    for index in range(field_data.GetNumberOfArrays()):
+        # Nameless arrays take the name pyvista gives them in ``keys()``.
+        name = field_data.GetArrayName(index) or f"Unnamed_{index}"
+        names.append(name)
+        vtk_array = field_data.GetAbstractArray(index)
+        if name in special or not isinstance(vtk_array, vtkDataArray):
+            # pyvista < 0.50 can return a one-value string field, such as user_dict, as ``str``.
+            array = np.atleast_1d(getattr(ds, attribute)[name])
+        else:
+            array = vtk_to_numpy(vtk_array)
+        arrays[f"{ds_id}{name}{suffix}"] = array
+        info[name] = ArrayInfo(shape=array.shape, dtype=str(array.dtype))
+
+    if attribute == "field_data":
+        return info, (None, None, None, None)
+    slots = [0] * field_data.NUM_ATTRIBUTES
+    field_data.GetAttributeIndices(slots)
+    active = tuple(names[slots[i]] if slots[i] >= 0 else None for i in range(_ACTIVE_TCOORDS + 1))
+    return info, active  # type: ignore[return-value]
+
+
+_DATA_SUFFIXES = (
+    (POINT_DATA_SUFFIX, "point_data", "GetPointData"),
+    (CELL_DATA_SUFFIX, "cell_data", "GetCellData"),
+    (FIELD_DATA_SUFFIX, "field_data", "GetFieldData"),
+)
+
+
+def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> dict[str, Any]:
+    """Attach the arrays of *ds_id* to *ds* and return the VTK attribute sets fetched on the way."""
+    # Optimization: attribute sets are fetched once per dataset (on VTK 9.7 every
+    # dropped wrapper costs a scan of all live ones) and owned arrays go in through
+    # raw ``AddArray``, which skips pyvista's length check for data this reader wrote.
+    attributes: dict[str, Any] = {}
     for key, array in segment_dict.items():
         if not key.startswith(ds_id):
             continue
-
-        # uid size is 16
-        if key.endswith(POINT_DATA_SUFFIX):
-            point_data.set_array(array, key[UID_N_CHAR : -len(POINT_DATA_SUFFIX)])
-        if key.endswith(CELL_DATA_SUFFIX):
-            cell_data.set_array(array, key[UID_N_CHAR : -len(CELL_DATA_SUFFIX)])
-        if key.endswith(FIELD_DATA_SUFFIX):
-            field_data.set_array(array, key[UID_N_CHAR : -len(FIELD_DATA_SUFFIX)])
+        for suffix, pyvista_name, vtk_getter in _DATA_SUFFIXES:
+            if not key.endswith(suffix):
+                continue
+            name = key[UID_N_CHAR : -len(suffix)]
+            vtk_array = _owned(segment_dict, key)
+            if vtk_array is None:
+                data = getattr(ds, pyvista_name)
+                if (
+                    suffix == FIELD_DATA_SUFFIX
+                    and array.ndim > 1
+                    and array.shape[0] == 0
+                    and math.prod(array.shape[1:]) > 0
+                ):
+                    # VTK supports empty tuples; PyVista only admits their scalar view.
+                    # Let PyVista retain its bool/complex conventions before restoring
+                    # the component count on the same zero-tuple VTK array.
+                    data.set_array(array.reshape(-1), name)
+                    components = math.prod(array.shape[1:]) * (2 if np.iscomplexobj(array) else 1)
+                    data.VTKObject.GetAbstractArray(name).SetNumberOfComponents(components)
+                else:
+                    data.set_array(array, name)
+            else:
+                target = attributes.get(vtk_getter)
+                if target is None:
+                    target = attributes[vtk_getter] = getattr(ds, vtk_getter)()
+                vtk_array.SetName(name)
+                target.AddArray(vtk_array)
+    return attributes
 
 
 def _segments_to_ugrid(
@@ -796,13 +1186,16 @@ def _segments_to_ugrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> UnstructuredGrid:
-    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
+    # A grid without cells has no cells frame; SetCells needs an array regardless.
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes) or vtkCellArray()
 
-    celltypes = segments[f"{ds_id}{CELL_TYPES_KEY}"]
-    celltypes_vtk = numpy_to_vtk(celltypes, deep=False, array_type=VTK_UNSIGNED_CHAR)
+    celltypes_key = f"{ds_id}{CELL_TYPES_KEY}"
+    celltypes_vtk = _owned(segments, celltypes_key, VTK_UNSIGNED_CHAR)
+    if celltypes_vtk is None:
+        celltypes_vtk = numpy_to_vtk(segments[celltypes_key], deep=False, array_type=VTK_UNSIGNED_CHAR)
 
     ugrid = UnstructuredGrid()
-    ugrid.points = segments[f"{ds_id}{POINTS_KEY}"]
+    _set_points(ugrid, ds_id, segments)
 
     poly = _extract_cell_array(ds_id, POLYHEDRON, segments, metadata.fixed_cell_sizes)
     poly_loc = _extract_cell_array(ds_id, POLYHEDRON_LOCATION, segments, metadata.fixed_cell_sizes)
@@ -832,15 +1225,42 @@ def _segments_to_esgrid(
     segments: dict[str, Any],
     metadata: DataSetMetadata,
 ) -> ExplicitStructuredGrid:
-    """
-    Rebuild an explicit structured grid from its frames.
+    """Rebuild an explicit structured grid from its dimensions, points and cells."""
+    if metadata.dimensions is None:
+        return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
-    The cast is driven by the ``BLOCK_I``/``BLOCK_J``/``BLOCK_K`` cell arrays,
-    so they have to be on the grid before it happens. The caller attaches cell
-    data only after this returns, which is why they are pulled from the
-    segments here rather than left to the general path -- without this the
-    cast sees a grid with no cell data at all and refuses every file.
-    """
+    points = segments[f"{ds_id}{POINTS_KEY}"]
+    # SetExtent allocates a cell for every i/j/k position, so check the size first.
+    if math.prod(metadata.dimensions) != len(points):
+        msg = (
+            f"ExplicitStructuredGrid dimensions {tuple(metadata.dimensions)} do not match its "
+            f"{len(points)} points; the file is corrupt or was written from an inconsistent grid."
+        )
+        raise ValueError(msg)
+
+    esgrid = ExplicitStructuredGrid()
+    # Set before the cells, which vtkExplicitStructuredGrid.SetExtent replaces.
+    esgrid.SetExtent(*_extent(metadata.dimensions, metadata.offset))
+    esgrid.points = points
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
+    if cells is not None:
+        # VTK misreads ESG cells narrower than vtkIdType: https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
+        if cells.IsHomogeneous() > 0 and hasattr(cells, "ConvertToFixedSizeDefaultStorage"):
+            cells.ConvertToFixedSizeDefaultStorage()
+        else:
+            cells.ConvertToDefaultStorage()
+        esgrid.SetCells(cells)
+    if metadata.faces_connectivity_flags_array_name is not None:
+        esgrid.SetFacesConnectivityFlagsArrayName(metadata.faces_connectivity_flags_array_name)
+    return esgrid
+
+
+def _segments_to_esgrid_by_blocking(
+    ds_id: str,
+    segments: dict[str, Any],
+    metadata: DataSetMetadata,
+) -> ExplicitStructuredGrid:
+    """Rebuild an explicit structured grid with no stored dimensions from its blocking cell arrays."""
     ugrid = _segments_to_ugrid(ds_id, segments, metadata)
 
     missing = []
@@ -851,19 +1271,36 @@ def _segments_to_esgrid(
         else:
             missing.append(name)
     if missing:
+        absent = [name for name in missing if name not in metadata.cell_data_keys]
+        if absent:
+            advice = f"The file does not store {absent}; rewrite it from the source grid with a current pyvista-zstd."
+        else:
+            advice = f"Select {missing} in selected_cell_arrays to read this file."
         msg = (
-            f"Cannot rebuild an ExplicitStructuredGrid without {missing}. "
-            "These cell arrays define the i/j/k blocking and are required by "
-            "the cast; do not exclude them via selected_cell_arrays."
+            f"Cannot rebuild an ExplicitStructuredGrid without {missing}, which define its "
+            f"i/j/k blocking in a file with no stored dimensions. {advice}"
         )
         raise ValueError(msg)
 
     return ugrid.cast_to_explicit_structured_grid()
 
 
+def _extent(dimensions: Sequence[int], offset: Sequence[int] | None) -> tuple[int, ...]:
+    """Return the extent of a grid with these dimensions starting at offset, which defaults to 0."""
+    starts = (0, 0, 0) if offset is None else offset
+    return tuple(bound for start, dim in zip(starts, dimensions, strict=True) for bound in (start, start + dim - 1))
+
+
+def _apply_offset(ds: StructuredGrid | RectilinearGrid, metadata: DataSetMetadata) -> None:
+    """Shift a structured grid's extent to start at its stored offset."""
+    if metadata.offset is not None and any(metadata.offset):
+        ds.SetExtent(*_extent(ds.dimensions, metadata.offset))
+
+
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:
     sgrid = StructuredGrid(segments[f"{ds_id}{POINTS_KEY}"])
     sgrid.dimensions = metadata.dimensions
+    _apply_offset(sgrid, metadata)
     return sgrid
 
 
@@ -913,7 +1350,7 @@ def _segments_to_polydata(
     metadata: DataSetMetadata,
 ) -> PolyData:
     pdata = PolyData()
-    pdata.points = segments[f"{ds_id}{POINTS_KEY}"]
+    _set_points(pdata, ds_id, segments)
 
     pdata.SetPolys(_extract_cell_array(ds_id, POLYS, segments, metadata.fixed_cell_sizes))
     pdata.SetLines(_extract_cell_array(ds_id, LINES, segments, metadata.fixed_cell_sizes))
@@ -937,7 +1374,7 @@ def _metadata_to_imagedata(metadata: DataSetMetadata) -> ImageData:
     )
 
 
-def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
+def _segments_to_rgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> RectilinearGrid:
     if f"{ds_id}{RGRID_X_SUFFIX}" in segments:
         rgrid = RectilinearGrid(
             segments.get(f"{ds_id}{RGRID_X_SUFFIX}"),
@@ -947,30 +1384,43 @@ def _segments_to_rgrid(ds_id: str, segments: dict[str, Any]) -> RectilinearGrid:
     else:
         rgrid = RectilinearGrid()
 
+    _apply_offset(rgrid, metadata)
     return rgrid
 
 
-def _apply_metadata(ds: DataSet, metadata: DataSetMetadata) -> None:
-    """Apply metadata to a dataset."""
-    pd = ds.point_data
-    if metadata.point_data_active_scalars_name in pd:
-        pd.active_scalars_name = metadata.point_data_active_scalars_name
-    if metadata.point_data_active_vectors_name in pd:
-        pd.active_vectors_name = metadata.point_data_active_vectors_name
-    if metadata.point_data_active_texture_coordinates_name in pd:
-        pd.active_texture_coordinates_name = metadata.point_data_active_texture_coordinates_name
-    if metadata.point_data_active_normals_name in pd:
-        pd.active_normals_name = metadata.point_data_active_normals_name
-
-    cd = ds.cell_data
-    if metadata.cell_data_active_scalars_name in cd:
-        cd.active_scalars_name = metadata.cell_data_active_scalars_name
-    if metadata.cell_data_active_vectors_name in cd:
-        cd.active_vectors_name = metadata.cell_data_active_vectors_name
-    if metadata.cell_data_active_texture_coordinates_name in cd:
-        cd.active_texture_coordinates_name = metadata.cell_data_active_texture_coordinates_name
-    if metadata.cell_data_active_normals_name in cd:
-        cd.active_normals_name = metadata.cell_data_active_normals_name
+def _apply_metadata(ds: DataSet, metadata: DataSetMetadata, attributes: dict[str, Any]) -> None:
+    """Apply metadata to a dataset, through the attribute sets in *attributes* where already fetched."""
+    for getter, scalars, vectors, tcoords, normals in (
+        (
+            "GetPointData",
+            metadata.point_data_active_scalars_name,
+            metadata.point_data_active_vectors_name,
+            metadata.point_data_active_texture_coordinates_name,
+            metadata.point_data_active_normals_name,
+        ),
+        (
+            "GetCellData",
+            metadata.cell_data_active_scalars_name,
+            metadata.cell_data_active_vectors_name,
+            metadata.cell_data_active_texture_coordinates_name,
+            metadata.cell_data_active_normals_name,
+        ),
+    ):
+        if scalars is None and vectors is None and tcoords is None and normals is None:
+            continue
+        field_data = attributes.get(getter)
+        if field_data is None:
+            field_data = getattr(ds, getter)()
+        # Optimization: raw ``SetActive*`` calls; pyvista's setters re-fetch and re-wrap the array each time.
+        # Only a vtkDataArray can be active scalars; a string array is left as is.
+        if scalars is not None and isinstance(field_data.GetAbstractArray(scalars), vtkDataArray):
+            field_data.SetActiveScalars(scalars)
+        if vectors is not None and field_data.HasArray(vectors):
+            field_data.SetActiveVectors(vectors)
+        if tcoords is not None and field_data.HasArray(tcoords):
+            field_data.SetActiveTCoords(tcoords)
+        if normals is not None and field_data.HasArray(normals):
+            field_data.SetActiveNormals(normals)
 
 
 try:
@@ -1080,6 +1530,21 @@ def read_buffer(data: bytes | bytearray | memoryview | NDArray[Any], n_threads: 
         return reader.read(n_threads=n_threads)
 
 
+def _check_association(association: str) -> None:
+    """Raise ValueError unless *association* is one of the valid associations."""
+    if association not in _ASSOCIATION_SUFFIXES:
+        msg = f"association must be one of {tuple(_ASSOCIATION_SUFFIXES)}, not {association!r}"
+        raise ValueError(msg)
+
+
+def _association_arrays(meta: DataSetMetadata | MultiBlockMetadata, association: str) -> dict[str, ArrayInfo]:
+    """Return the arrays of *meta* that belong to *association*."""
+    _check_association(association)
+    if isinstance(meta, MultiBlockMetadata) and association != "field":
+        return {}
+    return getattr(meta, f"{association}_data_keys")
+
+
 class _DataSetReader:
     def __init__(
         self,
@@ -1118,6 +1583,19 @@ class _DataSetReader:
             return EMPTY_DS
         return self._meta.uid
 
+    @property
+    def dataset_metadata(self) -> DataSetMetadata | MultiBlockMetadata | None:
+        """Return this block's metadata, or ``None`` for an empty block; treat it as read-only."""
+        return self._meta
+
+    def read_array(self, name: str, *, association: Association) -> NDArray[Any]:
+        """Decompress one named array of this block; see :meth:`Reader.read_array`."""
+        _check_association(association)
+        if self._meta is None or (isinstance(self._meta, MultiBlockMetadata) and association != "field"):
+            msg = "Only dataset blocks have point and cell arrays; index a MultiBlock node further."
+            raise TypeError(msg)
+        return self._parent._read_array(self._meta, name, association)  # noqa: SLF001
+
     def read(self, n_threads: int | None = None) -> DataSet | MultiBlock:
         return self._read_shared({}, n_threads)
 
@@ -1136,8 +1614,19 @@ class _DataSetReader:
             return built[uid]
         if isinstance(self._meta, MultiBlockMetadata):
             mb = MultiBlock()
+            # Optimization: ``mb[key] = ...`` searches every existing name, so track them here.
+            # A repeated name replaces its first block, as ``mb[key]`` would.
+            index_of: dict[str, int] = {}
             for key, child in zip(self._meta.children_keys, self._children, strict=True):
-                mb[key] = child._read_shared(built, n_threads)  # noqa: SLF001
+                block = child._read_shared(built, n_threads)  # noqa: SLF001
+                index = index_of.get(key)
+                if index is None:
+                    index_of[key] = mb.n_blocks
+                    mb.append(block, key)
+                else:
+                    mb[index] = block
+                    mb.set_block_name(index, key)
+            self._parent._read_multiblock_field_data(mb, self._meta, n_threads)  # noqa: SLF001
             return mb
 
         if self._meta is None:
@@ -1154,7 +1643,10 @@ class _DataSetReader:
         if isinstance(self._meta, DataSetMetadata):
             return f"{prefix}{connector}{self._meta.ds_type}"
         if isinstance(self._meta, MultiBlockMetadata):
-            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)})"]
+            fields = ""
+            if self._meta.field_data_keys:
+                fields = f", field arrays: {', '.join(self._meta.field_data_keys)}"
+            lines = [f"{prefix}{connector}MultiBlock(children={len(self._children)}{fields})"]
             for i, child in enumerate(self._children):
                 last = i == len(self._children) - 1
                 child_prefix = prefix + ("   " if is_last else "│  ")
@@ -1228,7 +1720,7 @@ class Reader:
       Compression:        zstandard
       Compression Level:  3
       Dataset Type:       PolyData
-      N Points:           842 (<class 'numpy.float32'>)
+      N Points:           842 (float32)
       N Cells:            1680
       Point arrays:
           Normals                  float32    (842, 3)
@@ -1302,6 +1794,10 @@ class Reader:
         self._ds_metadata = self._root_ds_meta_from_core()
 
         self.__ds_reader: _DataSetReader | None = None
+        self._frames_by_ds: dict[str, list[str]] | None = None
+        self._ds_meta_by_uid: dict[str, DataSetMetadata] = {}
+        if isinstance(self._ds_metadata, DataSetMetadata):
+            self._ds_meta_by_uid[self._ds_metadata.uid] = self._ds_metadata
 
     # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
     def __enter__(self) -> Reader:  # noqa: PYI034
@@ -1408,6 +1904,115 @@ class Reader:
         """Return the size of the decompressed dataset."""
         return int(self.decompressed_sizes.sum())
 
+    @property
+    def compressed_nbytes(self) -> int:
+        """Return the size in bytes of the compressed frames, metadata frames included."""
+        return int(self._compressed_sizes.sum())
+
+    @property
+    def file_metadata(self) -> ZstdFileMetadata:
+        """
+        Return the file-level facts: format version, compression and level.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv", level=5)
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
+        >>> reader.file_metadata.compression_level
+        5
+
+        """
+        return self._metadata
+
+    @property
+    def dataset_metadata(self) -> DataSetMetadata | MultiBlockMetadata:
+        """
+        Return the dataset's metadata without decompressing any array.
+
+        A MultiBlock file returns a :class:`MultiBlockMetadata` whose
+        ``children_ds`` holds the metadata of every block, nested. The objects
+        are the reader's own, so treat them as read-only.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
+        >>> meta = pyvista_zstd.Reader("sphere.pv").dataset_metadata
+        >>> meta.ds_type, meta.n_points, meta.n_cells
+        ('PolyData', 842, 1680)
+        >>> meta.point_data_keys["Normals"]
+        ArrayInfo(shape=(842, 3), dtype='float32')
+
+        """
+        if isinstance(self._ds_metadata, MultiBlockMetadata):
+            return cast("MultiBlockMetadata", self._ds_reader.dataset_metadata)
+        return self._ds_metadata
+
+    def read_array(self, name: str, *, association: Association) -> NDArray[Any]:
+        """
+        Decompress one named array, leaving the rest of the file untouched.
+
+        A block of a MultiBlock file is read the same way after indexing to it,
+        as in ``reader[0].read_array(name, association="point")``.
+        A MultiBlock node's own field arrays use ``association="field"``.
+
+        Parameters
+        ----------
+        name : str
+            Array name.
+        association : {"point", "cell", "field"}
+            Data the array belongs to.
+
+        Returns
+        -------
+        numpy.ndarray
+            The stored array.
+
+        Raises
+        ------
+        KeyError
+            The dataset has no such array.
+        TypeError
+            The file is a MultiBlock and the association is point or cell;
+            index it to a dataset block first.
+        ValueError
+            *association* is not one of the three above.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv")
+        >>> reader = pyvista_zstd.Reader("sphere.pv")
+        >>> reader.read_array("Normals", association="point").shape
+        (842, 3)
+
+        """
+        _check_association(association)
+        if isinstance(self._ds_metadata, MultiBlockMetadata) and association != "field":
+            msg = "A MultiBlock file has no point or cell arrays; read a block's arrays with reader[i].read_array(...)."
+            raise TypeError(msg)
+        return self._read_array(self._ds_metadata, name, association)
+
+    def _read_array(self, meta: DataSetMetadata | MultiBlockMetadata, name: str, association: str) -> NDArray[Any]:
+        """Decompress the named array of the dataset *meta* describes."""
+        arrays = _association_arrays(meta, association)
+        if name not in arrays:
+            msg = f"{association} array {name!r} not found; available: {sorted(arrays)}"
+            elsewhere = [other for other in _ASSOCIATION_SUFFIXES if name in _association_arrays(meta, other)]
+            if elsewhere:
+                msg += f"; {name!r} is a {' and '.join(elsewhere)} array"
+            raise KeyError(msg)
+        core = self._core_reader()
+        index = core.find(f"{meta.uid}{name}{_ASSOCIATION_SUFFIXES[association]}")
+        if index is None:  # pragma: no cover - metadata and index disagree
+            msg = f"{association} array {name!r} is listed in the metadata but not stored"
+            raise RuntimeError(msg)
+        return core.read_at(index)
+
     def _file_metadata_from_core(self) -> ZstdFileMetadata:
         """
         Return the file metadata, and warn if the container is a legacy one.
@@ -1457,7 +2062,7 @@ class Reader:
         msg = "No dataset metadata found"  # pragma: no cover
         raise RuntimeError(msg)  # pragma: no cover
 
-    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str], n_threads: int | None) -> dict[str, NDArray[Any]]:
+    def _read_ds_segments_cpp(self, ds_id: str, keep: set[str], n_threads: int | None) -> _Segments:
         """
         Decompress a dataset's arrays through the C++ core.
 
@@ -1468,9 +2073,17 @@ class Reader:
         meta_key = f"{ds_id}{DS_METADATA_KEY}"
         reader = self._core_reader()
         threads = _capi.THREADS_AUTO if n_threads is None else n_threads
-        segments = reader.read_arrays(keep=keep - {meta_key}, n_threads=threads)
-        segments[meta_key] = np.frombuffer(self._metadata_documents[meta_key].encode("utf-8"), dtype=np.uint8)
+        segments = _Segments()
+        segments.update(reader.read_arrays(keep=keep - {meta_key}, n_threads=threads, allocate=segments.allocate))
         return segments
+
+    def _dataset_metadata(self, ds_id: str) -> DataSetMetadata:
+        """Return the parsed metadata of dataset *ds_id*, parsing its document once."""
+        metadata = self._ds_meta_by_uid.get(ds_id)
+        if metadata is None:
+            metadata = DataSetMetadata.from_json(self._metadata_documents[f"{ds_id}{DS_METADATA_KEY}"])
+            self._ds_meta_by_uid[ds_id] = metadata
+        return metadata
 
     def _core_reader(self) -> CoreReader:
         """
@@ -1513,8 +2126,26 @@ class Reader:
         for name in self.available_field_arrays - self.selected_field_arrays:
             excluded.add(f"{ds_id}{name}{FIELD_DATA_SUFFIX}")
 
-        names = set(self._metadata.frame_names) - excluded
-        return {f for f in names if f.startswith(ds_id)}
+        return {f for f in self._frame_names_by_ds().get(ds_id, ()) if f not in excluded}
+
+    def _frame_names_by_ds(self) -> dict[str, list[str]]:
+        """Return the file's frame names grouped by their dataset UID prefix."""
+        if self._frames_by_ds is None:
+            groups: dict[str, list[str]] = {}
+            for name in self._metadata.frame_names or ():
+                groups.setdefault(name[:UID_N_CHAR], []).append(name)
+            self._frames_by_ds = groups
+        return self._frames_by_ds
+
+    def _read_multiblock_field_data(self, mb: MultiBlock, meta: MultiBlockMetadata, n_threads: int | None) -> None:
+        """Add a MultiBlock's own field arrays from the file."""
+        if not meta.field_data_keys:
+            return
+        frames = {f"{meta.uid}{name}{FIELD_DATA_SUFFIX}": name for name in meta.field_data_keys}
+        threads = _capi.THREADS_AUTO if n_threads is None else n_threads
+        segments = self._core_reader().read_arrays(keep=set(frames), n_threads=threads)
+        for frame, name in frames.items():
+            mb.field_data.set_array(segments[frame], name)
 
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:
@@ -1534,7 +2165,9 @@ class Reader:
         # Frame-addressed, so downselecting skips the decompression too, not
         # just the copy into the dataset.
         segments = self._read_ds_segments_cpp(ds_id, selected_frame_names, n_threads)
-        return self._segments_to_ds(ds_id, segments)
+        ds = self._segments_to_ds(ds_id, segments, self._dataset_metadata(ds_id))
+        segments.release()
+        return ds
 
     def _load_ds_reader(self) -> _DataSetReader:  # noqa: C901
         """Read metadata hierarchy from the pyvista-zstd file."""
@@ -1551,8 +2184,7 @@ class Reader:
                 mb_meta = MultiBlockMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
                 mblock_meta[mb_meta.uid] = mb_meta
             elif key.endswith(DS_METADATA_KEY):
-                uid = key[:UID_N_CHAR]
-                dataset_meta[uid] = DataSetMetadata.from_array(np.frombuffer(raw.encode("utf-8"), dtype=np.uint8))
+                dataset_meta[key[:UID_N_CHAR]] = self._dataset_metadata(key[:UID_N_CHAR])
 
         # assemble hierarchy tree by wiring children to their metadata
         for uid, m in mblock_meta.items():
@@ -1614,10 +2246,8 @@ class Reader:
         # Same entry point as an indexed read, so the two cannot drift apart.
         return self._ds_reader.read(n_threads)
 
-    def _segments_to_ds(self, ds_id: str, segments: dict[str, Any]) -> DataSet:
-        meta_arr = segments[f"{ds_id}{DS_METADATA_KEY}"]
-        ds_metadata = DataSetMetadata.from_array(meta_arr)
-
+    def _segments_to_ds(self, ds_id: str, segments: dict[str, Any], ds_metadata: DataSetMetadata) -> DataSet:
+        """Build the dataset *ds_id* from its decompressed frames."""
         # convert this to match when Python 3.9 goes EOL
         ds_type = ds_metadata.ds_type
         if ds_type == "UnstructuredGrid":
@@ -1629,7 +2259,7 @@ class Reader:
         elif ds_type == "PointSet":
             ds = _segments_to_pointset(ds_id, segments)
         elif ds_type == "RectilinearGrid":
-            ds = _segments_to_rgrid(ds_id, segments)
+            ds = _segments_to_rgrid(ds_id, segments, ds_metadata)
         elif ds_type == "StructuredGrid":
             ds = _segments_to_sgrid(ds_id, segments, ds_metadata)
         elif ds_type == "ExplicitStructuredGrid":
@@ -1638,14 +2268,15 @@ class Reader:
             msg = f"pyvista-zstd does not support DataSet type `{ds_type}` for decompression"
             raise RuntimeError(msg)
 
-        _add_data(ds_id, ds, segments)
-        _apply_metadata(ds, ds_metadata)
+        _apply_metadata(ds, ds_metadata, _add_data(ds_id, ds, segments))
         return ds
 
     @property
     def available_point_arrays(self) -> set[str]:
         """
         Return a set of all point array names available in the dataset.
+
+        Empty for a MultiBlock file, which reads every array.
 
         Returns
         -------
@@ -1679,6 +2310,8 @@ class Reader:
         """
         Return a set of all cell array names available in the dataset.
 
+        Empty for a MultiBlock file, which reads every array.
+
         Returns
         -------
         set[str]
@@ -1708,7 +2341,11 @@ class Reader:
 
     @property
     def available_field_arrays(self) -> set[str]:
-        """Return a set of all field array names available in the dataset."""
+        """
+        Return a set of all field array names available in the dataset.
+
+        Empty for a MultiBlock file, which reads every array.
+        """
         if isinstance(self._ds_metadata, MultiBlockMetadata):
             return set()
         return set(self._ds_metadata.field_data_keys)
@@ -1718,7 +2355,7 @@ class Reader:
         """
         Return the set of currently selected point arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_point_arrays is None:
             return self.available_point_arrays.copy()
@@ -1752,7 +2389,7 @@ class Reader:
         """
         Return the set of currently selected cell arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_cell_arrays is None:
             return self.available_cell_arrays.copy()
@@ -1786,7 +2423,7 @@ class Reader:
         """
         Return the set of currently selected field arrays to read.
 
-        Defaults to all available arrays.
+        Defaults to all available arrays. Applies to a single-dataset file only.
         """
         if self._selected_field_arrays is None:
             return self.available_field_arrays.copy()

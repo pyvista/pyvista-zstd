@@ -89,11 +89,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.13"]
-        vtk-version: ["9.2.6", "9.3.1", "9.4.2", "9.5.0", "latest"]
+        vtk-version: ["9.3.1", "9.4.2", "9.5.0", "9.6.2", "latest"]
         exclude:
-          # vtk 9.2.6 / 9.3.1 wheels not published for Python 3.13
-          - vtk-version: "9.2.6"
-            python-version: "3.13"
+          # vtk 9.3.1 wheels not published for Python 3.13
           - vtk-version: "9.3.1"
             python-version: "3.13"
 
@@ -110,14 +108,14 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Set up vtk
-        if: ${{ matrix.vtk-version != 'latest' }}
-        run: uv pip install --system vtk==${{ matrix.vtk-version }}
-
       - name: Install with test dependencies
+        # Pin vtk in the same resolve so the dependencies cannot replace it.
         env:
           PVZSTD_BUILD_CORE: "1"
-        run: uv pip install --system .[tests]
+        run: uv pip install --system .[tests] ${{ matrix.vtk-version != 'latest' && format('vtk=={0}', matrix.vtk-version) || '' }}
+
+      - name: Confirm the VTK version
+        run: python -c "import importlib.metadata as m, sys; v = m.version('vtk'); print('vtk', v); sys.exit(0 if '${{ matrix.vtk-version }}' in ('latest', v) else 1)"
 
       - name: Confirm the C++ core is present
         run: |
@@ -133,6 +131,34 @@ jobs:
           uv pip install --system build twine
           python -m build
           python -m twine check dist/*
+
+  # Test the oldest declared runtime dependencies on the oldest Python.
+  dependency_floor:
+    name: Dependency Floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install with test dependencies at the declared floors
+        env:
+          PVZSTD_BUILD_CORE: "1"
+        run: uv pip install --system .[tests] $(uv run .github/scripts/runtime_floors.py)
+
+      - name: Show the installed runtime dependencies
+        run: uv pip list --system | grep -iE '^(pyvista|vtk) '
+
+      - name: Unit Testing
+        run: pytest -vv
 
   # The distributions the release publishes. They live here, in the same
   # workflow as the release job, so that job can reach their artifacts through
@@ -229,7 +255,7 @@ jobs:
     # The wheel jobs are in the needs list because the release is what they are
     # for: without them the only artefact published is an sdist, and every
     # install on a machine with no C++ compiler fails.
-    needs: [doc, unit_testing, wheels, sdist]
+    needs: [doc, unit_testing, dependency_floor, wheels, sdist]
     runs-on: ubuntu-latest
     environment:
       name: pypi

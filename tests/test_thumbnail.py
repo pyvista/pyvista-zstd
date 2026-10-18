@@ -15,6 +15,7 @@ import pyvista as pv
 
 import pyvista_zstd as pz
 from pyvista_zstd import _capi
+from pyvista_zstd.thumbnail import THUMBNAIL_MAX_BYTES
 from pyvista_zstd.thumbnail import THUMBNAIL_SIZE
 
 if TYPE_CHECKING:
@@ -152,8 +153,9 @@ def test_read_thumbnail_on_other_files(tmp_path: Path, content: bytes) -> None:
         b"GIF89a" + bytes(40),
         _png()[:16],
         _png()[:16] + struct.pack(">II", 0, 16) + _png()[24:],
+        _png()[:8] + struct.pack(">I", 14) + _png()[12:],
     ],
-    ids=["not-png", "truncated", "zero-width"],
+    ids=["not-png", "truncated", "zero-width", "ihdr-length"],
 )
 def test_rejects_invalid_png(tmp_path: Path, png: bytes) -> None:
     """Bytes the core would refuse are refused with a ValueError first."""
@@ -182,6 +184,18 @@ def test_core_validates_png() -> None:
         with pytest.raises(_capi.PvzstdError):
             writer.set_thumbnail(b"not a png" * 10)
         writer.set_thumbnail(_png())
+
+
+def test_a_png_over_the_limit_is_refused(tmp_path: Path) -> None:
+    """A PNG over 8 MiB, which viewers need not read, is refused by both writers."""
+    png = _png() + bytes(THUMBNAIL_MAX_BYTES + 1 - len(_png()))
+    assert THUMBNAIL_MAX_BYTES == 8 * 1024 * 1024
+    with pytest.raises(ValueError, match="at most"):
+        pz.write(pv.Sphere(), tmp_path / "t.pv", thumbnail=png)
+    with _capi.CoreWriter() as writer:
+        with pytest.raises(_capi.PvzstdError):
+            writer.set_thumbnail(png)
+        writer.set_thumbnail(png[:-1])
 
 
 def test_core_reserves_the_thumbnail_name() -> None:

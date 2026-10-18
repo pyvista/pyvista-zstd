@@ -528,8 +528,10 @@ versions in §2 reads the dataset unchanged and skips it.
 **Position.** The thumbnail is always frame pair 0, named `__thumbnail`, and
 `frame_names[0]` is that name. The name has no dataset-UID prefix and is
 reserved: writers refuse it for an ordinary array. A reader takes pair 0 as the
-thumbnail only when its header is exactly the 43 bytes below; it is then not
-reported as an array. Any other pair 0 is read as an ordinary array.
+thumbnail only when bytes 0-58 of the file are exactly the fixed prefix below,
+which needs no decompression; it is then not reported as an array. Any other
+pair 0 is read as an ordinary array, even one whose header decodes to the same
+43 bytes.
 
 **Encoding.** The header frame is the §3 header with shape `(0,)` and dtype
 `|u1`, held as a single raw (uncompressed) block in a zstd frame with a fixed
@@ -545,8 +547,9 @@ reported as an array. Any other pair 0 is read as an ordinary array.
 The payload frame is a zstd **skippable frame**: magic `50 2A 4D 18`
 (`0x184D2A50`), a `u32` length, then the thumbnail record verbatim. zstd
 decodes a skippable frame to nothing, so the index declares its decompressed
-size as 0, matching the header's shape. The record is contiguous whatever its
-size, up to the 4 GiB a `u32` length allows.
+size as 0, matching the header's shape. The record is contiguous. The PNG is
+at most 8 MiB (8,388,608 bytes): writers refuse a larger one, and every reader
+accepts any thumbnail up to that size.
 
 A decoder must treat a skippable frame as empty. **Known limitation:**
 python-`zstandard` (0.25.0 and earlier) `ZstdDecompressor.decompress()` raises
@@ -586,13 +589,16 @@ version treats the container as having no thumbnail.
 
 **Staleness.** `data_crc` is the CRC-32 (zlib polynomial) of the trailer index
 entries of every frame after the thumbnail pair: the bytes from
-`index_offset + 32` up to the final 8-byte frame count. Appends and streamed
+`index_offset + 32` up to the final 8-byte frame count, where
+`index_offset = file_size - 8 - 16 * N` for N frames. Appends and streamed
 commits copy the pair verbatim and rewrite the index, so the check fails after
-any change to the data; the thumbnail is then stale. Whether a stale image is
-still worth showing is the viewer's decision.
+any append or streamed commit; the thumbnail is then stale. Whether a stale
+image is still worth showing is the viewer's decision.
 
 **Reading without zstd.** Read the first 95 bytes, compare bytes 0-58 with the
-fixed prefix, check the descriptor magic and version at 63, and check that
-`header >= 32` and `header + png_len` equals the record length at 59; any
-mismatch means no thumbnail. The PNG is the `png_len` bytes at `63 + header`. The
-staleness check needs only the last 8 bytes, for the frame count, and the index.
+fixed prefix, check the descriptor magic and version at 63, check that
+`header >= 32` and `header + png_len` equals the record length at 59, and check
+that index entry 1 ends at `63 + record length`; any mismatch means no
+thumbnail. The PNG is the `png_len` bytes at `63 + header`, and must start with
+the 8-byte PNG signature. The frame count is the last 8 bytes, and it locates
+the index for both the frame-end check and the staleness check.

@@ -1906,7 +1906,7 @@ class Reader:
 
     @property
     def compressed_nbytes(self) -> int:
-        """Return the size in bytes of the compressed frames, metadata frames included."""
+        """Return the size in bytes of the compressed frames, metadata frames and any thumbnail included."""
         return int(self._compressed_sizes.sum())
 
     @property

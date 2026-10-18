@@ -7,6 +7,7 @@ import io
 from pathlib import Path
 import struct
 from typing import TYPE_CHECKING
+from typing import BinaryIO
 
 import numpy as np
 import pyvista as pv
@@ -31,6 +32,7 @@ _SRGB_ENCODE_KNEE = 0.0031308
 _DESCRIPTOR_BYTES = 32
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PNG_MIN_BYTES = 33  # signature and IHDR chunk
+_IHDR_CHUNK = b"\x00\x00\x00\x0dIHDR"  # length 13, then the type
 _DTYPE_FIELD = b"|u1".ljust(16)
 _HEADER_BYTES = 4 + len(THUMBNAIL_NAME) + 4 + 8 + len(_DTYPE_FIELD)
 # Every container with a thumbnail starts with these bytes: the raw-block header frame, then the skippable magic.
@@ -43,9 +45,13 @@ _FIXED_PREFIX = (
     + b"\x50\x2a\x4d\x18"
 )
 _RECORD_OFFSET = len(_FIXED_PREFIX) + 4
+# The trailer: an index entry of (end offset, decompressed size) per frame, then the frame count.
+_COUNT_BYTES = 8
+_INDEX_ENTRY_BYTES = 16
+_PAIR_FRAMES = 2
 
-THUMBNAIL_MAX_BYTES = 0xFFFFFFFF - _DESCRIPTOR_BYTES
-"""Largest PNG a container can embed."""
+THUMBNAIL_MAX_BYTES = 8 * 1024 * 1024
+"""Largest PNG a container can embed, 8 MiB."""
 
 
 @dataclass(frozen=True)
@@ -93,15 +99,31 @@ def read_thumbnail(path: Path | str) -> bytes | None:
             return None
         if header_bytes < _DESCRIPTOR_BYTES or header_bytes + png_nbytes != record_bytes:
             return None
+        if _payload_frame_end(f) != _RECORD_OFFSET + record_bytes:
+            return None
         f.seek(_RECORD_OFFSET + header_bytes)
         png = f.read(png_nbytes)
-    return png if len(png) == png_nbytes else None
+    return png if len(png) == png_nbytes and png.startswith(_PNG_SIGNATURE) else None
+
+
+def _payload_frame_end(f: BinaryIO) -> int | None:
+    """Return where the trailer index says frame 1, the thumbnail record, ends."""
+    size = f.seek(0, io.SEEK_END)
+    if size < _COUNT_BYTES:
+        return None
+    f.seek(size - _COUNT_BYTES)
+    (n_frames,) = struct.unpack("<Q", f.read(_COUNT_BYTES))
+    if n_frames < _PAIR_FRAMES or _COUNT_BYTES + _INDEX_ENTRY_BYTES * n_frames > size:
+        return None
+    f.seek(size - _COUNT_BYTES - _INDEX_ENTRY_BYTES * (n_frames - 1))
+    (end,) = struct.unpack("<Q", f.read(8))
+    return end
 
 
 def _validated_png(png: bytes) -> bytes:
     """Return *png* as bytes after checking it is an embeddable PNG."""
     png = bytes(png)
-    valid = len(png) >= _PNG_MIN_BYTES and png.startswith(_PNG_SIGNATURE) and png[12:16] == b"IHDR"
+    valid = len(png) >= _PNG_MIN_BYTES and png.startswith(_PNG_SIGNATURE) and png[8:16] == _IHDR_CHUNK
     if not valid or 0 in struct.unpack_from(">II", png, 16):
         msg = "`thumbnail` must be the bytes of a PNG file with a non-zero width and height"
         raise ValueError(msg)

@@ -82,6 +82,13 @@ inline std::vector<uint8_t> ThumbnailPrefix(uint64_t png_nbytes, uint32_t width,
   return out;
 }
 
+// Whether a container starts with the raw header frame and skippable magic of a thumbnail pair.
+inline bool StartsWithThumbnailPrefix(const uint8_t *data, uint64_t n) {
+  static const std::vector<uint8_t> prefix = ThumbnailPrefix(0, 0, 0);
+  const uint64_t fixed = kThumbnailHeaderFrameBytes + 4;  // header frame and skippable magic
+  return n >= fixed && std::memcmp(data, prefix.data(), fixed) == 0;
+}
+
 // The decoded descriptor of a thumbnail record.
 struct ThumbnailRecord {
   uint32_t width = 0;
@@ -103,7 +110,8 @@ inline bool ParseThumbnailRecord(const uint8_t *rec, uint64_t n, ThumbnailRecord
   out->png_nbytes = LoadU32(rec + 24);
   out->data_crc = LoadU32(rec + 28);
   out->png_offset = header_bytes;
-  return out->png_nbytes == n - header_bytes;
+  if (out->png_nbytes != n - header_bytes || out->png_nbytes < sizeof(kPngSignature)) return false;
+  return std::memcmp(rec + header_bytes, kPngSignature, sizeof(kPngSignature)) == 0;
 }
 
 }  // namespace pvzstd::detail

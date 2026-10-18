@@ -109,7 +109,7 @@ def test_large_png(tmp_path: Path) -> None:
 
 
 def test_older_reader_sees_an_ordinary_array(tmp_path: Path, dataset: pv.DataSet | pv.MultiBlock) -> None:
-    """A thumbnail-unaware reader sees one extra byte array and identical data."""
+    """The reference reader, which knows nothing of thumbnails, sees one extra byte array and identical data."""
     with_thumb, without = tmp_path / "with.pv", tmp_path / "without.pv"
     pz.write(dataset, with_thumb, thumbnail=_png())
     pz.write(dataset, without)

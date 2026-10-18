@@ -200,8 +200,8 @@ def thumbnailed(tmp_path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _thumbnail_both_doors(raw: bytes, tmp_path: Path) -> tuple[bytes | None, bytes | None]:
-    """Return the PNG each door reports for *raw*, after checking the dataset still opens."""
+def _thumbnail_every_door(raw: bytes, tmp_path: Path) -> bytes | None:
+    """Return the PNG the core, path and buffer, and the zstd-free reader all report for *raw*."""
     path = tmp_path / "crafted.pv"
     path.write_bytes(raw)
     found = []
@@ -210,7 +210,9 @@ def _thumbnail_both_doors(raw: bytes, tmp_path: Path) -> tuple[bytes | None, byt
             assert any(name.endswith("points") for name in reader.names())
             thumbnail = reader.thumbnail()
         found.append(None if thumbnail is None else thumbnail[0])
-    return found[0], found[1]
+    found.append(pz.read_thumbnail(path))
+    assert found[1:] == found[:-1], f"the readers disagree: {found}"
+    return found[0]
 
 
 def _with_record(raw: bytes, mutate) -> bytes:
@@ -223,7 +225,7 @@ def _with_record(raw: bytes, mutate) -> bytes:
 def test_the_control_thumbnail_reads_through_both_doors(thumbnailed: bytes, tmp_path: Path) -> None:
     """Rebuilt but unmodified, the thumbnail must still be found, or nothing below means anything."""
     rebuilt = rebuild(split_frames(thumbnailed))
-    assert _thumbnail_both_doors(rebuilt, tmp_path) == (THUMBNAIL_PNG, THUMBNAIL_PNG)
+    assert _thumbnail_every_door(rebuilt, tmp_path) == THUMBNAIL_PNG
 
 
 @pytest.mark.parametrize(
@@ -261,13 +263,13 @@ def test_an_inconsistent_thumbnail_record_is_ignored(
         struct.pack_into("<I", frame, offsets[field], new)
         return frame
 
-    assert _thumbnail_both_doors(_with_record(thumbnailed, mutate), tmp_path) == (None, None)
+    assert _thumbnail_every_door(_with_record(thumbnailed, mutate), tmp_path) is None
 
 
 def test_a_record_frame_shorter_than_its_prefix_is_ignored(thumbnailed: bytes, tmp_path: Path) -> None:
     """A skippable frame cut before its length field is no thumbnail."""
     raw = _with_record(thumbnailed, lambda frame: frame[: SKIPPABLE_PREFIX - 4])
-    assert _thumbnail_both_doors(raw, tmp_path) == (None, None)
+    assert _thumbnail_every_door(raw, tmp_path) is None
 
 
 def test_a_non_thumbnail_pair_named_thumbnail_is_an_ordinary_array(thumbnailed: bytes, tmp_path: Path) -> None:
@@ -297,8 +299,9 @@ def test_a_non_thumbnail_pair_named_thumbnail_is_an_ordinary_array(thumbnailed: 
     [
         {"skippable_len": len(THUMBNAIL_PNG) + DESCRIPTOR + 100, "png_len": len(THUMBNAIL_PNG) + 100},
         {"header": 0, "png_len": len(THUMBNAIL_PNG) + DESCRIPTOR},
+        {"header": len(THUMBNAIL_PNG) + DESCRIPTOR, "png_len": 0},
     ],
-    ids=["record-past-its-frame", "png-over-descriptor"],
+    ids=["record-past-its-frame", "png-over-descriptor", "empty-png"],
 )
 def test_a_self_consistent_but_impossible_record_is_ignored(
     thumbnailed: bytes, tmp_path: Path, fields: dict[str, int]
@@ -311,4 +314,42 @@ def test_a_self_consistent_but_impossible_record_is_ignored(
             struct.pack_into("<I", frame, offsets[field], value)
         return frame
 
-    assert _thumbnail_both_doors(_with_record(thumbnailed, mutate), tmp_path) == (None, None)
+    assert _thumbnail_every_door(_with_record(thumbnailed, mutate), tmp_path) is None
+
+
+def test_a_payload_that_is_not_a_png_is_ignored(thumbnailed: bytes, tmp_path: Path) -> None:
+    """A record whose bytes do not start with the PNG signature is no thumbnail."""
+
+    def mutate(frame: bytearray) -> bytearray:
+        frame[SKIPPABLE_PREFIX + DESCRIPTOR] ^= 0xFF
+        return frame
+
+    assert _thumbnail_every_door(_with_record(thumbnailed, mutate), tmp_path) is None
+
+
+@pytest.mark.parametrize("header", [DESCRIPTOR, DESCRIPTOR + 1, DESCRIPTOR + 8])
+def test_a_longer_descriptor_moves_the_png(thumbnailed: bytes, tmp_path: Path, header: int) -> None:
+    """Readers find the PNG at 63 + header, so a later writer may lengthen the descriptor."""
+
+    def mutate(frame: bytearray) -> bytearray:
+        start = SKIPPABLE_PREFIX + DESCRIPTOR
+        frame[start:start] = bytes(header - DESCRIPTOR)
+        struct.pack_into("<I", frame, 4, header + len(THUMBNAIL_PNG))
+        struct.pack_into("<I", frame, SKIPPABLE_PREFIX + 12, header)
+        return frame
+
+    raw = _with_record(thumbnailed, mutate)
+    assert raw[63 + header : 63 + header + 8] == THUMBNAIL_PNG[:8]
+    assert _thumbnail_every_door(raw, tmp_path) == THUMBNAIL_PNG
+
+
+def test_a_compressed_thumbnail_header_is_an_ordinary_array(thumbnailed: bytes, tmp_path: Path) -> None:
+    """Pair 0 is the thumbnail only on its fixed raw bytes, not on a header that decodes to the same."""
+    frames = split_frames(thumbnailed)
+    header = zstd.ZstdDecompressor().decompressobj().decompress(frames[0][0])
+    frames[0] = [zstd.ZstdCompressor().compress(header), len(header)]
+    frames[1] = [zstd.ZstdCompressor().compress(b""), 0]
+    raw = rebuild(frames)
+    assert _thumbnail_every_door(raw, tmp_path) is None
+    with _capi.CoreReader(buffer=raw) as reader:
+        assert "__thumbnail" in reader.names()

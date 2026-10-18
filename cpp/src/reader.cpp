@@ -567,9 +567,9 @@ pvzstd_status ParseContainer(pvzstd_reader *reader, uint32_t *file_version) {
       return PVZSTD_E_FORMAT;
     }
 
-    // Only the exact thumbnail header, which declares an empty array, is taken as the
-    // thumbnail pair; any other pair 0 is an ordinary array whatever its name.
-    if (i == 0 && frame == pvzstd::detail::ThumbnailArrayHeader()) {
+    // Only the fixed raw bytes of the thumbnail pair are taken as one, as by a reader
+    // without zstd; any other pair 0 is an ordinary array whatever its name.
+    if (i == 0 && pvzstd::detail::StartsWithThumbnailPrefix(raw.data(), raw.size())) {
       ReadThumbnail(reader, entry, index_off, n_frames);
       continue;
     }

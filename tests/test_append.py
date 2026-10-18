@@ -342,14 +342,14 @@ def test_append_keeps_file_version_3(tmp_path) -> None:
 def test_append_after_non_ascii_field_array(tmp_path) -> None:
     """A file whose field arrays have non-ASCII names accepts appends and rejects their duplicates."""
     ds = pv.Sphere()
-    ds.field_data["témp😀"] = np.arange(3.0)
+    ds.field_data["témp温度😀"] = np.arange(3.0)
     path = _write_base(tmp_path / "a.pv", ds)
     append_arrays(path, {"block0": np.arange(4.0)})
 
     assert np.array_equal(read_array(path, "block0"), np.arange(4.0))
-    assert np.array_equal(read_array(path, "témp😀"), np.arange(3.0))
+    assert np.array_equal(read_array(path, "témp温度😀"), np.arange(3.0))
     with pytest.raises(ValueError, match="already exists"):
-        append_arrays(path, {"témp😀": np.arange(2.0)})
+        append_arrays(path, {"témp温度😀": np.arange(2.0)})
 
 
 def test_append_after_non_ascii_point_array(tmp_path) -> None:

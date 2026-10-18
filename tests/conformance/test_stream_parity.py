@@ -21,6 +21,7 @@ import pyvista as pv
 import ref_reader
 
 import pyvista_zstd as pz
+from pyvista_zstd.pyvista_zstd import FILE_VERSION_EXPLICIT_STRUCTURED_GRID
 
 STREAM = os.environ.get("PVZSTD_STREAM")
 
@@ -156,7 +157,7 @@ def test_stream_into_a_version_3_file_with_non_ascii_names(tmp_path) -> None:
     grid.point_data["témp"] = np.arange(grid.n_points, dtype=np.float64)
     grid.field_data["born😀"] = np.array([1.5, 2.5])
     seed = tmp_path / "seed.pv"
-    pz.write(grid, seed)
+    pz.write(grid, seed, progress_bar=False)
     reference = tmp_path / "reference.pv"
     cpp = tmp_path / "cpp.pv"
     shutil.copyfile(seed, reference)
@@ -168,7 +169,7 @@ def test_stream_into_a_version_3_file_with_non_ascii_names(tmp_path) -> None:
     _run_stream(cpp, [_write_spec(tmp_path, f"u{i}", a) for i, a in enumerate(commits)], shuffle=True)
 
     assert cpp.read_bytes() == reference.read_bytes()
-    assert pz.Reader(cpp)._metadata.file_version == pz.pyvista_zstd.FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
+    assert pz.Reader(cpp)._metadata.file_version == FILE_VERSION_EXPLICIT_STRUCTURED_GRID  # noqa: SLF001
     out = pz.read(cpp)
     assert isinstance(out, pv.ExplicitStructuredGrid)
     assert np.array_equal(out.field_data["étape_0"], np.arange(5.0))

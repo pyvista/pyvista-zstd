@@ -820,16 +820,21 @@ def write(  # noqa: PLR0913
         by default. ``"auto"`` shuffles a multibyte floating-point array only
         when a quick trial compression shows it shrinks the data (so it never
         enlarges a file); ``True`` shuffles every multibyte array. Files that
-        use the filter are written at format version 1 and can only be read by
-        this release or newer; unfiltered files (the default) stay backward
-        compatible unless they use fixed-width cell arrays.
+        use the filter are written at format version 1 or higher and can only
+        be read by this release or newer; unfiltered files (the default) stay
+        backward compatible unless they use a feature listed in the Notes.
 
     Notes
     -----
     Cell arrays whose cells all contain the same number of points are stored
     without their redundant offsets array. Their common width is recorded in
     dataset metadata and VTK reconstructs the offsets when the file is read.
-    Files using this encoding are written at format version 2.
+    Files using this encoding are written at format version 2 or higher.
+
+    Files containing a :class:`pyvista.ExplicitStructuredGrid`,
+    :class:`pyvista.MultiBlock` field data, or a :class:`pyvista.StructuredGrid`
+    or :class:`pyvista.RectilinearGrid` whose extent does not start at 0 are
+    written at format version 3.
 
     """
     writer = Writer(ds, filename)

@@ -101,8 +101,17 @@ def _bulk() -> pv.DataSet:
     return ds
 
 
+def _split() -> pv.DataSet:
+    """Large enough that one payload is stored as several zstd frames (spec 3.3)."""
+    rng = np.random.default_rng(22)
+    ds = pv.ImageData(dimensions=(128, 128, 96))
+    ds.point_data["split_f64"] = rng.random(ds.n_points)
+    return ds
+
+
 DATASETS = {
     "polydata": _sphere,
+    "split": _split,
     "unstructured": _unstructured,
     "image": _image,
     "mixed": _mixed,
@@ -160,7 +169,9 @@ def test_empty_arrays_still_record_their_filter(tmp_path) -> None:
     Shuffling nothing is a no-op, so only the one header byte reveals this.
     """
     src = tmp_path / "polydata.pv"
-    pz.write(_sphere(), src, shuffle=True, progress_bar=False)
+    ds = _sphere()
+    ds.field_data["empty_f64"] = np.empty(0)
+    pz.write(ds, src, shuffle=True, progress_bar=False)
     container = ref_reader.read(src)
 
     empty_multibyte = [

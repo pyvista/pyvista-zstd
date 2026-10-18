@@ -46,8 +46,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from pyvista_zstd import _capi
 from pyvista_zstd.pyvista_zstd import SUPPORTED_READ_SUFFIXES
 from pyvista_zstd.pyvista_zstd import ArrayInfo
@@ -279,19 +277,19 @@ class AppendReader:
         Taken from the frame header, which is what the payload is read against.
         """
         reader = self._core_reader
+        entries = reader._array_catalog()[0]  # noqa: SLF001
         info: dict[str, ArrayInfo] = {}
         for name in reader.field_array_names():
             index = reader.find_field(name)
             if index is None:  # pragma: no cover - metadata and index disagree
                 continue
-            header = reader._info(index)  # noqa: SLF001
-            shape = tuple(int(header.shape[i]) for i in range(header.ndim))
-            info[name] = ArrayInfo(shape=shape, dtype=str(np.dtype(header.dtype.decode("utf-8"))))
+            _, dtype, shape = entries[index]
+            info[name] = ArrayInfo(shape=shape, dtype=str(dtype))
         return info
 
     def __contains__(self, name: str) -> bool:
         """Return whether field array ``name`` is present."""
-        return name in self._core_reader.field_array_names()
+        return self._core_reader.find_field(name) is not None
 
     def read_array(self, name: str) -> NDArray:
         """Decompress and return the single field array ``name``."""
@@ -303,8 +301,19 @@ class AppendReader:
         return self._core_reader.read_at(index)
 
     def read_arrays(self, names: Iterable[str]) -> dict[str, NDArray]:
-        """Decompress and return several field arrays by name."""
-        return {n: self.read_array(n) for n in names}
+        """Decompress and return several field arrays by name, in one parallel pass."""
+        reader = self._core_reader
+        entries = reader._array_catalog()[0]  # noqa: SLF001
+        frame_of: dict[str, str] = {}
+        for name in names:
+            index = reader.find_field(name)
+            if index is None:
+                available = sorted(reader.field_array_names())
+                msg = f"field array {name!r} not found; available: {available}"
+                raise KeyError(msg)
+            frame_of[name] = entries[index][0]
+        arrays = reader.read_arrays(keep=set(frame_of.values()))
+        return {name: arrays[frame] for name, frame in frame_of.items()}
 
     def close(self) -> None:
         """Release the file. Further reads reopen it."""

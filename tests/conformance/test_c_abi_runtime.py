@@ -109,16 +109,16 @@ def test_read_array_at_accepts_a_null_destination_for_a_zero_byte_array(tmp_path
     """
     A zero-byte read must succeed even with a null destination.
 
-    ``pv.Sphere()`` has no lines, verts, or strips, so its
-    ``lines_connectivity``, ``verts_connectivity`` and ``strips_connectivity``
-    frames are zero bytes. numpy always hands back a non-null pointer for a
-    zero-size array, so going through :meth:`CoreReader.read_at` cannot
-    exercise a null destination the way a C or C++ caller sizing its buffer
-    from ``nbytes`` would; this reads every array through the raw ctypes
-    entry point instead, passing ``None`` whenever ``nbytes`` is zero.
+    An empty field array is a zero-byte frame. numpy always hands back a
+    non-null pointer for a zero-size array, so going through
+    :meth:`CoreReader.read_at` cannot exercise a null destination the way a C
+    or C++ caller sizing its buffer from ``nbytes`` would; this reads every
+    array through the raw ctypes entry point instead, passing ``None``
+    whenever ``nbytes`` is zero.
     """
     ds = pv.Sphere()
-    path = tmp_path / "empty_topology.pv"
+    ds.field_data["empty"] = np.empty(0, dtype=np.float64)
+    path = tmp_path / "empty_array.pv"
     write(ds, path)
 
     with _capi.CoreReader(str(path)) as reader:

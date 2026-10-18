@@ -23,6 +23,8 @@ from pyvista_zstd.pyvista_zstd import ZstdFileMetadata
 from pyvista_zstd.pyvista_zstd import read
 from pyvista_zstd.pyvista_zstd import read_buffer
 from pyvista_zstd.pyvista_zstd import write
+from pyvista_zstd.thumbnail import ThumbnailInfo
+from pyvista_zstd.thumbnail import read_thumbnail
 
 __all__ = [
     "FILE_VERSION",
@@ -31,11 +33,13 @@ __all__ = [
     "DataSetMetadata",
     "MultiBlockMetadata",
     "Reader",
+    "ThumbnailInfo",
     "Writer",
     "ZstdFileMetadata",
     "append_arrays",
     "read",
     "read_array",
     "read_buffer",
+    "read_thumbnail",
     "write",
 ]

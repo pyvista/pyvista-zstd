@@ -44,7 +44,8 @@ second, and the frame count occupies the final eight bytes:
 All integers are **little-endian** (`struct.pack("<Q", ...)`, `:819-820`).
 
 **There is no magic number and no file header.** Byte 0 is the first byte of
-the first zstd frame. A file is identified as a container only by successfully
+the first zstd frame, which for a container with a thumbnail is the fixed
+prefix described in §11. A file is identified as a container only by successfully
 parsing its trailer.
 
 **The first index field is the frame's END offset, not its start.** The writer
@@ -99,7 +100,8 @@ order equals `frame_names` order on every frame but that last one.
 
 Note also that not every dataset writes a `points` frame: ImageData's geometry
 is implied by `dimensions` / `origin` / `spacing` in `__ds_metadata`, so an
-ImageData file with no attached arrays contains only the two metadata pairs.
+ImageData file with no attached arrays contains only the two metadata pairs,
+plus the thumbnail pair (§11) when it has one.
 
 ### 1.1 Consequences that bind the implementation
 
@@ -107,7 +109,8 @@ ImageData file with no attached arrays contains only the two metadata pairs.
   but it does not have to seek: the index goes last and its offsets are
   cumulative ends, so a writer that accumulates them as it goes can stream the
   body and then append the trailer. `pvzstd_writer_write` does exactly that --
-  one `wb` handle, frames written in order, trailer appended, close.
+  one `wb` handle, frames written in order, trailer appended, close. With a
+  thumbnail it then seeks back once to fill in the staleness CRC (§11).
   _Editing_ an existing container is where seeking becomes unavoidable, and
   the two edit paths make opposite trades: `pvzstd_append_arrays` stages a
   whole new file and commits it by rename, while `pvzstd_stream_append` holds
@@ -514,3 +517,88 @@ rules, the status enum, the promise that no exception crosses the boundary and
 what a WebAssembly build must be compiled with for that to hold, and
 `PVZSTD_ABI_VERSION`, which versions the _interface_ and is unrelated to the
 container `file_version` versioned in §2.
+
+## 11. The optional thumbnail pair
+
+A container may embed one PNG preview image. It is written only on request and
+does not change `file_version`: to a reader that does not know about it, it is
+an ordinary empty `|u1` array that no dataset references, so every reader of the
+versions in §2 reads the dataset unchanged and skips it.
+
+**Position.** The thumbnail is always frame pair 0, named `__thumbnail`, and
+`frame_names[0]` is that name. The name has no dataset-UID prefix and is
+reserved: writers refuse it for an ordinary array. A reader takes pair 0 as the
+thumbnail only when bytes 0-58 of the file are exactly the fixed prefix below,
+which needs no decompression; it is then not reported as an array. Any other
+pair 0 is read as an ordinary array, even one whose header decodes to the same
+43 bytes.
+
+**Encoding.** The header frame is the §3 header with shape `(0,)` and dtype
+`|u1`, held as a single raw (uncompressed) block in a zstd frame with a fixed
+12-byte prefix:
+
+| Bytes | Value                                                  |
+| ----- | ------------------------------------------------------ |
+| 0-3   | `28 B5 2F FD`, the zstd frame magic                    |
+| 4     | `A0`: 4-byte content size, single segment, no checksum |
+| 5-8   | `u32` content size, 43                                 |
+| 9-11  | `u24` block header `1 \| (43 << 3)`: last block, raw   |
+
+The payload frame is a zstd **skippable frame**: magic `50 2A 4D 18`
+(`0x184D2A50`), a `u32` length, then the thumbnail record verbatim. zstd
+decodes a skippable frame to nothing, so the index declares its decompressed
+size as 0, matching the header's shape. The record is contiguous. The PNG is
+at most 8 MiB (8,388,608 bytes): writers refuse a larger one, and every reader
+accepts any thumbnail up to that size.
+
+A decoder must treat a skippable frame as empty. **Known limitation:**
+python-`zstandard` (0.25.0 and earlier) `ZstdDecompressor.decompress()` raises
+on one, so a Python reader that decompresses every frame fails on a container
+with a thumbnail. Skip pair 0, or decode with `decompressobj()` or Python 3.14's
+`compression.zstd`, which return `b""`. pyvista-zstd's own releases never
+decompress this frame.
+
+**Layout from byte 0:**
+
+| Offset | Length | Content                                                                       |
+| ------ | ------ | ----------------------------------------------------------------------------- |
+| 0      | 12     | raw-frame prefix                                                              |
+| 12     | 43     | §3 header: `u32 11`, `"__thumbnail"`, `u32 1`, `u64 0`, `"\|u1"` padded to 16 |
+| 55     | 4      | skippable-frame magic                                                         |
+| 59     | 4      | `u32` record length                                                           |
+| 63     | 32     | thumbnail descriptor                                                          |
+| 95     | n      | PNG                                                                           |
+
+Bytes 0-58 are the same in every container with a thumbnail.
+
+**Descriptor** (little-endian):
+
+| Offset | Field          | Value                                                             |
+| ------ | -------------- | ----------------------------------------------------------------- |
+| 0      | `u8[8]` magic  | `PVZTHUMB`                                                        |
+| 8      | `u32` version  | 1                                                                 |
+| 12     | `u32` header   | descriptor length; the PNG starts this many bytes into the record |
+| 16     | `u32` width    | PNG width in pixels                                               |
+| 20     | `u32` height   | PNG height in pixels                                              |
+| 24     | `u32` png_len  | PNG length; `header + png_len` is the record length               |
+| 28     | `u32` data_crc | staleness check, below                                            |
+
+A reader locates the PNG at `63 + header`, not at a hard-coded 95, so a later
+version-1 writer may lengthen the descriptor. A reader that finds any other
+version treats the container as having no thumbnail.
+
+**Staleness.** `data_crc` is the CRC-32 (zlib polynomial) of the trailer index
+entries of every frame after the thumbnail pair: the bytes from
+`index_offset + 32` up to the final 8-byte frame count, where
+`index_offset = file_size - 8 - 16 * N` for N frames. Appends and streamed
+commits copy the pair verbatim and rewrite the index, so the check fails after
+any append or streamed commit; the thumbnail is then stale. Whether a stale
+image is still worth showing is the viewer's decision.
+
+**Reading without zstd.** Read the first 95 bytes, compare bytes 0-58 with the
+fixed prefix, check the descriptor magic and version at 63, check that
+`header >= 32` and `header + png_len` equals the record length at 59, and check
+that index entry 1 ends at `63 + record length`; any mismatch means no
+thumbnail. The PNG is the `png_len` bytes at `63 + header`, and must start with
+the 8-byte PNG signature. The frame count is the last 8 bytes, and it locates
+the index for both the frame-end check and the staleness check.

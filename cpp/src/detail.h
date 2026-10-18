@@ -48,6 +48,7 @@ constexpr uint64_t kShuffleProbeBytes = 1u << 20;  // 1 MiB
 constexpr int kMaxManualThreads = 8;
 constexpr uint64_t kBytesPerMiB = 1024ull * 1024ull;
 constexpr uint64_t kThreadBytesPerWorker = 2ull;  // floor(MiB / 2) workers
+constexpr uint64_t kIndexEntryBytes = 16;         // (end:u64, decompressed_size:u64)
 
 // Whether a 64-bit length is too large to be held in a size_t. Always false
 // where size_t is 64 bits; on a 32-bit target -- and a WebAssembly build is one
@@ -69,6 +70,12 @@ inline void StoreU32(std::vector<uint8_t> *out, uint32_t v) {
 
 inline void StoreU64(std::vector<uint8_t> *out, uint64_t v) {
   for (int i = 0; i < 8; ++i) out->push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xFF));
+}
+
+inline uint32_t LoadU32(const uint8_t *src) {
+  uint32_t v = 0;
+  for (int i = 0; i < 4; ++i) v |= static_cast<uint32_t>(src[i]) << (8 * i);
+  return v;
 }
 
 inline uint64_t LoadU64(const uint8_t *src) {

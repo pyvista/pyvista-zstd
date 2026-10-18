@@ -336,3 +336,19 @@ def test_a_commit_that_failed_part_way_poisons_the_stream(tmp_path) -> None:
     )
     # Nothing was committed, so nothing may be counted.
     assert reported["commits"] == "0"
+
+
+def test_stream_keeps_thumbnail_and_marks_it_stale(tmp_path) -> None:
+    """A streamed commit leaves the thumbnail pair in place and flags it stale."""
+    container = tmp_path / "thumb.pv"
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + bytes([0, 0, 0, 2, 0, 0, 0, 3]) + bytes(9)
+    pz.write(pv.Sphere(), container, thumbnail=png)
+    assert not pz.Reader(container).thumbnail_info.stale
+
+    _run_stream(container, [_write_spec(tmp_path, "c0", {"step_0_u": np.zeros((4, 3))})], shuffle=False)
+
+    reader = pz.Reader(container)
+    assert pz.read_thumbnail(container) == png
+    assert reader.thumbnail == png
+    assert reader.thumbnail_info == pz.ThumbnailInfo(width=2, height=3, stale=True)
+    assert np.array_equal(pz.read_array(container, "step_0_u"), np.zeros((4, 3)))

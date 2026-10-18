@@ -25,6 +25,8 @@ import numpy as np
 import pyvista as pv
 
 from pyvista_zstd import _capi
+from pyvista_zstd.thumbnail import ThumbnailInfo
+from pyvista_zstd.thumbnail import _thumbnail_png
 
 # Import VTK through PyVista rather than from ``vtkmodules`` directly, so the
 # classes constructed here always come from the same VTK binding PyVista itself
@@ -772,6 +774,7 @@ def write(  # noqa: PLR0913
     level: int = 3,
     n_threads: int | None = None,
     shuffle: ShuffleSpec = False,
+    thumbnail: bytes | bool | None = None,
 ) -> None:
     """
     Compress a PyVista or VTK dataset.
@@ -823,6 +826,14 @@ def write(  # noqa: PLR0913
         use the filter are written at format version 1 or higher and can only
         be read by this release or newer; unfiltered files (the default) stay
         backward compatible unless they use a feature listed in the Notes.
+    thumbnail : bytes | bool, optional
+        Embed a PNG preview image that viewers can show without reading the
+        dataset. Pass the PNG bytes, or ``True`` to render a 512 x 512 image
+        off-screen, cropped to the dataset on a transparent background. Rendering
+        needs a working VTK render window; on a machine without a display VTK
+        may crash the interpreter, so pass PNG bytes there instead.
+        Files with a thumbnail remain readable by earlier releases, which
+        ignore it.
 
     Notes
     -----
@@ -846,6 +857,7 @@ def write(  # noqa: PLR0913
         level=level,
         n_threads=n_threads,
         shuffle=shuffle,
+        thumbnail=thumbnail,
     )
 
 
@@ -955,7 +967,7 @@ class Writer:
         field_info, _ = _stage_attributes(ds_id, ds, "field_data", FIELD_DATA_SUFFIX, self._arrays)
         return field_info
 
-    def write(
+    def write(  # noqa: PLR0913
         self,
         *,
         progress_bar: bool = False,
@@ -963,6 +975,7 @@ class Writer:
         level: int = 3,
         n_threads: int | None = None,
         shuffle: ShuffleSpec = False,
+        thumbnail: bytes | bool | None = None,
     ) -> None:
         """Write the dataset."""
         if self._filename.suffix == LEGACY_FILE_SUFFIX:
@@ -984,6 +997,7 @@ class Writer:
                 stacklevel=2,
             )
 
+        png = _thumbnail_png(self._ds, thumbnail=thumbnail)
         self._add_ds_arrays(self._ds, force_int32=force_int32)
 
         # The core owns the format decisions; this side stages arrays in
@@ -993,6 +1007,8 @@ class Writer:
             writer.set_threads(_capi.THREADS_AUTO if n_threads is None else n_threads)
             writer.set_shuffle(_shuffle_mode(shuffle))
             writer.set_fixed_width_cells(enabled=self._uses_fixed_width_cells)
+            if png is not None:
+                writer.set_thumbnail(png)
             for name, arr in self._arrays.items():
                 writer.add_array(name, arr)
             writer.write(self._filename)
@@ -1782,6 +1798,7 @@ class Reader:
             raise RuntimeError(msg) from err
         self._frame_decompressed, self._compressed_sizes = core.frame_sizes()
         self._metadata_documents = dict(core.metadata_documents())
+        self._thumbnail = core.thumbnail()
 
         self._metadata = self._file_metadata_from_core()
         self._ds_metadata = self._root_ds_meta_from_core()
@@ -1855,6 +1872,34 @@ class Reader:
         raise RuntimeError(msg)  # pragma: no cover
 
     @property
+    def thumbnail(self) -> bytes | None:
+        """
+        Return the embedded PNG thumbnail, or None when the file has none.
+
+        Examples
+        --------
+        >>> import pyvista as pv
+        >>> import pyvista_zstd
+        >>> pyvista_zstd.write(pv.Sphere(), "sphere.pv", thumbnail=True)  # doctest: +SKIP
+        >>> png = pyvista_zstd.Reader("sphere.pv").thumbnail  # doctest: +SKIP
+
+        """
+        return None if self._thumbnail is None else self._thumbnail[0]
+
+    @property
+    def thumbnail_info(self) -> ThumbnailInfo | None:
+        """
+        Return the thumbnail's pixel size and staleness, or None when the file has none.
+
+        A thumbnail is stale when the container's data was changed after it was
+        written, for example by :func:`pyvista_zstd.append_arrays`.
+        """
+        if self._thumbnail is None:
+            return None
+        _, width, height, stale = self._thumbnail
+        return ThumbnailInfo(width=width, height=height, stale=stale)
+
+    @property
     def decompressed_sizes(self) -> NDArray[np.uint64]:
         """
         Return decompressed frame sizes.
@@ -1871,7 +1916,7 @@ class Reader:
 
     @property
     def compressed_nbytes(self) -> int:
-        """Return the size in bytes of the compressed frames, metadata frames included."""
+        """Return the size in bytes of the compressed frames, metadata frames and any thumbnail included."""
         return int(self._compressed_sizes.sum())
 
     @property

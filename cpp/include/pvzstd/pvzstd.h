@@ -136,7 +136,7 @@ PVZSTD_API pvzstd_status pvzstd_open_memory_versioned(const void *data, uint64_t
  * the caller's buffer is left alone, and is theirs to free afterwards. */
 PVZSTD_API void pvzstd_close(pvzstd_reader *reader);
 
-/* Number of arrays, excluding the two JSON metadata frames. */
+/* Number of arrays, excluding the two JSON metadata frames and the thumbnail. */
 PVZSTD_API uint64_t pvzstd_array_count(const pvzstd_reader *reader);
 
 /* Describe array `index`. */
@@ -226,10 +226,25 @@ PVZSTD_API const char *pvzstd_metadata_name_at(const pvzstd_reader *reader, uint
 /* JSON of metadata document `index`, owned by the reader, or NULL. */
 PVZSTD_API const char *pvzstd_metadata_json_at(const pvzstd_reader *reader, uint64_t index);
 
+/* ---- Thumbnail ---- */
+
+/* An embedded PNG thumbnail. `png` is owned by the reader until pvzstd_close(). */
+typedef struct pvzstd_thumbnail_info {
+  const void *png; /* NULL when the container has none */
+  uint64_t nbytes;
+  uint32_t width;
+  uint32_t height;
+  int stale; /* nonzero when the data changed after the thumbnail was written */
+} pvzstd_thumbnail_info;
+
+/* Describe the container's thumbnail; `out->png` is NULL when it has none. The
+ * thumbnail pair is not reported as an array. */
+PVZSTD_API pvzstd_status pvzstd_thumbnail(const pvzstd_reader *reader, pvzstd_thumbnail_info *out);
+
 /* ---- Frame sizes ----
  *
  * Two frames per array, (header, payload), in file order -- including the
- * metadata frames, which are not reported as arrays. These are the trailer's
+ * metadata frames and the thumbnail pair, which are not reported as arrays. These are the trailer's
  * own numbers, so a caller needing them no longer has to parse the trailer
  * itself to answer "how big is this file decompressed". */
 
@@ -303,6 +318,7 @@ PVZSTD_API pvzstd_status pvzstd_writer_set_shuffle(pvzstd_writer *writer, pvzstd
 PVZSTD_API pvzstd_status pvzstd_writer_set_fixed_width_cells(pvzstd_writer *writer, int enabled);
 
 /* Append one array; call order is frame order, which is how names map to frames.
+ * The name "__thumbnail" is reserved and refused with PVZSTD_E_INVALID.
  * ``dtype`` is a numpy dtype string such as "<f8". The data is copied. */
 PVZSTD_API pvzstd_status pvzstd_writer_add_array(pvzstd_writer *writer, const char *name,
                                                  const char *dtype, const uint64_t *shape,
@@ -316,6 +332,14 @@ PVZSTD_API pvzstd_status pvzstd_writer_add_array_borrowed(pvzstd_writer *writer,
                                                           const char *dtype, const uint64_t *shape,
                                                           uint32_t ndim, const void *data,
                                                           uint64_t nbytes);
+
+/* Embed a PNG thumbnail as the container's first frame pair, stored uncompressed
+ * so it can be read without zstd (doc/format/container-v2.md, section 11). The
+ * bytes are copied and must be a PNG: PVZSTD_E_INVALID otherwise, PVZSTD_E_RANGE
+ * past PVZSTD_THUMBNAIL_MAX_BYTES. NULL with zero bytes removes it. */
+#define PVZSTD_THUMBNAIL_MAX_BYTES (8u * 1024u * 1024u)
+PVZSTD_API pvzstd_status pvzstd_writer_set_thumbnail(pvzstd_writer *writer, const void *png,
+                                                     uint64_t nbytes);
 
 /* Dataset-metadata JSON, stored under "<uid>__ds_metadata". Dataset readers
  * expect it. */

@@ -208,7 +208,9 @@ class ZstdFileMetadata:
     frame_names : list[str]
         Stored name of every array and dataset-metadata document, in file
         order; the file-metadata document itself is not listed. Each name
-        starts with the 16-character identifier of its dataset.
+        starts with the 16-character identifier of its dataset, except
+        ``"__thumbnail"``, which comes first in a file with a thumbnail and
+        names no array.
     compression_level : int
         Zstandard level the file was written with.
     compression : str
@@ -1152,11 +1154,40 @@ _DATA_SUFFIXES = (
 )
 
 
+def _set_attribute_array(data: pv.DataSetAttributes, array: NDArray[Any], name: str, *, field: bool) -> None:
+    """Add *array* to *data* through pyvista, keeping a field array's empty tuples."""
+    if field and array.ndim > 1 and array.shape[0] == 0 and math.prod(array.shape[1:]) > 0:
+        # VTK supports empty tuples; PyVista only admits their scalar view.
+        # Let PyVista retain its bool/complex conventions before restoring
+        # the component count on the same zero-tuple VTK array.
+        data.set_array(array.reshape(-1), name)
+        components = math.prod(array.shape[1:]) * (2 if np.iscomplexobj(array) else 1)
+        data.VTKObject.GetAbstractArray(name).SetNumberOfComponents(components)
+    else:
+        data.set_array(array, name)
+
+
+def _check_tuple_count(ds: DataSet, vtk_getter: str, vtk_array: vtkDataArray, name: str) -> None:
+    """Raise ValueError unless a point or cell array has one tuple per point or cell."""
+    if vtk_getter == "GetPointData":
+        expected, kind = ds.GetNumberOfPoints(), "point"
+    elif vtk_getter == "GetCellData":
+        expected, kind = ds.GetNumberOfCells(), "cell"
+    else:
+        return
+    if vtk_array.GetNumberOfTuples() != expected:
+        msg = (
+            f"{kind.capitalize()} array {name!r} has {vtk_array.GetNumberOfTuples()} tuples but the dataset "
+            f"has {expected} {kind}s; the file is corrupt or was written from an inconsistent dataset."
+        )
+        raise ValueError(msg)
+
+
 def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> dict[str, Any]:
     """Attach the arrays of *ds_id* to *ds* and return the VTK attribute sets fetched on the way."""
     # Optimization: attribute sets are fetched once per dataset (on VTK 9.7 every
     # dropped wrapper costs a scan of all live ones) and owned arrays go in through
-    # raw ``AddArray``, which skips pyvista's length check for data this reader wrote.
+    # raw ``AddArray``, which skips pyvista's wrapping; their length is checked here instead.
     attributes: dict[str, Any] = {}
     for key, array in segment_dict.items():
         if not key.startswith(ds_id):
@@ -1167,22 +1198,9 @@ def _add_data(ds_id: str, ds: DataSet, segment_dict: dict[str, Any]) -> dict[str
             name = key[UID_N_CHAR : -len(suffix)]
             vtk_array = _owned(segment_dict, key)
             if vtk_array is None:
-                data = getattr(ds, pyvista_name)
-                if (
-                    suffix == FIELD_DATA_SUFFIX
-                    and array.ndim > 1
-                    and array.shape[0] == 0
-                    and math.prod(array.shape[1:]) > 0
-                ):
-                    # VTK supports empty tuples; PyVista only admits their scalar view.
-                    # Let PyVista retain its bool/complex conventions before restoring
-                    # the component count on the same zero-tuple VTK array.
-                    data.set_array(array.reshape(-1), name)
-                    components = math.prod(array.shape[1:]) * (2 if np.iscomplexobj(array) else 1)
-                    data.VTKObject.GetAbstractArray(name).SetNumberOfComponents(components)
-                else:
-                    data.set_array(array, name)
+                _set_attribute_array(getattr(ds, pyvista_name), array, name, field=suffix == FIELD_DATA_SUFFIX)
             else:
+                _check_tuple_count(ds, vtk_getter, vtk_array, name)
                 target = attributes.get(vtk_getter)
                 if target is None:
                     target = attributes[vtk_getter] = getattr(ds, vtk_getter)()
@@ -2155,7 +2173,7 @@ class Reader:
         threads = _capi.THREADS_AUTO if n_threads is None else n_threads
         segments = self._core_reader().read_arrays(keep=set(frames), n_threads=threads)
         for frame, name in frames.items():
-            mb.field_data.set_array(segments[frame], name)
+            _set_attribute_array(mb.field_data, segments[frame], name, field=True)
 
     # @profile
     def _read_ds(self, ds_id: str, n_threads: int | None = None) -> DataSet:

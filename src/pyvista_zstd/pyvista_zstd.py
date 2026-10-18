@@ -76,17 +76,19 @@ if TYPE_CHECKING:  # pragma: no cover
 
 # Highest on-disk format version this library can READ. Version 1 added the
 # optional byte-shuffle pre-filter, version 2 fixed-width cell arrays, version 3
-# MultiBlock field data and ExplicitStructuredGrid without celltypes. The core
-# enforces the ceiling; this constant only publishes it.
+# MultiBlock field data, ExplicitStructuredGrid without celltypes, and the
+# extent offset of a StructuredGrid or RectilinearGrid. The core enforces the
+# ceiling; this constant only publishes it.
 FILE_VERSION = 3
 # Version stamped on files that use no optional feature. Such files stay
 # byte-identical to the legacy format and remain readable by older releases.
 FILE_VERSION_UNFILTERED = 0
 FILE_VERSION_SHUFFLE = 1
 FILE_VERSION_FIXED_WIDTH_CELLS = 2
-# Both features share version 3.
+# These features share version 3.
 FILE_VERSION_MULTIBLOCK_FIELD_DATA = 3
 FILE_VERSION_EXPLICIT_STRUCTURED_GRID = 3
+FILE_VERSION_STRUCTURED_EXTENT_OFFSET = 3
 FILE_VERSION_KEY = "FILE_VERSION"
 DS_TYPE_KEY = "ds_type"
 POINT_DATA_SUFFIX = "__point_data"

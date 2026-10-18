@@ -1235,6 +1235,31 @@ def test_esgrid_in_multiblock_round_trip(tmp_path: Path) -> None:
     assert isinstance(out["sphere"], PolyData)
 
 
+@pytest.mark.parametrize("container", [False, True])
+@pytest.mark.parametrize("has_offset", [True, False])
+@pytest.mark.parametrize("ds_type", ["ImageData", "RectilinearGrid", "StructuredGrid"])
+def test_structured_extent_offset_file_version(
+    tmp_path: Path,
+    ds_type: str,
+    *,
+    has_offset: bool,
+    container: bool,
+) -> None:
+    """A StructuredGrid or RectilinearGrid extent away from 0 stamps version 3; ImageData's offset does not."""
+    grid = _make_offset_grid(ds_type)
+    if not has_offset:
+        extent = grid.GetExtent()
+        grid.SetExtent(0, extent[1] - extent[0], 0, extent[3] - extent[2], 0, extent[5] - extent[4])
+    filename = tmp_path / "grid.pv"
+    pyvista_zstd.write(MultiBlock([grid]) if container else grid, filename)
+
+    promoted = has_offset and ds_type != "ImageData"
+    expected = impl.FILE_VERSION_STRUCTURED_EXTENT_OFFSET if promoted else impl.FILE_VERSION_UNFILTERED
+    assert pyvista_zstd.Reader(filename)._metadata.file_version == expected  # noqa: SLF001
+    out = pv.read(filename)
+    assert (out[0] if container else out).GetExtent() == grid.GetExtent()
+
+
 @pytest.mark.parametrize("shuffle", [False, True])
 @pytest.mark.parametrize("kind", ["grid", "empty", "multiblock"])
 def test_esgrid_file_version(tmp_path: Path, kind: str, *, shuffle: bool) -> None:

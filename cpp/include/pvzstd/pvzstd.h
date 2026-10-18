@@ -324,7 +324,8 @@ PVZSTD_API pvzstd_status pvzstd_writer_set_ds_metadata(pvzstd_writer *writer, co
 
 /* Emit the file. The trailing file-metadata frame is generated here, so it always
  * agrees with what was written. The file version is 3 when a staged
- * "*__ds_metadata" document has ds_type "ExplicitStructuredGrid" or a
+ * "*__ds_metadata" document has ds_type "ExplicitStructuredGrid", or ds_type
+ * "StructuredGrid" or "RectilinearGrid" with a non-zero offset, or a
  * "*__multiblock__ds_metadata" document has a field_data_keys member, and the
  * call returns PVZSTD_E_INVALID, writing nothing, when such a document is not a
  * single brace-balanced JSON object. */

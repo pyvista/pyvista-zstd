@@ -2,10 +2,11 @@
 //
 // Byte-for-byte agreement with the reference writer constrains more than the
 // layout: the file version is the highest optional feature used (3 MultiBlock
-// field data or an ExplicitStructuredGrid, else 2 fixed-width cells, else 1 if
-// anything is shuffled, else 0; not cumulative), and every unsplit frame needs
-// the same level AND worker count, since zstd's multi-threaded mode emits
-// different bytes.
+// field data, an ExplicitStructuredGrid, or a StructuredGrid or RectilinearGrid
+// extent not starting at 0, else 2 fixed-width cells, else 1 if anything is
+// shuffled, else 0; not cumulative), and every unsplit frame needs the same
+// level AND worker count, since zstd's multi-threaded mode emits different
+// bytes.
 //
 // A payload larger than kSubFrameBytes is written as consecutive zstd frames of
 // that size, each compressed on one thread, so a reader can decompress the
@@ -59,9 +60,20 @@ bool IsJsonObject(const std::string &json) {
   return !pvzstd::json::SkipWs(json, &i);
 }
 
+// Whether the member `key` is an array holding a non-zero number.
+bool MemberArrayHasNonZero(const std::string &json, const char *key) {
+  size_t i = pvzstd::json::FindMember(json, key);
+  if (i == std::string::npos || i >= json.size() || json[i] != '[') return false;
+  for (++i; i < json.size() && json[i] != ']'; ++i) {
+    if (json[i] >= '1' && json[i] <= '9') return true;
+  }
+  return false;
+}
+
 // Sets *uses to whether a staged metadata document records MultiBlock field
-// arrays or an ExplicitStructuredGrid, both of which readers with a ceiling of 2
-// cannot decode. PVZSTD_E_INVALID when a metadata document fails IsJsonObject.
+// arrays, an ExplicitStructuredGrid, or a StructuredGrid or RectilinearGrid whose
+// extent does not start at 0, none of which readers with a ceiling of 2 decode
+// correctly. PVZSTD_E_INVALID when a metadata document fails IsJsonObject.
 pvzstd_status ScanVersion3Features(const std::vector<PendingArray> &arrays, bool *uses) {
   *uses = false;
   for (const PendingArray &a : arrays) {
@@ -74,8 +86,10 @@ pvzstd_status ScanVersion3Features(const std::vector<PendingArray> &arrays, bool
       if (pvzstd::json::MemberObjectSpan(json, "field_data_keys", &open, &past)) *uses = true;
     } else {
       std::string ds_type;
-      if (pvzstd::json::MemberString(json, "ds_type", &ds_type) &&
-          ds_type == "ExplicitStructuredGrid") {
+      if (!pvzstd::json::MemberString(json, "ds_type", &ds_type)) continue;
+      if (ds_type == "ExplicitStructuredGrid") *uses = true;
+      if ((ds_type == "StructuredGrid" || ds_type == "RectilinearGrid") &&
+          MemberArrayHasNonZero(json, "offset")) {
         *uses = true;
       }
     }

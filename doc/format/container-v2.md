@@ -131,12 +131,12 @@ ImageData file with no attached arrays contains only the two metadata pairs.
 `FILE_VERSION = 3` is the highest version writers emit. Four versions exist
 and a 1:1 reader must accept all four:
 
-| Value | Name                                                                          | Meaning                                                                                              |
-| ----- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| 0     | `FILE_VERSION_UNFILTERED`                                                     | No optional feature used.                                                                            |
-| 1     | `FILE_VERSION_SHUFFLE`                                                        | At least one array carries the byte-shuffle filter.                                                  |
-| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS`                                              | Cell topology stored without an offsets array.                                                       |
-| 3     | `FILE_VERSION_MULTIBLOCK_FIELD_DATA`, `FILE_VERSION_EXPLICIT_STRUCTURED_GRID` | A MultiBlock carries field arrays of its own (§4), or the file holds an ExplicitStructuredGrid (§7). |
+| Value | Name                                                                                                                   | Meaning                                                                                                                                                             |
+| ----- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | `FILE_VERSION_UNFILTERED`                                                                                              | No optional feature used.                                                                                                                                           |
+| 1     | `FILE_VERSION_SHUFFLE`                                                                                                 | At least one array carries the byte-shuffle filter.                                                                                                                 |
+| 2     | `FILE_VERSION_FIXED_WIDTH_CELLS`                                                                                       | Cell topology stored without an offsets array.                                                                                                                      |
+| 3     | `FILE_VERSION_MULTIBLOCK_FIELD_DATA`, `FILE_VERSION_EXPLICIT_STRUCTURED_GRID`, `FILE_VERSION_STRUCTURED_EXTENT_OFFSET` | A MultiBlock carries field arrays of its own (§4), the file holds an ExplicitStructuredGrid, or a StructuredGrid or RectilinearGrid extent starts away from 0 (§7). |
 
 A decoder must also have a ceiling. The C core carries one,
 `PVZSTD_FILE_VERSION_MAX = 3`, readable at runtime as
@@ -432,10 +432,13 @@ and the `cells_connectivity` frame with a fixed cell size of 8 (with
 `faces_connectivity_flags_array_name` when the grid has one. Either grid without
 points is stored with zero `dimensions` and `offset` and no cells. The reader
 sets the extent of every structured dataset from its dimensions (its coordinate
-arrays, for RectilinearGrid) and the stored `offset`; a file with no `offset` reads back with an extent
-starting at 0. An ExplicitStructuredGrid has no `celltypes` frame, and any file
-holding one is stamped `file_version` 3, since earlier readers expect that
-frame. The reader converts ExplicitStructuredGrid connectivity to storage as wide as
+arrays, for RectilinearGrid) and the stored `offset`; a file with no `offset`
+reads back with an extent starting at 0. A StructuredGrid or RectilinearGrid
+with a non-zero `offset` is stamped `file_version` 3, since earlier readers
+ignore its offset and read the extent from 0. An ExplicitStructuredGrid has no
+`celltypes` frame, and any file holding one is stamped `file_version` 3, since
+earlier readers expect that frame. The reader converts ExplicitStructuredGrid
+connectivity to storage as wide as
 `vtkIdType` (fixed-size where VTK supports it), the only width
 `vtkExplicitStructuredGrid` reads cell points from correctly
 ([VTK issue 20126](https://gitlab.kitware.com/vtk/vtk/-/work_items/20126)). An

@@ -1240,11 +1240,18 @@ def _segments_to_esgrid(
         return _segments_to_esgrid_by_blocking(ds_id, segments, metadata)
 
     points = segments[f"{ds_id}{POINTS_KEY}"]
-    # SetExtent allocates a cell for every i/j/k position, so check the size first.
-    if math.prod(metadata.dimensions) != len(points):
+    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
+    n_cells = 0 if cells is None else cells.GetNumberOfCells()
+    dimensions = metadata.dimensions
+    # Explicit points are arbitrary; the dimensions describe the cell lattice.
+    # Check before SetExtent allocates a cell for every i/j/k position.
+    valid_dimensions = dimensions == (0, 0, 0) or (
+        len(dimensions) == 3 and all(dim > 0 for dim in dimensions)  # noqa: PLR2004
+    )
+    if not valid_dimensions or math.prod(max(dim - 1, 0) for dim in dimensions) != n_cells:
         msg = (
             f"ExplicitStructuredGrid dimensions {tuple(metadata.dimensions)} do not match its "
-            f"{len(points)} points; the file is corrupt or was written from an inconsistent grid."
+            f"{n_cells} cells; the file is corrupt or was written from an inconsistent grid."
         )
         raise ValueError(msg)
 
@@ -1252,7 +1259,6 @@ def _segments_to_esgrid(
     # Set before the cells, which vtkExplicitStructuredGrid.SetExtent replaces.
     esgrid.SetExtent(*_extent(metadata.dimensions, metadata.offset))
     esgrid.points = points
-    cells = _extract_cell_array(ds_id, CELLS, segments, metadata.fixed_cell_sizes)
     if cells is not None:
         # VTK misreads ESG cells narrower than vtkIdType: https://gitlab.kitware.com/vtk/vtk/-/work_items/20126
         if cells.IsHomogeneous() > 0 and hasattr(cells, "ConvertToFixedSizeDefaultStorage"):

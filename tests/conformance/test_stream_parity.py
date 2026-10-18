@@ -86,7 +86,7 @@ def _write_spec(tmp_path: Path, tag: str, arrays: dict[str, np.ndarray]) -> str:
             )
         )
     spec = tmp_path / f"{tag}.tsv"
-    spec.write_text("\n".join(lines) + "\n")
+    spec.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return str(spec)
 
 

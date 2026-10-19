@@ -355,6 +355,10 @@ class DataSetMetadata:
         Extent offset of a structured dataset.
     faces_connectivity_flags_array_name : str | None
         Connectivity flags array name of an :class:`pyvista.ExplicitStructuredGrid`.
+    bounds : tuple[float, float, float, float, float, float] | None
+        Bounds as ``(x_min, x_max, y_min, y_max, z_min, z_max)``, or None when
+        the dataset has no points, its points are not finite, or the file
+        predates them.
 
     """
 
@@ -384,6 +388,7 @@ class DataSetMetadata:
     direction_matrix: list[list[float]] | None = None
     offset: tuple[int, int, int] | None = None
     faces_connectivity_flags_array_name: str | None = None
+    bounds: tuple[float, float, float, float, float, float] | None = None
 
     @classmethod
     def from_dataset(  # noqa: C901, PLR0912, PLR0913
@@ -480,6 +485,12 @@ class DataSetMetadata:
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
+        if kwargs["n_points"]:
+            bounds = tuple(float(value) for value in ds.GetBounds())
+            # JSON has no infinity or NaN.
+            if all(math.isfinite(value) for value in bounds):
+                kwargs["bounds"] = bounds
+
         return cls(**kwargs)
 
     def to_json(self) -> str:
@@ -509,7 +520,7 @@ class DataSetMetadata:
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
         raw["fixed_cell_sizes"] = raw.get("fixed_cell_sizes", {})
         raw["points_dtype"] = _LEGACY_POINTS_DTYPES.get(raw.get("points_dtype"), raw.get("points_dtype"))
-        for key in ("dimensions", "origin", "spacing", "offset"):
+        for key in ("dimensions", "origin", "spacing", "offset", "bounds"):
             if raw.get(key) is not None:
                 raw[key] = tuple(raw[key])
         return cls(**_known_fields(cls, raw))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 import warnings
@@ -83,6 +84,7 @@ def _assert_metadata_matches(meta: pyvista_zstd.DataSetMetadata, ds: DataSet) ->
         }
     assert meta.point_data_active_vectors_name == ds.point_data.active_vectors_name
     assert meta.cell_data_active_scalars_name == ds.cell_data.active_scalars_name
+    assert meta.bounds == (tuple(ds.bounds) if ds.n_points else None)
 
 
 def test_dataset_metadata_and_read_array(dataset: DataSet, tmp_path: Path) -> None:
@@ -269,6 +271,37 @@ def test_points_dtype_of_older_files() -> None:
     """Files that stored the repr of the NumPy type report a dtype name too."""
     path = Path(__file__).parent / "test_data" / "sphere_file_version_0.pv"
     assert pyvista_zstd.Reader(path).dataset_metadata.points_dtype == "float32"
+
+
+def test_bounds_of_older_files() -> None:
+    """A file written before bounds were stored reports none."""
+    path = Path(__file__).parent / "test_data" / "sphere_file_version_0.pv"
+    assert pyvista_zstd.Reader(path).dataset_metadata.bounds is None
+
+
+@pytest.mark.parametrize(
+    "ds",
+    [
+        pv.PolyData(),
+        pv.PolyData(np.array([[0.0, 0.0, 0.0], [np.inf, 1.0, 1.0]])),
+    ],
+    ids=["empty", "inf"],
+)
+def test_bounds_are_left_out_when_not_finite(tmp_path: Path, ds: DataSet) -> None:
+    """A dataset without finite bounds stores none."""
+    path = tmp_path / "ds.pv"
+    pyvista_zstd.write(ds, path)
+    meta = pyvista_zstd.Reader(path).dataset_metadata
+    assert meta.bounds is None
+    assert json.loads(meta.to_json())["bounds"] is None
+
+
+def test_bounds_round_trip_through_json() -> None:
+    """Stored bounds read back as the tuple they were written from."""
+    ds = pv.Sphere(center=(1.0, 2.0, 3.0))
+    meta = pyvista_zstd.DataSetMetadata.from_dataset(ds, {}, {}, {}, {}, uid="0")
+    assert json.loads(meta.to_json())["bounds"] == list(ds.bounds)
+    assert pyvista_zstd.DataSetMetadata.from_json(meta.to_json()).bounds == tuple(ds.bounds)
 
 
 @pytest.mark.parametrize(("association", "error"), [("field", KeyError), ("point", TypeError), ("cell", TypeError)])

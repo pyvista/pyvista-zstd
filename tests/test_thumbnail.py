@@ -66,6 +66,8 @@ def test_roundtrip(tmp_path: Path) -> None:
     assert pz.read(path) == ds
     with _capi.CoreReader(path) as core:
         assert "__thumbnail" not in core.names()
+    # Listed first in frame_names, as ZstdFileMetadata documents, though no array backs it.
+    assert reader.file_metadata.frame_names[0] == "__thumbnail"
 
     reader.close()
     assert reader.thumbnail == _png()

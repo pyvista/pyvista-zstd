@@ -41,3 +41,19 @@ def test_empty_tuple_fields_read_through_dataset_and_array_apis(
     assert actual.shape == ((0,) if np.prod(shape[1:]) == 1 else (0, int(np.prod(shape[1:]))))
     assert actual.tobytes() == empty.tobytes()
     assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("components", [1, 3])
+def test_empty_tuple_multiblock_field_reads_back(tmp_path: Path, components: int) -> None:
+    """A MultiBlock's own empty-tuple field array reads back like a dataset's."""
+    path = tmp_path / "empty-mb-field.pv"
+    mb = pv.MultiBlock({"sphere": pv.Sphere()})
+    empty = pv.convert_array(np.empty((0, components)), name="empty")
+    mb.GetFieldData().AddArray(empty)
+    pvzstd.write(mb, path)
+
+    restored = pvzstd.read(path)
+    actual = np.asarray(restored.field_data["empty"])
+    assert actual.dtype == np.float64
+    assert actual.shape == ((0,) if components == 1 else (0, components))
+    assert restored["sphere"] == mb["sphere"]

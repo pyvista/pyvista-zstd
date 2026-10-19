@@ -1542,3 +1542,22 @@ def test_read_ignores_unknown_metadata_keys(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.undo()
 
     assert pyvista_zstd.read(tmp_path / "unknown.pv")["sphere"] == mesh
+
+
+@pytest.mark.parametrize(
+    ("getter", "kind", "expected"), [("GetPointData", "Point", 842), ("GetCellData", "Cell", 1680)]
+)
+def test_read_rejects_array_of_wrong_length(tmp_path: Path, getter: str, kind: str, expected: int) -> None:
+    """Test that a point or cell array whose tuple count disagrees with the dataset is refused on read."""
+    mesh = pv.Sphere()
+    bad = impl.numpy_to_vtk(np.zeros(10, dtype=np.float32), deep=True)
+    bad.SetName("bad")
+    getattr(mesh, getter)().AddArray(bad)
+    path = tmp_path / "bad.pv"
+    pyvista_zstd.write(mesh, path)
+
+    match = rf"{kind} array 'bad' has 10 tuples but the dataset has {expected} {kind.lower()}s"
+    with pytest.raises(ValueError, match=match):
+        pyvista_zstd.read(path)
+    with pytest.raises(ValueError, match=match):
+        pyvista_zstd.read_buffer(path.read_bytes())

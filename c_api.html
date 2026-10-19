@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>The C library &#8212; pyvista-zstd 0.6.0 documentation</title>
+    <title>The C library &#8212; pyvista-zstd 0.7.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=3af6fc4c"></script>
+    <script src="_static/documentation_options.js?v=c62cc9a0"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="pyvista_zstd.ZstdFileMetadata.file_version" href="_autosummary/pyvista_zstd.ZstdFileMetadata.file_version.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.6.0" />
+  <meta name="docsearch:version" content="0.7.0" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.6.0 documentation - Home"/>
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.6.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.7.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.7.0 documentation - Home"/>
   
   
 </a></div>
@@ -184,6 +184,7 @@
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read_buffer.html">pyvista_zstd.read_buffer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read_array.html">pyvista_zstd.read_array</a></li>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.append_arrays.html">pyvista_zstd.append_arrays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.read_thumbnail.html">pyvista_zstd.read_thumbnail</a></li>
 <li class="toctree-l2"><a class="reference internal" href="_autosummary/pyvista_zstd.write.html">pyvista_zstd.write</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html">pyvista_zstd.Reader</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.close.html">pyvista_zstd.Reader.close</a></li>
@@ -206,6 +207,15 @@
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.selected_cell_arrays.html">pyvista_zstd.Reader.selected_cell_arrays</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.selected_field_arrays.html">pyvista_zstd.Reader.selected_field_arrays</a></li>
 <li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.selected_point_arrays.html">pyvista_zstd.Reader.selected_point_arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.thumbnail.html">pyvista_zstd.Reader.thumbnail</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.thumbnail_info.html">pyvista_zstd.Reader.thumbnail_info</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="_autosummary/pyvista_zstd.ThumbnailInfo.html">pyvista_zstd.ThumbnailInfo</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.ThumbnailInfo.__init__.html">pyvista_zstd.ThumbnailInfo.__init__</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.ThumbnailInfo.width.html">pyvista_zstd.ThumbnailInfo.width</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.ThumbnailInfo.height.html">pyvista_zstd.ThumbnailInfo.height</a></li>
+<li class="toctree-l3"><a class="reference internal" href="_autosummary/pyvista_zstd.ThumbnailInfo.stale.html">pyvista_zstd.ThumbnailInfo.stale</a></li>
 </ul>
 </details></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="_autosummary/pyvista_zstd.Writer.html">pyvista_zstd.Writer</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -464,6 +474,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#describing-arrays">Describing arrays</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-payloads">Reading payloads</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#metadata-and-frame-sizes">Metadata and frame sizes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#thumbnail">Thumbnail</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a><ul class="nav section-nav flex-column">
@@ -641,7 +652,7 @@ that will be installed and linked downstream.</p>
 </section>
 <section id="the-abi-version">
 <h2>The ABI version<a class="headerlink" href="#the-abi-version" title="Link to this heading">#</a></h2>
-<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="cp">#define PVZSTD_ABI_VERSION 11u</span>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="cp">#define PVZSTD_ABI_VERSION 13u</span>
 <span class="n">PVZSTD_API</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">pvzstd_abi_version</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
 </pre></div>
 </div>
@@ -666,14 +677,15 @@ there, is loadable, and is the one the header describes. The Python binding does
 exactly this at import time, so that a bad install fails at import naming what
 it tried rather than at the first read.</p>
 <p>A second, separate number describes the <em>files</em> rather than the library:</p>
-<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="cp">#define PVZSTD_FILE_VERSION_MAX 2u</span>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="cp">#define PVZSTD_FILE_VERSION_MAX 3u</span>
 <span class="n">PVZSTD_API</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">pvzstd_max_file_version</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
 </pre></div>
 </div>
 <p>This is the highest container <code class="docutils literal notranslate"><span class="pre">file_version</span></code> the build can decode. A container
 stamped higher is refused with <code class="docutils literal notranslate"><span class="pre">PVZSTD_E_VERSION</span></code> rather than read, because a
-newer format may transform payloads in a way this build cannot invert, and
-reading one would hand back plausible-looking corrupt values instead of failing.
+newer format may transform payloads in a way this build cannot invert, or carry
+data this build would drop, and reading one would hand back plausible-looking
+wrong values instead of failing.
 The ceiling lives beside the decoder it describes so that every caller of the
 ABI gets the same answer; a binding keeping its own copy would refuse files the
 library can read, or accept files it cannot.</p>
@@ -743,7 +755,7 @@ entry points should expect that.</p>
 </div>
 <p>Arrays are addressed by index in frame order, or by name. Frame order is
 significant: it is how the container maps names to frames. <code class="docutils literal notranslate"><span class="pre">pvzstd_array_count</span></code>
-excludes the two JSON metadata frames. <code class="docutils literal notranslate"><span class="pre">pvzstd_find_array</span></code> returns <code class="docutils literal notranslate"><span class="pre">-1</span></code> when
+excludes the two JSON metadata frames and the thumbnail. <code class="docutils literal notranslate"><span class="pre">pvzstd_find_array</span></code> returns <code class="docutils literal notranslate"><span class="pre">-1</span></code> when
 there is no such name; note that stored names carry a 16-character dataset-UID
 prefix, so a caller matching a logical name usually compares suffixes rather than
 whole strings.</p>
@@ -803,8 +815,27 @@ with the frame name each was stored under.</p>
 the UID prefix or the <code class="docutils literal notranslate"><span class="pre">__field_data</span></code> suffix the frame carries.</p>
 <p><code class="docutils literal notranslate"><span class="pre">pvzstd_frame_count</span></code> and <code class="docutils literal notranslate"><span class="pre">pvzstd_frame_sizes</span></code> expose the trailer’s own
 numbers – two frames per array, <code class="docutils literal notranslate"><span class="pre">(header,</span> <span class="pre">payload)</span></code>, in file order, metadata
-frames included – so a caller can answer “how big is this file decompressed”
+frames and the thumbnail pair included – so a caller can answer “how big is this file decompressed”
 without parsing the trailer itself.</p>
+</section>
+<section id="thumbnail">
+<h3>Thumbnail<a class="headerlink" href="#thumbnail" title="Link to this heading">#</a></h3>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">pvzstd_thumbnail_info</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">png</span><span class="p">;</span><span class="w"> </span><span class="cm">/* NULL when the container has none */</span>
+<span class="w">  </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">nbytes</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">width</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">height</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">int</span><span class="w"> </span><span class="n">stale</span><span class="p">;</span><span class="w"> </span><span class="cm">/* nonzero when the data changed after the thumbnail was written */</span>
+<span class="p">}</span><span class="w"> </span><span class="n">pvzstd_thumbnail_info</span><span class="p">;</span>
+
+<span class="n">pvzstd_status</span><span class="w"> </span><span class="nf">pvzstd_thumbnail</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">pvzstd_reader</span><span class="w"> </span><span class="o">*</span><span class="n">reader</span><span class="p">,</span>
+<span class="w">                               </span><span class="n">pvzstd_thumbnail_info</span><span class="w"> </span><span class="o">*</span><span class="n">out</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>Describes the container’s optional PNG thumbnail (format section 11). <code class="docutils literal notranslate"><span class="pre">png</span></code> is
+owned by the reader until <code class="docutils literal notranslate"><span class="pre">pvzstd_close</span></code>. A container without one, or with a
+thumbnail record of a version this build does not read, reports <code class="docutils literal notranslate"><span class="pre">png</span> <span class="pre">==</span> <span class="pre">NULL</span></code>.
+A reader with no zstd at all can take the same PNG from fixed byte offsets.</p>
 </section>
 </section>
 <section id="errors">
@@ -848,7 +879,8 @@ a static, human-readable string and is never <code class="docutils literal notra
 <td><p>A per-array filter id this build cannot reverse.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_INVALID</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">NULL</span></code> argument or misuse.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NULL</span></code> argument or misuse, including a staged metadata document that is
+not a single brace-balanced JSON object.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PVZSTD_E_UNSUPPORTED</span></code></p></td>
 <td><p>The container is a shape this operation cannot serve.</p></td>
@@ -904,7 +936,8 @@ carries three write-side surfaces, documented in place:</p>
 has already produced and emits the file; turning a dataset into arrays stays
 with the caller. Reproducing the reference writer byte for byte needs the same
 compression level <em>and</em> worker count, because zstd’s threaded mode emits
-different, equally valid bytes.</p></li>
+different, equally valid bytes. <code class="docutils literal notranslate"><span class="pre">pvzstd_writer_set_thumbnail</span></code> embeds a PNG
+as the container’s first frame pair, stored uncompressed.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pvzstd_append_arrays</span></code> – add field arrays without rewriting the
 container. Existing frames are copied by offset and never decompressed, so the
 cost is what is added rather than the file size. Each call commits by rename,
@@ -1109,6 +1142,7 @@ address instead. Treat it as an opaque token, never parsed for meaning.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#describing-arrays">Describing arrays</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-payloads">Reading payloads</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#metadata-and-frame-sizes">Metadata and frame sizes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#thumbnail">Thumbnail</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a><ul class="nav section-nav flex-column">

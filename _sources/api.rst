@@ -22,6 +22,7 @@ to an existing file.
    pyvista_zstd.read_buffer
    pyvista_zstd.read_array
    pyvista_zstd.append_arrays
+   pyvista_zstd.read_thumbnail
    pyvista_zstd.write
 
 
@@ -36,6 +37,7 @@ you wish to read in or even progressively read in individual datasets from a
    :toctree: _autosummary
 
    pyvista_zstd.Reader
+   pyvista_zstd.ThumbnailInfo
    pyvista_zstd.Writer
 
 The reader also describes a file without decompressing its arrays, and reads

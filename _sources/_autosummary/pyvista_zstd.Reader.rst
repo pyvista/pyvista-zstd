@@ -103,5 +103,15 @@
           Reader.selected_point_arrays
         
       
+      
+        
+          Reader.thumbnail
+        
+      
+      
+        
+          Reader.thumbnail_info
+        
+      
    
    

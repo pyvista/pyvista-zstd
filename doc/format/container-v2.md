@@ -335,12 +335,13 @@ normals, for both point and cell data), and the optional grid fields:
 `origin`, `spacing`, `direction_matrix` for ImageData only, and
 `faces_connectivity_flags_array_name` for ExplicitStructuredGrid only.
 
-`bounds` is `[x_min, x_max, y_min, y_max, z_min, z_max]` as VTK's `GetBounds`
-reports them, so a reader can show a dataset's extent without decompressing
-its points. It is `null` for a dataset with no points or with non-finite
-bounds, and absent from files written before it, which readers treat as
-`null`. It is informational: a reader never needs it to rebuild the dataset,
-so it does not promote `file_version`.
+`DataSetMetadata` and `MultiBlockMetadata` both carry `bounds`,
+`[x_min, x_max, y_min, y_max, z_min, z_max]` exactly as PyVista's `bounds`
+reports them for that dataset or MultiBlock, so a reader can show the extent
+without decompressing any points. It is `null` when the bounds are not finite,
+which JSON cannot hold, and absent from files written before it, which readers
+treat as `null`. It is informational: a reader never needs it to rebuild the
+dataset, so it does not promote `file_version`.
 
 The active-attribute names are easy to overlook and are **observable
 behaviour**: dropping them silently changes which array a downstream plot

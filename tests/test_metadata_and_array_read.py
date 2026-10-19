@@ -84,7 +84,7 @@ def _assert_metadata_matches(meta: pyvista_zstd.DataSetMetadata, ds: DataSet) ->
         }
     assert meta.point_data_active_vectors_name == ds.point_data.active_vectors_name
     assert meta.cell_data_active_scalars_name == ds.cell_data.active_scalars_name
-    assert meta.bounds == (tuple(ds.bounds) if ds.n_points else None)
+    assert meta.bounds == tuple(ds.bounds)
 
 
 def test_dataset_metadata_and_read_array(dataset: DataSet, tmp_path: Path) -> None:
@@ -283,14 +283,25 @@ def test_bounds_of_older_files() -> None:
     "ds",
     [
         pv.PolyData(),
-        pv.PolyData(np.array([[0.0, 0.0, 0.0], [np.inf, 1.0, 1.0]])),
+        pv.MultiBlock(),
+        pv.MultiBlock({"cube": pv.Cube(center=(5, 0, 0)), "empty": pv.PolyData(), "none": None}),
+        pv.MultiBlock({"nested": pv.MultiBlock({"sphere": pv.Sphere()})}),
     ],
-    ids=["empty", "inf"],
+    ids=["empty", "empty-multiblock", "multiblock", "nested-multiblock"],
 )
-def test_bounds_are_left_out_when_not_finite(tmp_path: Path, ds: DataSet) -> None:
-    """A dataset without finite bounds stores none."""
+def test_bounds_are_stored_as_reported(tmp_path: Path, ds: DataSet | pv.MultiBlock) -> None:
+    """A dataset or MultiBlock stores the bounds it reports, whatever they are."""
     path = tmp_path / "ds.pv"
     pyvista_zstd.write(ds, path)
+    meta = pyvista_zstd.Reader(path).dataset_metadata
+    assert meta.bounds == tuple(ds.bounds)
+    assert type(meta).from_json(meta.to_json()).bounds == tuple(ds.bounds)
+
+
+def test_bounds_json_cannot_hold_are_left_out(tmp_path: Path) -> None:
+    """Bounds that are not finite are stored as none."""
+    path = tmp_path / "ds.pv"
+    pyvista_zstd.write(pv.PolyData(np.array([[0.0, 0.0, 0.0], [np.inf, 1.0, 1.0]])), path)
     meta = pyvista_zstd.Reader(path).dataset_metadata
     assert meta.bounds is None
     assert json.loads(meta.to_json())["bounds"] is None

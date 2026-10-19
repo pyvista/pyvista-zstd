@@ -267,6 +267,9 @@ class MultiBlockMetadata:
         blocks.
     field_data_keys : dict[str, ArrayInfo]
         Shape and dtype of this MultiBlock's own field arrays.
+    bounds : tuple[float, float, float, float, float, float] | None
+        Bounds as :attr:`pyvista.MultiBlock.bounds` reports them, or None when
+        they are not finite or the file predates them.
 
     """
 
@@ -280,6 +283,7 @@ class MultiBlockMetadata:
 
     # the MultiBlock's own field arrays, omitted from the JSON when empty
     field_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
+    bounds: tuple[float, float, float, float, float, float] | None = None
 
     def to_json(self) -> str:
         """Convert to JSON."""
@@ -296,6 +300,8 @@ class MultiBlockMetadata:
         raw["field_data_keys"] = {
             k: ArrayInfo(shape=tuple(v["shape"]), dtype=v["dtype"]) for k, v in raw.get("field_data_keys", {}).items()
         }
+        if raw.get("bounds") is not None:
+            raw["bounds"] = tuple(raw["bounds"])
         return cls(**_known_fields(cls, raw))
 
     @classmethod
@@ -308,6 +314,12 @@ class MultiBlockMetadata:
         """Output as a numpy uint8 array."""
         meta_bytes = self.to_json().encode("utf-8")
         return np.frombuffer(meta_bytes, dtype=np.uint8)
+
+
+def _reported_bounds(ds: DataSet | MultiBlock) -> tuple[float, float, float, float, float, float] | None:
+    """Return the bounds *ds* reports, or None when JSON cannot hold them."""
+    bounds = tuple(float(value) for value in ds.bounds)
+    return bounds if all(math.isfinite(value) for value in bounds) else None  # type: ignore[return-value]
 
 
 # Files written before 0.6 store the points dtype as the repr of its NumPy type.
@@ -356,9 +368,8 @@ class DataSetMetadata:
     faces_connectivity_flags_array_name : str | None
         Connectivity flags array name of an :class:`pyvista.ExplicitStructuredGrid`.
     bounds : tuple[float, float, float, float, float, float] | None
-        Bounds as ``(x_min, x_max, y_min, y_max, z_min, z_max)``, or None when
-        the dataset has no points, its points are not finite, or the file
-        predates them.
+        Bounds as :attr:`pyvista.DataSet.bounds` reports them, or None when
+        they are not finite or the file predates them.
 
     """
 
@@ -485,11 +496,7 @@ class DataSetMetadata:
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
-        if kwargs["n_points"]:
-            bounds = tuple(float(value) for value in ds.GetBounds())
-            # JSON has no infinity or NaN.
-            if all(math.isfinite(value) for value in bounds):
-                kwargs["bounds"] = bounds
+        kwargs["bounds"] = _reported_bounds(ds)
 
         return cls(**kwargs)
 
@@ -940,6 +947,7 @@ class Writer:
                 children=child_ids,
                 children_keys=children_keys,
                 field_data_keys=self._add_field_arrays(ds_id, ds),
+                bounds=_reported_bounds(ds),
             )
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = multi_meta.to_array()
 

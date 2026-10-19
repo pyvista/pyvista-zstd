@@ -298,13 +298,12 @@ def test_bounds_are_stored_as_reported(tmp_path: Path, ds: DataSet | pv.MultiBlo
     assert type(meta).from_json(meta.to_json()).bounds == tuple(ds.bounds)
 
 
-def test_bounds_json_cannot_hold_are_left_out(tmp_path: Path) -> None:
-    """Bounds that are not finite are stored as none."""
+def test_infinite_bounds_are_stored_as_reported(tmp_path: Path) -> None:
+    """Bounds reaching infinity are stored and read back as they are reported."""
+    ds = pv.PolyData(np.array([[0.0, 0.0, 0.0], [np.inf, 1.0, 1.0]]))
     path = tmp_path / "ds.pv"
-    pyvista_zstd.write(pv.PolyData(np.array([[0.0, 0.0, 0.0], [np.inf, 1.0, 1.0]])), path)
-    meta = pyvista_zstd.Reader(path).dataset_metadata
-    assert meta.bounds is None
-    assert json.loads(meta.to_json())["bounds"] is None
+    pyvista_zstd.write(ds, path)
+    assert pyvista_zstd.Reader(path).dataset_metadata.bounds == tuple(ds.bounds)
 
 
 def test_bounds_round_trip_through_json() -> None:
@@ -357,3 +356,31 @@ def test_missing_array_names_its_association(tmp_path: Path) -> None:
         pyvista_zstd.read_array(path, "Normals")
     with pytest.raises(KeyError, match="'Normals' is a point array"):
         pyvista_zstd.Reader(path).read_array("Normals", association="cell")
+
+
+@pytest.mark.parametrize(
+    "ds",
+    [
+        pv.PolyData(),
+        pv.PolyData(np.empty((0, 3))),
+        pv.UnstructuredGrid(),
+        pv.PointSet(),
+        pv.PointSet(np.empty((0, 3))),
+        pv.StructuredGrid(),
+        pv.MultiBlock([pv.PolyData()]),
+    ],
+    ids=["polydata", "polydata-empty-points", "ugrid", "pointset", "pointset-empty-points", "sgrid", "multiblock"],
+)
+def test_an_empty_dataset_reads_back_as_written(tmp_path: Path, ds: DataSet | pv.MultiBlock) -> None:
+    """A dataset written without points, or with none, reads back the same way and reports the same bounds."""
+    path = tmp_path / "ds.pv"
+    pyvista_zstd.write(ds, path)
+    back = pyvista_zstd.read(path)
+    assert tuple(back.bounds) == tuple(ds.bounds)
+    blocks = (
+        zip(ds.recursive_iterator(), back.recursive_iterator(), strict=True)
+        if isinstance(ds, pv.MultiBlock)
+        else [(ds, back)]
+    )
+    for written, read in blocks:
+        assert (read.GetPoints() is None) == (written.GetPoints() is None)

@@ -100,7 +100,7 @@ jobs:
           PY
 
       - name: Setup headless display
-        uses: pyvista/setup-headless-display-action@v5.1
+        uses: pyvista/setup-headless-display-action@v5.2
 
       - name: Conformance and parity
         shell: bash

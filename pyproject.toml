@@ -11,7 +11,6 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -25,7 +24,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 name = "pyvista-zstd"
 readme = "README.rst"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [project.entry-points."pyvista.readers"]
 ".pv" = "pyvista_zstd:read"
@@ -69,10 +68,12 @@ version_file = "src/pyvista_zstd/_version.py"
 # Per-interpreter manylinux image, which only a config file can express -- an
 # env var applies one image to every build and outranks these overrides.
 #
-# NumPy 2.3 dropped Python 3.10 and glibc 2.17 together. 3.10 is pinned to
-# NumPy <= 2.2.6, the last release with a cp310 manylinux2014 wheel, so the old
-# image still resolves; 3.12 resolves NumPy 2.5.x, whose lowest x86_64 tag is
-# manylinux_2_27 and which will not build on the 2014 image's gcc 10.2.1.
+# NumPy 2.3 dropped Python 3.10 and glibc 2.17 together. The cp310 build is
+# only the interpreter the glibc 2.17 wheel is built with, not a supported
+# runtime (requires-python is >= 3.11): it resolves NumPy <= 2.2.6, the last
+# release with a manylinux2014 wheel, so the old image still resolves; 3.12
+# resolves NumPy 2.5.x, whose lowest x86_64 tag is manylinux_2_27 and which
+# will not build on the 2014 image's gcc 10.2.1.
 #
 # Both Linux architectures name both images. The wheels are py3-none-<platform>,
 # so leaving aarch64 on the manylinux_2_28 default for every interpreter would

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import tomllib
 
 from packaging.requirements import Requirement
-import tomllib
 
 pyproject = tomllib.loads((Path(__file__).parents[2] / "pyproject.toml").read_text())
 pins = []

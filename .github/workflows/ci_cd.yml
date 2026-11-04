@@ -63,8 +63,8 @@ jobs:
         run: pip install uv
 
       - name: Install pytest-pyvista with test dependencies
-        # The core builds here; the gallery examples call write() and read().
-        run: uv pip install --system .[docs]
+        # The gallery needs stock VTK; bypass the local uv exclusion.
+        run: uv pip install --no-config --system .[docs]
 
       - name: Setup headless display
         uses: pyvista/setup-headless-display-action@v5.1
@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-15-intel]
         python-version: ["3.11", "3.13"]
         vtk-version: ["9.3.1", "9.4.2", "9.5.0", "9.6.2", "latest"]
         exclude:
@@ -109,10 +109,10 @@ jobs:
         run: pip install uv
 
       - name: Install with test dependencies
-        # Pin vtk in the same resolve so the dependencies cannot replace it.
+        # Bypass the local uv exclusion and pin stock VTK in the same resolve.
         env:
           PVZSTD_BUILD_CORE: "1"
-        run: uv pip install --system .[tests] ${{ matrix.vtk-version != 'latest' && format('vtk=={0}', matrix.vtk-version) || '' }}
+        run: uv pip install --no-config --system .[tests] ${{ matrix.vtk-version != 'latest' && format('vtk=={0}', matrix.vtk-version) || '' }}
 
       - name: Confirm the VTK version
         run: python -c "import importlib.metadata as m, sys; v = m.version('vtk'); print('vtk', v); sys.exit(0 if '${{ matrix.vtk-version }}' in ('latest', v) else 1)"
@@ -155,9 +155,8 @@ jobs:
       - name: Install with test dependencies at the declared floors
         env:
           PVZSTD_BUILD_CORE: "1"
-        # Keep the oldest supported stock binding covered even though PyVista,
-        # rather than this compression library, now owns the choice of VTK distribution.
-        run: uv pip install --system .[tests] $(uv run .github/scripts/runtime_floors.py) vtk==9.3.1
+        # Bypass the local uv exclusion to test the oldest supported stock VTK.
+        run: uv pip install --no-config --system .[tests] $(uv run .github/scripts/runtime_floors.py) vtk==9.3.1
 
       - name: Show the installed runtime dependencies
         run: uv pip list --system | grep -iE '^(pyvista|vtk) '
@@ -227,7 +226,7 @@ jobs:
             archs_linux: x86_64
           - os: ubuntu-24.04-arm
             archs_linux: aarch64
-          - os: macos-latest
+          - os: macos-15-intel
           - os: windows-latest
 
     steps:

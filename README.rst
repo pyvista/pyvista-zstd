@@ -112,9 +112,8 @@ backend support:
 
    pip install 'pyvista[cvista]>=0.49' pyvista-zstd
 
-PyVista may also install stock VTK through its own dependencies. A cvista-only
-application can remove that distribution after resolving its dependencies;
-the codec uses the binding selected by PyVista for all arrays and datasets.
+For a cvista-only uv workspace, set ``exclude-dependencies = ["vtk"]`` under
+``[tool.uv]`` at the workspace root. This setting does not affect pip installs.
 
 .. code:: py
 

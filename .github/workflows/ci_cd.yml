@@ -62,9 +62,11 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Install pytest-pyvista with test dependencies
-        # The gallery needs stock VTK; bypass the local uv exclusion.
-        run: uv pip install --no-config --system .[docs]
+      - name: Install with documentation dependencies
+        run: |
+          uv pip install --system .[docs] &&
+          python -m pip install pyvista vtk &&
+          uv pip check --system
 
       - name: Setup headless display
         uses: pyvista/setup-headless-display-action@v5.1
@@ -109,10 +111,13 @@ jobs:
         run: pip install uv
 
       - name: Install with test dependencies
-        # Bypass the local uv exclusion and pin stock VTK in the same resolve.
+        # pip supplies stock VTK; resolve PyVista with it to respect its VTK bounds.
         env:
           PVZSTD_BUILD_CORE: "1"
-        run: uv pip install --no-config --system .[tests] ${{ matrix.vtk-version != 'latest' && format('vtk=={0}', matrix.vtk-version) || '' }}
+        run: |
+          uv pip install --system .[tests] &&
+          python -m pip install pyvista ${{ matrix.vtk-version != 'latest' && format('vtk=={0}', matrix.vtk-version) || 'vtk' }} &&
+          uv pip check --system
 
       - name: Confirm the VTK version
         run: python -c "import importlib.metadata as m, sys; v = m.version('vtk'); print('vtk', v); sys.exit(0 if '${{ matrix.vtk-version }}' in ('latest', v) else 1)"
@@ -155,8 +160,11 @@ jobs:
       - name: Install with test dependencies at the declared floors
         env:
           PVZSTD_BUILD_CORE: "1"
-        # Bypass the local uv exclusion to test the oldest supported stock VTK.
-        run: uv pip install --no-config --system .[tests] $(uv run .github/scripts/runtime_floors.py) vtk==9.3.1
+        # Keep the runtime floors pinned when pip supplies the stock VTK binding.
+        run: |
+          uv pip install --system .[tests] $(uv run .github/scripts/runtime_floors.py) &&
+          python -m pip install $(uv run .github/scripts/runtime_floors.py) vtk==9.3.1 &&
+          uv pip check --system
 
       - name: Show the installed runtime dependencies
         run: uv pip list --system | grep -iE '^(pyvista|vtk) '

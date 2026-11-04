@@ -193,7 +193,8 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v4.3.5
         env:
-          # cp310 exists only to reach glibc 2.17; see [tool.cibuildwheel] in pyproject.toml.
+          # cp310 is only the build interpreter for the glibc 2.17 wheel, not a supported
+          # runtime; see [tool.cibuildwheel] in pyproject.toml.
           # Wheels are py3-none-<platform>, so a second macOS/Windows build would collide.
           CIBW_BUILD: "cp310-* cp312-*"
           CIBW_SKIP: "*-musllinux_* cp310-macosx_* cp310-win*"

@@ -28,6 +28,7 @@ from pathlib import Path
 import sys
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Self
 
 import numpy as np
 
@@ -618,8 +619,7 @@ class CoreReader:
         _check(status, detail)
         self._handle = handle
 
-    # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
-    def __enter__(self) -> CoreReader:  # noqa: PYI034
+    def __enter__(self) -> Self:
         """Return self; the reader is already open."""
         return self
 

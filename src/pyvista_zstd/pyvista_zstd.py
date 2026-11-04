@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
+from typing import Self
 from typing import cast
 import warnings
 
@@ -1833,8 +1834,7 @@ class Reader:
         if isinstance(self._ds_metadata, DataSetMetadata):
             self._ds_meta_by_uid[self._ds_metadata.uid] = self._ds_metadata
 
-    # PYI034 wants `Self`, which is 3.11+; this package supports 3.10.
-    def __enter__(self) -> Reader:  # noqa: PYI034
+    def __enter__(self) -> Self:
         """Return self; the reader is already open."""
         return self
 

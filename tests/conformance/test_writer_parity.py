@@ -19,7 +19,6 @@ import numpy as np
 import pytest
 import pyvista as pv
 import ref_reader
-import vtk
 
 import pyvista_zstd as pz
 
@@ -82,7 +81,7 @@ def _mixed() -> pv.DataSet:
         dtype=float,
     )
     cells = np.hstack([[HEX, 0, 1, 2, 3, 4, 5, 6, 7], [TET, 1, 8, 9, 10]])
-    ctypes = np.array([vtk.VTK_HEXAHEDRON, vtk.VTK_TETRA], dtype=np.uint8)
+    ctypes = np.array([pv.CellType.HEXAHEDRON, pv.CellType.TETRA], dtype=np.uint8)
     return pv.UnstructuredGrid(cells, ctypes, pts)
 
 

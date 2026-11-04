@@ -19,7 +19,6 @@ import contextlib
 import numpy as np
 import pytest
 import pyvista as pv
-import vtk
 
 import pyvista_zstd as pz
 from pyvista_zstd import _capi
@@ -81,7 +80,7 @@ def _mixed() -> pv.DataSet:
         dtype=float,
     )
     cells = np.hstack([[HEX, 0, 1, 2, 3, 4, 5, 6, 7], [TET, 1, 8, 9, 10]])
-    ctypes_ = np.array([vtk.VTK_HEXAHEDRON, vtk.VTK_TETRA], dtype=np.uint8)
+    ctypes_ = np.array([pv.CellType.HEXAHEDRON, pv.CellType.TETRA], dtype=np.uint8)
     ds = pv.UnstructuredGrid(cells, ctypes_, pts)
     ds.point_data["p_f64"] = np.arange(ds.n_points, dtype=np.float64)
     return ds

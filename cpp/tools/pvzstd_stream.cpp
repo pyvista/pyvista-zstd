@@ -11,22 +11,42 @@
 //   spec      one per commit; each line is
 //             name <TAB> dtype <TAB> dtype_name <TAB> shape_csv <TAB> raw_path
 //
-// Each commit reports "commit <i> <seconds> <bytes_read>" to stderr. The byte
+// Each commit reports "commit <i> <cpu_seconds> <bytes_read>" to stderr. The byte
 // count is this process's rchar delta (-1 where unavailable): a wrongly re-read
 // container is served from page cache and too cheap to catch on wall time.
 
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include "pvzstd/pvzstd.h"
 
 namespace {
+
+double ProcessCpuSeconds() {
+#if defined(_WIN32)
+  FILETIME created, exited, kernel, user;
+  if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return -1;
+  const uint64_t kernel_ticks =
+      (static_cast<uint64_t>(kernel.dwHighDateTime) << 32) | kernel.dwLowDateTime;
+  const uint64_t user_ticks =
+      (static_cast<uint64_t>(user.dwHighDateTime) << 32) | user.dwLowDateTime;
+  return static_cast<double>(kernel_ticks + user_ticks) * 1e-7;
+#else
+  const std::clock_t ticks = std::clock();
+  return ticks == static_cast<std::clock_t>(-1) ? -1 : static_cast<double>(ticks) / CLOCKS_PER_SEC;
+#endif
+}
 
 struct Spec {
   std::string name;
@@ -212,12 +232,17 @@ int main(int argc, char **argv) {
     }
     // Around the commit, not the process, whose start-up would swamp it.
     const long long read0 = BytesRead();
-    const auto t0 = std::chrono::steady_clock::now();
+    const double t0 = ProcessCpuSeconds();
     st = pvzstd_stream_append(stream, arrays.data(), arrays.size(),
                               static_cast<pvzstd_shuffle_mode>(shuffle_code));
-    const auto t1 = std::chrono::steady_clock::now();
+    const double t1 = ProcessCpuSeconds();
     const long long read1 = BytesRead();
-    std::fprintf(stderr, "commit %d %.6f %lld\n", c, std::chrono::duration<double>(t1 - t0).count(),
+    if (t0 < 0 || t1 < t0) {
+      std::cerr << "process CPU time is unavailable\n";
+      pvzstd_stream_free(stream);
+      return 1;
+    }
+    std::fprintf(stderr, "commit %d %.9f %lld\n", c, t1 - t0,
                  (read0 < 0 || read1 < 0) ? -1 : read1 - read0);
     if (st != PVZSTD_OK) {
       std::cerr << "pvzstd_stream_append: " << pvzstd_status_message(st) << "\n";

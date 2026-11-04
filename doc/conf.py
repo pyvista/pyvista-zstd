@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 from pathlib import Path
 
 import pyvista
@@ -29,7 +29,7 @@ pyvista.BUILDING_GALLERY = True
 # -- Project information -----------------------------------------------------
 
 project = "pyvista-zstd"
-year = datetime.date.today().year  # noqa: DTZ011
+year = dt.date.today().year  # noqa: DTZ011
 copyright = f"2025-{year}, The PyVista Developers"  # noqa: A001
 author = "Alex Kaszynski"
 

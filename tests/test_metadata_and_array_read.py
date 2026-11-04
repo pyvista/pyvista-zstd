@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 import warnings
@@ -83,6 +84,7 @@ def _assert_metadata_matches(meta: pyvista_zstd.DataSetMetadata, ds: DataSet) ->
         }
     assert meta.point_data_active_vectors_name == ds.point_data.active_vectors_name
     assert meta.cell_data_active_scalars_name == ds.cell_data.active_scalars_name
+    assert meta.bounds == tuple(ds.bounds)
 
 
 def test_dataset_metadata_and_read_array(dataset: DataSet, tmp_path: Path) -> None:
@@ -271,6 +273,47 @@ def test_points_dtype_of_older_files() -> None:
     assert pyvista_zstd.Reader(path).dataset_metadata.points_dtype == "float32"
 
 
+def test_bounds_of_older_files() -> None:
+    """A file written before bounds were stored reports none."""
+    path = Path(__file__).parent / "test_data" / "sphere_file_version_0.pv"
+    assert pyvista_zstd.Reader(path).dataset_metadata.bounds is None
+
+
+@pytest.mark.parametrize(
+    "ds",
+    [
+        pv.PolyData(),
+        pv.MultiBlock(),
+        pv.MultiBlock({"cube": pv.Cube(center=(5, 0, 0)), "empty": pv.PolyData(), "none": None}),
+        pv.MultiBlock({"nested": pv.MultiBlock({"sphere": pv.Sphere()})}),
+    ],
+    ids=["empty", "empty-multiblock", "multiblock", "nested-multiblock"],
+)
+def test_bounds_are_stored_as_reported(tmp_path: Path, ds: DataSet | pv.MultiBlock) -> None:
+    """A dataset or MultiBlock stores the bounds it reports, whatever they are."""
+    path = tmp_path / "ds.pv"
+    pyvista_zstd.write(ds, path)
+    meta = pyvista_zstd.Reader(path).dataset_metadata
+    assert meta.bounds == tuple(ds.bounds)
+    assert type(meta).from_json(meta.to_json()).bounds == tuple(ds.bounds)
+
+
+def test_infinite_bounds_are_stored_as_reported(tmp_path: Path) -> None:
+    """Bounds reaching infinity are stored and read back as they are reported."""
+    ds = pv.PolyData(np.array([[0.0, 0.0, 0.0], [np.inf, 1.0, 1.0]]))
+    path = tmp_path / "ds.pv"
+    pyvista_zstd.write(ds, path)
+    assert pyvista_zstd.Reader(path).dataset_metadata.bounds == tuple(ds.bounds)
+
+
+def test_bounds_round_trip_through_json() -> None:
+    """Stored bounds read back as the tuple they were written from."""
+    ds = pv.Sphere(center=(1.0, 2.0, 3.0))
+    meta = pyvista_zstd.DataSetMetadata.from_dataset(ds, {}, {}, {}, {}, uid="0")
+    assert json.loads(meta.to_json())["bounds"] == list(ds.bounds)
+    assert pyvista_zstd.DataSetMetadata.from_json(meta.to_json()).bounds == tuple(ds.bounds)
+
+
 @pytest.mark.parametrize(("association", "error"), [("field", KeyError), ("point", TypeError), ("cell", TypeError)])
 def test_read_array_function_multiblock(tmp_path: Path, association: str, error: type[Exception]) -> None:
     """A MultiBlock's child arrays must be read by indexing to the child."""
@@ -313,3 +356,31 @@ def test_missing_array_names_its_association(tmp_path: Path) -> None:
         pyvista_zstd.read_array(path, "Normals")
     with pytest.raises(KeyError, match="'Normals' is a point array"):
         pyvista_zstd.Reader(path).read_array("Normals", association="cell")
+
+
+@pytest.mark.parametrize(
+    "ds",
+    [
+        pv.PolyData(),
+        pv.PolyData(np.empty((0, 3))),
+        pv.UnstructuredGrid(),
+        pv.PointSet(),
+        pv.PointSet(np.empty((0, 3))),
+        pv.StructuredGrid(),
+        pv.MultiBlock([pv.PolyData()]),
+    ],
+    ids=["polydata", "polydata-empty-points", "ugrid", "pointset", "pointset-empty-points", "sgrid", "multiblock"],
+)
+def test_an_empty_dataset_reads_back_as_written(tmp_path: Path, ds: DataSet | pv.MultiBlock) -> None:
+    """A dataset written without points, or with none, reads back the same way and reports the same bounds."""
+    path = tmp_path / "ds.pv"
+    pyvista_zstd.write(ds, path)
+    back = pyvista_zstd.read(path)
+    assert tuple(back.bounds) == tuple(ds.bounds)
+    blocks = (
+        zip(ds.recursive_iterator(), back.recursive_iterator(), strict=True)
+        if isinstance(ds, pv.MultiBlock)
+        else [(ds, back)]
+    )
+    for written, read in blocks:
+        assert (read.GetPoints() is None) == (written.GetPoints() is None)

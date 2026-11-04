@@ -1379,7 +1379,7 @@ DS_METADATA_FIELDS_0_5_0 = {
 
 @pytest.mark.parametrize("fixture", ["polydata", "ugrid", "imagedata", "sgrid", "rgrid", "pointset", "multi_block"])
 def test_ds_metadata_keys_readable_by_0_5_0(fixture: str, request: pytest.FixtureRequest, tmp_path: Path) -> None:
-    """Files of datasets other than ExplicitStructuredGrid only write metadata keys pyvista-zstd 0.5.0 accepts."""
+    """Dataset metadata adds no key beyond what pyvista-zstd 0.5.0 accepts except the informational bounds."""
     filename = tmp_path / "ds.pv"
     pyvista_zstd.write(request.getfixturevalue(fixture), filename)
 
@@ -1391,7 +1391,7 @@ def test_ds_metadata_keys_readable_by_0_5_0(fixture: str, request: pytest.Fixtur
         ]
     assert documents
     for document in documents:
-        assert set(document) <= DS_METADATA_FIELDS_0_5_0
+        assert set(document) <= DS_METADATA_FIELDS_0_5_0 | {"bounds"}
 
 
 def test_read_esgrid_0_5_0_fixtures() -> None:

@@ -267,6 +267,9 @@ class MultiBlockMetadata:
         blocks.
     field_data_keys : dict[str, ArrayInfo]
         Shape and dtype of this MultiBlock's own field arrays.
+    bounds : tuple[float, float, float, float, float, float] | None
+        Bounds as :attr:`pyvista.MultiBlock.bounds` reports them, or None when
+        the file predates them.
 
     """
 
@@ -280,6 +283,7 @@ class MultiBlockMetadata:
 
     # the MultiBlock's own field arrays, omitted from the JSON when empty
     field_data_keys: dict[str, ArrayInfo] = field(default_factory=dict)
+    bounds: tuple[float, float, float, float, float, float] | None = None
 
     def to_json(self) -> str:
         """Convert to JSON."""
@@ -296,6 +300,8 @@ class MultiBlockMetadata:
         raw["field_data_keys"] = {
             k: ArrayInfo(shape=tuple(v["shape"]), dtype=v["dtype"]) for k, v in raw.get("field_data_keys", {}).items()
         }
+        if raw.get("bounds") is not None:
+            raw["bounds"] = tuple(raw["bounds"])
         return cls(**_known_fields(cls, raw))
 
     @classmethod
@@ -308,6 +314,11 @@ class MultiBlockMetadata:
         """Output as a numpy uint8 array."""
         meta_bytes = self.to_json().encode("utf-8")
         return np.frombuffer(meta_bytes, dtype=np.uint8)
+
+
+def _reported_bounds(ds: DataSet | MultiBlock) -> tuple[float, float, float, float, float, float]:
+    """Return the bounds *ds* reports."""
+    return tuple(float(value) for value in ds.bounds)  # type: ignore[return-value]
 
 
 # Files written before 0.6 store the points dtype as the repr of its NumPy type.
@@ -355,6 +366,9 @@ class DataSetMetadata:
         Extent offset of a structured dataset.
     faces_connectivity_flags_array_name : str | None
         Connectivity flags array name of an :class:`pyvista.ExplicitStructuredGrid`.
+    bounds : tuple[float, float, float, float, float, float] | None
+        Bounds as :attr:`pyvista.DataSet.bounds` reports them, or None when
+        the file predates them.
 
     """
 
@@ -384,6 +398,7 @@ class DataSetMetadata:
     direction_matrix: list[list[float]] | None = None
     offset: tuple[int, int, int] | None = None
     faces_connectivity_flags_array_name: str | None = None
+    bounds: tuple[float, float, float, float, float, float] | None = None
 
     @classmethod
     def from_dataset(  # noqa: C901, PLR0912, PLR0913
@@ -480,6 +495,8 @@ class DataSetMetadata:
             if isinstance(ds, ExplicitStructuredGrid):
                 kwargs["faces_connectivity_flags_array_name"] = ds.GetFacesConnectivityFlagsArrayName()
 
+        kwargs["bounds"] = _reported_bounds(ds)
+
         return cls(**kwargs)
 
     def to_json(self) -> str:
@@ -509,7 +526,7 @@ class DataSetMetadata:
         raw["field_data_keys"] = decode_mapping(raw.get("field_data_keys", {}))
         raw["fixed_cell_sizes"] = raw.get("fixed_cell_sizes", {})
         raw["points_dtype"] = _LEGACY_POINTS_DTYPES.get(raw.get("points_dtype"), raw.get("points_dtype"))
-        for key in ("dimensions", "origin", "spacing", "offset"):
+        for key in ("dimensions", "origin", "spacing", "offset", "bounds"):
             if raw.get(key) is not None:
                 raw[key] = tuple(raw[key])
         return cls(**_known_fields(cls, raw))
@@ -929,6 +946,7 @@ class Writer:
                 children=child_ids,
                 children_keys=children_keys,
                 field_data_keys=self._add_field_arrays(ds_id, ds),
+                bounds=_reported_bounds(ds),
             )
             self._arrays[f"{ds_id}{MULTIBLOCK_METADATA_KEY}"] = multi_meta.to_array()
 
@@ -1082,8 +1100,15 @@ def _owned(segments: dict[str, Any], key: str, vtk_type: int | None = None) -> v
     return vtk_array
 
 
-def _set_points(ds: DataSet, ds_id: str, segments: dict[str, Any]) -> None:
-    """Give *ds* its points, without a copy when VTK owns them."""
+def _stored_without_points(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> bool:
+    """Return whether the dataset was written with no points object at all."""
+    return metadata.points_dtype is None and not len(segments[f"{ds_id}{POINTS_KEY}"])
+
+
+def _set_points(ds: DataSet, ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> None:
+    """Give *ds* its points, without a copy when VTK owns them, and none if it was written without."""
+    if _stored_without_points(ds_id, segments, metadata):
+        return
     key = f"{ds_id}{POINTS_KEY}"
     vtk_array = _owned(segments, key)
     points = segments[key]
@@ -1223,7 +1248,7 @@ def _segments_to_ugrid(
         celltypes_vtk = numpy_to_vtk(segments[celltypes_key], deep=False, array_type=VTK_UNSIGNED_CHAR)
 
     ugrid = UnstructuredGrid()
-    _set_points(ugrid, ds_id, segments)
+    _set_points(ugrid, ds_id, segments, metadata)
 
     poly = _extract_cell_array(ds_id, POLYHEDRON, segments, metadata.fixed_cell_sizes)
     poly_loc = _extract_cell_array(ds_id, POLYHEDRON_LOCATION, segments, metadata.fixed_cell_sizes)
@@ -1332,6 +1357,8 @@ def _apply_offset(ds: StructuredGrid | RectilinearGrid, metadata: DataSetMetadat
 
 
 def _segments_to_sgrid(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> StructuredGrid:
+    if _stored_without_points(ds_id, segments, metadata):
+        return StructuredGrid()
     sgrid = StructuredGrid(segments[f"{ds_id}{POINTS_KEY}"])
     sgrid.dimensions = metadata.dimensions
     _apply_offset(sgrid, metadata)
@@ -1384,7 +1411,7 @@ def _segments_to_polydata(
     metadata: DataSetMetadata,
 ) -> PolyData:
     pdata = PolyData()
-    _set_points(pdata, ds_id, segments)
+    _set_points(pdata, ds_id, segments, metadata)
 
     pdata.SetPolys(_extract_cell_array(ds_id, POLYS, segments, metadata.fixed_cell_sizes))
     pdata.SetLines(_extract_cell_array(ds_id, LINES, segments, metadata.fixed_cell_sizes))
@@ -1394,7 +1421,9 @@ def _segments_to_polydata(
     return pdata
 
 
-def _segments_to_pointset(ds_id: str, segments: dict[str, Any]) -> PointSet:
+def _segments_to_pointset(ds_id: str, segments: dict[str, Any], metadata: DataSetMetadata) -> PointSet:
+    if _stored_without_points(ds_id, segments, metadata):
+        return PointSet()
     return PointSet(segments[f"{ds_id}{POINTS_KEY}"])
 
 
@@ -2291,7 +2320,7 @@ class Reader:
         elif ds_type == "ImageData":
             ds = _metadata_to_imagedata(ds_metadata)
         elif ds_type == "PointSet":
-            ds = _segments_to_pointset(ds_id, segments)
+            ds = _segments_to_pointset(ds_id, segments, ds_metadata)
         elif ds_type == "RectilinearGrid":
             ds = _segments_to_rgrid(ds_id, segments, ds_metadata)
         elif ds_type == "StructuredGrid":

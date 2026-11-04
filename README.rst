@@ -112,9 +112,6 @@ backend support:
 
    pip install 'pyvista[cvista]>=0.49' pyvista-zstd
 
-For a cvista-only uv workspace, set ``exclude-dependencies = ["vtk"]`` under
-``[tool.uv]`` at the workspace root. This setting does not affect pip installs.
-
 .. code:: py
 
    import pyvista_zstd

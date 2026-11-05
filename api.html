@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>API Reference &#8212; pyvista-zstd 0.7.0 documentation</title>
+    <title>API Reference &#8212; pyvista-zstd 0.8.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="_static/documentation_options.js?v=c62cc9a0"></script>
+    <script src="_static/documentation_options.js?v=d6acfc83"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="Compare Saving a Surface DataSet" href="auto_examples/01-compare.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.7.0" />
+  <meta name="docsearch:version" content="0.8.0" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.7.0 documentation - Home"/>
-    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.7.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.8.0 documentation - Home"/>
+    <img src="_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.8.0 documentation - Home"/>
   
   
 </a></div>
@@ -513,7 +513,7 @@ to an existing file.</p>
 <p><code class="docutils literal notranslate"><span class="pre">pyvista-zstd</span></code> also exposes two classes to fine tune how datasets are read and
 written. For example, using the <a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html#pyvista_zstd.Reader" title="pyvista_zstd.Reader"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista_zstd.Reader</span></code></a>, you can select the arrays
 you wish to read in or even progressively read in individual datasets from a
-<a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>.</p>
+<a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.2)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>.</p>
 <div class="pst-scrollable-table-container"><table class="autosummary longtable table">
 <tbody>
 <tr class="row-odd"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.Reader.html#pyvista_zstd.Reader" title="pyvista_zstd.Reader"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.Reader</span></code></a>([filename, buffer, ...])</p></td>
@@ -536,7 +536,7 @@ one array at a time:</p>
     <span class="n">stress</span> <span class="o">=</span> <span class="n">reader</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="s2">"stress"</span><span class="p">,</span> <span class="n">association</span><span class="o">=</span><span class="s2">"cell"</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>For a <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>, index the reader to a block first, as in
+<p>For a <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.2)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>, index the reader to a block first, as in
 <code class="docutils literal notranslate"><span class="pre">reader[0][1].read_array(&quot;Normals&quot;,</span> <span class="pre">association=&quot;point&quot;)</span></code>.</p>
 </section>
 <section id="metadata">
@@ -549,7 +549,7 @@ one array at a time:</p>
 <td><p>Metadata of one stored dataset, known without decompressing its arrays.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.MultiBlockMetadata.html#pyvista_zstd.MultiBlockMetadata" title="pyvista_zstd.MultiBlockMetadata"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.MultiBlockMetadata</span></code></a>(uid, ...)</p></td>
-<td><p>Metadata of a stored <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>.</p></td>
+<td><p>Metadata of a stored <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.2)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="_autosummary/pyvista_zstd.ArrayInfo.html#pyvista_zstd.ArrayInfo" title="pyvista_zstd.ArrayInfo"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyvista_zstd.ArrayInfo</span></code></a>(shape, dtype)</p></td>
 <td><p>Shape and dtype of one stored array, known without decompressing it.</p></td>

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>pyvista_zstd.MultiBlockMetadata &#8212; pyvista-zstd 0.7.0 documentation</title>
+    <title>pyvista_zstd.MultiBlockMetadata &#8212; pyvista-zstd 0.8.0 documentation</title>
   
   
   
@@ -44,7 +44,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=c62cc9a0"></script>
+    <script src="../_static/documentation_options.js?v=d6acfc83"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -58,7 +58,7 @@
     <link rel="prev" title="pyvista_zstd.DataSetMetadata.faces_connectivity_flags_array_name" href="pyvista_zstd.DataSetMetadata.faces_connectivity_flags_array_name.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="0.7.0" />
+  <meta name="docsearch:version" content="0.8.0" />
   </head>
   
   
@@ -137,8 +137,8 @@
       
     
     
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.7.0 documentation - Home"/>
-    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.7.0 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-light" alt="pyvista-zstd 0.8.0 documentation - Home"/>
+    <img src="../_static/pyvista_logo_sm.png" class="logo__image only-dark pst-js-only" alt="pyvista-zstd 0.8.0 documentation - Home"/>
   
   
 </a></div>
@@ -475,7 +475,7 @@
 <dl class="py class">
 <dt class="sig sig-object py" id="pyvista_zstd.MultiBlockMetadata">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyvista_zstd.</span></span><span class="sig-name descname"><span class="pre">MultiBlockMetadata</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">uid:</span> <span class="pre">str,</span> <span class="pre">children:</span> <span class="pre">list[str],</span> <span class="pre">children_keys:</span> <span class="pre">list[str],</span> <span class="pre">children_ds:</span> <span class="pre">dict[str,</span> <span class="pre">~pyvista_zstd.pyvista_zstd.MultiBlockMetadata</span> <span class="pre">|</span> <span class="pre">~pyvista_zstd.pyvista_zstd.DataSetMetadata</span> <span class="pre">|</span> <span class="pre">None]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">field_data_keys:</span> <span class="pre">dict[str,</span> <span class="pre">~pyvista_zstd.pyvista_zstd.ArrayInfo]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></em><span class="sig-paren">)</span><a class="headerlink" href="#pyvista_zstd.MultiBlockMetadata" title="Link to this definition">#</a></dt>
-<dd><p>Metadata of a stored <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>.</p>
+<dd><p>Metadata of a stored <a class="reference external" href="https://docs.pyvista.org/api/core/_autosummary/pyvista.MultiBlock.html#pyvista.MultiBlock" title="(in PyVista v0.49.2)"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyvista.MultiBlock</span></code></a>.</p>
 <p>Returned by <a class="reference internal" href="pyvista_zstd.Reader.dataset_metadata.html#pyvista_zstd.Reader.dataset_metadata" title="pyvista_zstd.Reader.dataset_metadata"><code class="xref py py-attr docutils literal notranslate"><span class="pre">pyvista_zstd.Reader.dataset_metadata</span></code></a> for a MultiBlock
 file, with <a class="reference internal" href="pyvista_zstd.MultiBlockMetadata.children_ds.html#pyvista_zstd.MultiBlockMetadata.children_ds" title="pyvista_zstd.MultiBlockMetadata.children_ds"><code class="xref py py-attr docutils literal notranslate"><span class="pre">children_ds</span></code></a> filled in down the whole tree. The
 attributes are the supported interface; the JSON and array conversions

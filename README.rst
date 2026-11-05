@@ -103,6 +103,15 @@ producing a package that imports and cannot read anything.
 Compatible with all VTK dataset types. Uses
 `PyVista <https://docs.pyvista.org/>`__ under the hood.
 
+The VTK binding is supplied by PyVista. Both stock VTK and PyVista's
+``cvista`` backend are supported; ``pyvista-zstd`` does not require the stock
+``vtk`` distribution itself. For cvista, install a PyVista version with
+backend support:
+
+.. code:: bash
+
+   pip install 'pyvista[cvista]>=0.49' pyvista-zstd
+
 .. code:: py
 
    import pyvista_zstd

@@ -2,8 +2,8 @@
 Streaming commits against the append path.
 
 Both arms end at the same C entry points, so agreement pins the streaming
-driver rather than the format. The timing arms below bound the FLAT arm
-only: a bound on the control measures the machine, not the code.
+driver rather than the format. CPU time measures work in both arms without
+charging scheduler waits to the streaming implementation.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def _write_spec(tmp_path: Path, tag: str, arrays: dict[str, np.ndarray]) -> str:
 
 
 def _run_stream(container: Path, specs: list[str], *, shuffle) -> list[tuple[float, int]]:
-    """Run the stream, returning (seconds, bytes_read) per commit from stderr."""
+    """Run the stream, returning (CPU seconds, bytes_read) per commit from stderr."""
     result = subprocess.run(  # noqa: S603
         [STREAM, str(container), SHUFFLE_CODE[shuffle], *specs],
         capture_output=True,
@@ -181,8 +181,8 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     """
     Streaming cost does not grow with what is already committed.
 
-    Asserted against a control measured in the same run; absolute numbers are
-    not stable across machines. The container must keep growing, or the
+    Asserted against CPU time for a control measured in the same run; scheduler
+    waits do not contribute to either arm. The container must keep growing, or the
     copying path never repeats work and this measures nothing -- checked on
     file size, which is arithmetic, not on the control's wall time.
     """
@@ -198,9 +198,9 @@ def test_stream_cost_does_not_grow_with_what_is_already_committed(tmp_path) -> N
     control_times = []
     control_sizes = []
     for i in range(N_COMMITS):
-        start = time.perf_counter()
+        start = time.process_time()
         pz.append_arrays(control, {f"step_{i}_u": block}, shuffle=False)
-        control_times.append(time.perf_counter() - start)
+        control_times.append(time.process_time() - start)
         control_sizes.append(control.stat().st_size)
 
     streamed = tmp_path / "streamed.pv"

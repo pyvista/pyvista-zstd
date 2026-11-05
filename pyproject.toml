@@ -17,7 +17,9 @@ classifiers = [
 ]
 # The core links zstd itself; nothing under ``src/`` imports the ``zstandard``
 # Python bindings, so they are a test dependency, not a runtime one.
-dependencies = ["pyvista>=0.45.0", "vtk>=9.3.1"]
+# PyVista supplies the active VTK binding. A direct vtk requirement would force
+# the stock wheel into applications that use cvista instead.
+dependencies = ["pyvista>=0.45.0"]
 description = "VTK zstandard compression library."
 dynamic = ["version"]
 license = "MIT"
@@ -58,6 +60,9 @@ tests = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv]
+exclude-dependencies = ["vtk"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0.dev0"

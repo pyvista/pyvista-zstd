@@ -1329,7 +1329,7 @@ def test_esgrid_deselected_blocking_arrays(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("id_type_width", [True, False])
 def test_vtk_esgrid_needs_id_type_cell_storage(id_type_width: bool) -> None:  # noqa: FBT001
-    """Pin VTK issue 20126, why the reader widens ESG cells; failing here means VTK fixed it."""
+    """Pin stock VTK issue 20126 while checking cvista's corrected connectivity."""
     esgrid = _make_esgrid("cast")
     cells = impl.vtkCellArray()
     cells.DeepCopy(esgrid.GetCells())
@@ -1346,7 +1346,12 @@ def test_vtk_esgrid_needs_id_type_cell_storage(id_type_width: bool) -> None:  # 
 
     # Every cell of this grid has a neighbour, so correct flags are all nonzero.
     flags = grid.compute_connectivity().cell_data["ConnectivityFlags"]
-    assert flags.all() if id_type_width else not flags.any()
+    uses_cvista = hasattr(pv, "vtk_backend") and pv.vtk_backend() == "cvista"
+    if id_type_width or uses_cvista:
+        assert flags.all()
+        np.testing.assert_array_equal(flags, esgrid.compute_connectivity().cell_data["ConnectivityFlags"])
+    else:
+        assert not flags.any()
 
 
 # DataSetMetadata fields pyvista-zstd 0.5.0 accepts; it rejects any other key.
